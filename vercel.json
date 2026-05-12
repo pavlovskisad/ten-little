@@ -1,6 +1,5 @@
 {
-  "cleanUrls": true,
-  "rewrites": [
-    { "source": "/", "destination": "/plate-shapes.html" }
+  "redirects": [
+    { "source": "/", "destination": "/plate-shapes.html", "permanent": false }
   ]
 }
