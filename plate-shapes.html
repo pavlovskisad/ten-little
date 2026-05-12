@@ -512,19 +512,45 @@ function startMusicIfNeeded() {
   if (scStarted) return;
   scStarted = true;
   if (!scWidget) initSoundCloud();
-  // The iframe was pre-loaded with the mix URL, so the widget is
-  // (or will shortly be) ready to play immediately. Calling play
-  // synchronously inside the user gesture is what unlocks the
-  // iOS / mobile audio context.
+  if (!scWidget) return;
+
+  // Synchronous play call in the user-gesture stack — primary unlock.
   try {
-    if (scWidget) {
-      scWidget.setVolume(100);
-      scWidget.play();
-    }
+    scWidget.setVolume(100);
+    scWidget.play();
   } catch (e) { console.warn('[sc] sync play failed', e); }
-  // Once playback is unlocked, seek to a random spot (deferred so
-  // duration metadata has time to resolve).
-  setTimeout(seekToRandomStart, 800);
+
+  // Confirmation: we only know audio is actually playing once
+  // PLAY_PROGRESS fires. If it never arrives, retry the play()
+  // postMessage at increasing intervals — same effect as a user
+  // hammering the mute toggle.
+  let confirmed = false;
+  let started = false;
+  const onProgress = () => {
+    if (confirmed) return;
+    confirmed = true;
+    try { scWidget.unbind(SC.Widget.Events.PLAY_PROGRESS); } catch (_) {}
+    // seek to a random start once we know the track is actually live
+    setTimeout(seekToRandomStart, 200);
+  };
+  try { scWidget.bind(SC.Widget.Events.PLAY_PROGRESS, onProgress); } catch (_) {}
+
+  // Retry strategy: pause+play toggle every 400ms until PLAY_PROGRESS
+  // confirms, max 6s. The pause+play sequence mimics what the user
+  // does manually with the mute button — that combination is the
+  // one that consistently kicks the widget into actually playing.
+  let attempts = 0;
+  const retry = setInterval(() => {
+    attempts++;
+    if (confirmed || attempts > 15) {
+      clearInterval(retry);
+      return;
+    }
+    try {
+      scWidget.pause();
+      setTimeout(() => { try { scWidget.play(); } catch (_) {} }, 80);
+    } catch (_) {}
+  }, 400);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
