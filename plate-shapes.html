@@ -45,9 +45,9 @@
     mix-blend-mode: overlay; opacity: 0.16;
   }
 
-  /* HUD — single top row, three stats only (alive / health / round).
-     Phase + pick-zone + next-claw moved out — they were over-informing
-     and made the row overflow. Plain white Times. */
+  /* HUD — two rows.
+       Row 1 (centered, top): the two numeric stats — alive, round.
+       Row 2 (centered, just below): the health row, big & spread. */
   .hud {
     position: fixed; z-index: 10; pointer-events: none;
     color: #ffffff;
@@ -57,9 +57,9 @@
     top: calc(env(safe-area-inset-top) + 14px);
     left: 50%;
     transform: translateX(-50%);
-    display: flex; align-items: center; flex-wrap: nowrap; gap: 14px;
+    display: flex; align-items: center; flex-wrap: nowrap; gap: 16px;
     font-family: 'Times New Roman', Times, serif;
-    font-size: 18px; line-height: 1;
+    font-size: 20px; line-height: 1;
     white-space: nowrap;
     max-width: calc(100vw - 32px);
   }
@@ -69,29 +69,41 @@
   }
   #hud-bar .label {
     font-family: 'Times New Roman', Times, serif;
-    font-size: 16px;
+    font-size: 18px;
     opacity: 0.70;
   }
   #hud-bar .val {
     font-family: 'Times New Roman', Times, serif;
-    font-size: 22px;
+    font-size: 24px;
   }
   #hud-bar .dim { opacity: 0.50; }
-  #hud-bar .sep { opacity: 0.40; font-size: 18px; }
-  /* Health: a row of small red shape glyphs — three universally
-     supported shapes (▲ ■ ●) cycled, plain bright red. Dead pips
-     dim, i-frame pips flash white. */
+  #hud-bar .sep { opacity: 0.40; font-size: 20px; }
+
+  /* Big HP row: spread across most of the screen width, glyphs large. */
+  #hud-hp {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 58px);
+    left: 0; right: 0;
+    display: flex; justify-content: center;
+    pointer-events: none;
+  }
+  /* Health: screen-wide row of large red shape glyphs cycled
+     (▲ ■ ●). Sized big enough that a player can read remaining
+     HP peripherally without taking their eye off the action.
+     Dead pips dim, i-frame pips flash white. */
   .hp-row {
-    display: inline-flex; gap: 5px; align-items: center;
+    display: flex; align-items: center; justify-content: center;
+    gap: 22px;
     font-family: 'Times New Roman', Times, serif;
     line-height: 1;
   }
   .hp-pip {
-    display: inline-block; font-size: 17px;
+    display: inline-block;
+    font-size: 38px;
     color: #ff1a1a;
     transition: color 0.15s, opacity 0.15s;
   }
-  .hp-pip.dead { color: rgba(255,26,26,0.22); }
+  .hp-pip.dead { color: rgba(255,26,26,0.18); }
   .hp-pip.iframe { color: #ffffff; }
 
   /* tilt indicator */
@@ -236,9 +248,9 @@
     border-radius: 50%;
   }
 
-  /* hint banner — Times, bright primary red */
+  /* hint banner — Times, bright primary red, sits below the HP row */
   #hint {
-    position: fixed; top: calc(env(safe-area-inset-top) + 64px); left: 50%; transform: translateX(-50%);
+    position: fixed; top: calc(env(safe-area-inset-top) + 122px); left: 50%; transform: translateX(-50%);
     z-index: 10; pointer-events: none;
     font-family: 'Times New Roman', Times, serif;
     font-size: 22px; opacity: 0;
@@ -254,18 +266,15 @@
   @media (max-width: 720px), (pointer: coarse) {
     #hud-bar {
       top: calc(env(safe-area-inset-top) + 10px);
-      gap: 10px;
-      font-size: 15px;
+      gap: 12px;
+      font-size: 17px;
     }
-    #hud-bar .label { font-size: 13px; }
-    #hud-bar .val { font-size: 17px; }
-    .hp-pip { font-size: 15px; }
-    /* on small screens, drop the "pick zone" and "next claw" stats
-       to keep the row in one line */
-    #hud-bar .stat-pickzone, #hud-bar .stat-next,
-    #hud-bar .sep.sep-after-phase, #hud-bar .sep.sep-after-zone {
-      display: none;
-    }
+    #hud-bar .label { font-size: 15px; }
+    #hud-bar .val { font-size: 20px; }
+    #hud-bar .sep { font-size: 17px; }
+    #hud-hp { top: calc(env(safe-area-inset-top) + 46px); }
+    .hp-row { gap: 14px; }
+    .hp-pip { font-size: 28px; }
 
     #tilt { display: none; }
 
@@ -277,7 +286,7 @@
     }
     #stick-knob { width: 56px; height: 56px; margin: -28px 0 0 -28px; }
 
-    #hint { top: calc(env(safe-area-inset-top) + 56px); font-size: 16px; }
+    #hint { top: calc(env(safe-area-inset-top) + 100px); font-size: 16px; }
 
     #title h1 { font-size: clamp(46px, 14vw, 92px); }
     #title button { font-size: 18px; }
@@ -295,9 +304,10 @@
   <div id="hud-bar">
     <span class="stat"><span class="label">alive</span> <span class="val" id="alive">10</span><span class="dim"> / 10</span></span>
     <span class="sep">·</span>
-    <span class="stat"><span class="label">health</span> <span id="hpRow" class="hp-row"></span></span>
-    <span class="sep">·</span>
     <span class="stat"><span class="label">round</span> <span class="val" id="time">00:00</span></span>
+  </div>
+  <div id="hud-hp">
+    <div id="hpRow" class="hp-row"></div>
   </div>
 </div>
 
@@ -814,31 +824,23 @@ function giantGeom(type, size) {
 }
 
 function addGiantShape(type, size, color, y, opts = {}) {
-  const mode = opts.mode || 'wire'; // 'wire' or 'solid'
+  // All giant shapes are now plain solid filled (Lambert, no specular
+  // so they hold their saturated palette color), with varied per-shape
+  // translucency so they layer without obscuring each other.
   const geom = giantGeom(type, size);
-  let mesh, mat;
-  if (mode === 'solid') {
-    mat = new THREE.MeshStandardMaterial({
-      color,
-      roughness: 0.75, metalness: 0.05,
-      transparent: true, opacity: opts.opacity ?? 0.55,
-      side: THREE.DoubleSide,
-      emissive: color, emissiveIntensity: 0.12,
-    });
-    mesh = new THREE.Mesh(geom, mat);
-  } else {
-    const wireGeom = new THREE.WireframeGeometry(geom);
-    mat = new THREE.LineBasicMaterial({
-      color, transparent: true, opacity: opts.opacity ?? 0.85,
-    });
-    mesh = new THREE.LineSegments(wireGeom, mat);
-  }
+  const mat = new THREE.MeshLambertMaterial({
+    color,
+    transparent: true, opacity: opts.opacity ?? 0.55,
+    side: THREE.DoubleSide,
+    emissive: color, emissiveIntensity: 0.06,
+  });
+  const mesh = new THREE.Mesh(geom, mat);
   mesh.position.y = y;
   scene.add(mesh);
   giantShapes.push({
     mesh,
     mat,
-    mode,
+    baseOpacity: mat.opacity,
     spin: {
       x: (Math.random() * 0.5 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
       y: (Math.random() * 0.5 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
@@ -865,32 +867,32 @@ function addTunnelRing(baseR, color, y, tube) {
   });
 }
 
-// interleaved cascade of rings, solid shapes, and wireframes descending
-// into endless space. Solid shapes are translucent so they don't block
-// the view; wireframes outline the geometry; rings punctuate the spacing.
+// interleaved cascade of rings + solid translucent giant shapes descending
+// into endless space. Varied opacity per shape so layers read separately
+// without obscuring each other. No wireframe — clean primitive silhouettes.
 {
   const layout = [
     { kind: 'ring',  r: 6.5, tube: 0.10 },
-    { kind: 'shape', type: 'cube',        size: 4.5, mode: 'solid', opacity: 0.55 },
+    { kind: 'shape', type: 'cube',        size: 4.5, opacity: 0.55 },
     { kind: 'ring',  r: 8.0, tube: 0.11 },
-    { kind: 'shape', type: 'sphere',      size: 5.0, mode: 'wire' },
-    { kind: 'shape', type: 'octahedron',  size: 5.0, mode: 'solid', opacity: 0.55 },
+    { kind: 'shape', type: 'sphere',      size: 5.0, opacity: 0.40 },
+    { kind: 'shape', type: 'octahedron',  size: 5.0, opacity: 0.55 },
     { kind: 'ring',  r: 7.2, tube: 0.11 },
-    { kind: 'shape', type: 'pyramid',     size: 5.4, mode: 'wire' },
-    { kind: 'shape', type: 'dodecahedron',size: 5.0, mode: 'solid', opacity: 0.50 },
+    { kind: 'shape', type: 'pyramid',     size: 5.4, opacity: 0.50 },
+    { kind: 'shape', type: 'dodecahedron',size: 5.0, opacity: 0.45 },
     { kind: 'ring',  r: 9.0, tube: 0.13 },
-    { kind: 'shape', type: 'icosahedron', size: 5.5, mode: 'wire' },
-    { kind: 'shape', type: 'cone',        size: 5.0, mode: 'solid', opacity: 0.50 },
+    { kind: 'shape', type: 'icosahedron', size: 5.5, opacity: 0.55 },
+    { kind: 'shape', type: 'cone',        size: 5.0, opacity: 0.50 },
     { kind: 'ring',  r: 7.5, tube: 0.13 },
-    { kind: 'shape', type: 'torus',       size: 6.0, mode: 'solid', opacity: 0.45 },
-    { kind: 'shape', type: 'torusKnot',   size: 5.0, mode: 'wire' },
+    { kind: 'shape', type: 'torus',       size: 6.0, opacity: 0.45 },
+    { kind: 'shape', type: 'cube',        size: 5.5, opacity: 0.40 },
     { kind: 'ring',  r: 10.0, tube: 0.15 },
-    { kind: 'shape', type: 'cube',        size: 6.0, mode: 'solid', opacity: 0.45 },
-    { kind: 'shape', type: 'sphere',      size: 6.5, mode: 'wire' },
+    { kind: 'shape', type: 'cube',        size: 6.0, opacity: 0.50 },
+    { kind: 'shape', type: 'sphere',      size: 6.5, opacity: 0.40 },
     { kind: 'ring',  r: 8.5, tube: 0.15 },
-    { kind: 'shape', type: 'octahedron',  size: 7.0, mode: 'wire' },
+    { kind: 'shape', type: 'octahedron',  size: 7.0, opacity: 0.45 },
     { kind: 'ring',  r: 11.5, tube: 0.16 },
-    { kind: 'shape', type: 'pyramid',     size: 7.0, mode: 'solid', opacity: 0.40 },
+    { kind: 'shape', type: 'pyramid',     size: 7.0, opacity: 0.42 },
   ];
   const ySpacing = 2.4;
   for (let i = 0; i < layout.length; i++) {
@@ -900,7 +902,7 @@ function addTunnelRing(baseR, color, y, tube) {
     if (item.kind === 'ring') {
       addTunnelRing(item.r, color, y, item.tube);
     } else {
-      addGiantShape(item.type, item.size, color, y, { mode: item.mode, opacity: item.opacity });
+      addGiantShape(item.type, item.size, color, y, { opacity: item.opacity });
     }
   }
 }
@@ -2222,13 +2224,14 @@ function tickAmbient(dt, tSec) {
     tr.mesh.scale.set(pulse, pulse, 1);
     tr.mesh.material.opacity = 0.78 + Math.sin(tSec * 1.8 + tr.phase * 1.3) * 0.10;
   }
-  // giant wireframe shapes tumble on all three axes, each on its own phase
+  // giant solid shapes tumble on all three axes, breathing opacity
+  // around their per-shape base value
   for (let i = 0; i < giantShapes.length; i++) {
     const g = giantShapes[i];
     g.mesh.rotation.x += dt * g.spin.x;
     g.mesh.rotation.y += dt * g.spin.y;
     g.mesh.rotation.z += dt * g.spin.z;
-    g.mat.opacity = 0.65 + Math.sin(tSec * 1.3 + g.phase) * 0.18;
+    g.mat.opacity = g.baseOpacity + Math.sin(tSec * 1.3 + g.phase) * 0.08;
   }
   if (discoBall) {
     // let it roll — tumble on all three axes so it never settles
