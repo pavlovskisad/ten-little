@@ -36,6 +36,33 @@
   button { -webkit-tap-highlight-color: transparent; }
   canvas#c { display: block; position: fixed; inset: 0; width: 100%; height: 100dvh; }
 
+  /* SoundCloud iframe — invisible, positioned off-screen but kept
+     in the DOM so the widget API can talk to it. */
+  #sc-iframe {
+    position: fixed; left: -9999px; top: -9999px;
+    width: 1px; height: 1px; opacity: 0; pointer-events: none;
+  }
+
+  /* Mute toggle in the bottom-left corner. Stays out of the way
+     of the joystick (which sits bottom-right on mobile). */
+  #muteBtn {
+    position: fixed; z-index: 15;
+    bottom: calc(env(safe-area-inset-bottom) + 24px);
+    left: calc(env(safe-area-inset-left) + 24px);
+    width: 44px; height: 44px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.35);
+    color: #ffffff;
+    font-family: 'VT323', monospace;
+    font-size: 22px; line-height: 1;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: background 0.15s, color 0.15s, opacity 0.15s;
+    opacity: 0.65;
+  }
+  #muteBtn:hover { opacity: 1; background: rgba(255,255,255,0.10); }
+  #muteBtn.muted { opacity: 0.35; }
+
   /* grain overlay */
   body::after {
     content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 5;
@@ -312,6 +339,15 @@
 <body>
 <canvas id="c"></canvas>
 
+<!-- Hidden SoundCloud widget — pre-loaded with the mix URL so the
+     Widget API is ready to play() the moment the user taps Enter,
+     keeping the user-gesture context intact for mobile autoplay. -->
+<iframe id="sc-iframe" frameborder="0" allow="autoplay"
+        src="https://w.soundcloud.com/player/?url=https%3A%2F%2Fon.soundcloud.com%2FfqoIPDlVWBhMhPNItM&auto_play=false&hide_related=true&show_comments=false&show_user=false&show_reposts=false&visual=false"></iframe>
+
+<!-- Mute toggle, fixed bottom-left corner -->
+<button id="muteBtn" type="button">♫</button>
+
 <div id="hud" class="hud">
   <div id="hud-bar">
     <span class="stat"><span class="label">alive</span> <span class="val" id="alive">10</span><span class="dim"> / 10</span></span>
@@ -352,8 +388,131 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
+<script src="https://w.soundcloud.com/player/api.js"></script>
 <script>
 'use strict';
+
+// ============================================================
+// MUSIC — SoundCloud Widget API. Drop full mix URLs into MIXES
+// below; on Enter click one plays at random, and when it finishes
+// the next random one starts. Mute toggle in the bottom-left.
+//
+// Notes:
+//   - Tracks must allow embedding (most public mixes do).
+//   - Mobile browsers block audio autoplay without a user gesture
+//     — the Enter button click counts, so we start audio there.
+//   - To add a mix: just paste its full https://soundcloud.com/...
+//     URL into the array.
+// ============================================================
+const MIXES = [
+  'https://on.soundcloud.com/fqoIPDlVWBhMhPNItM',
+];
+
+// max starting offset — every play seeks to a random point between
+// 0 and this many milliseconds (capped at the track's actual length).
+// 50 minutes feels like a fair window for a long DJ mix.
+const MAX_RANDOM_START_MS = 50 * 60 * 1000;
+
+let scWidget = null;
+let scReady = false;
+let scMuted = false;
+let scStarted = false;
+
+function pickRandomMix() {
+  if (MIXES.length === 0) return null;
+  return MIXES[Math.floor(Math.random() * MIXES.length)];
+}
+
+function seekToRandomStart() {
+  if (!scWidget) return;
+  try {
+    scWidget.getDuration((dur) => {
+      const cap = Math.min(dur || MAX_RANDOM_START_MS, MAX_RANDOM_START_MS);
+      if (cap > 1000) {
+        const startMs = Math.floor(Math.random() * cap);
+        scWidget.seekTo(startMs);
+      }
+    });
+  } catch (e) { console.warn('[sc] seek failed', e); }
+}
+
+function initSoundCloud() {
+  const iframe = document.getElementById('sc-iframe');
+  if (!iframe || typeof SC === 'undefined' || !SC.Widget) return;
+  scWidget = SC.Widget(iframe);
+  scWidget.bind(SC.Widget.Events.READY, () => {
+    scReady = true;
+    console.log('[sc] widget ready');
+  });
+  scWidget.bind(SC.Widget.Events.FINISH, () => {
+    // single mix on loop → just seek to a new random spot + replay.
+    // Multiple mixes → load a different random one.
+    if (MIXES.length <= 1) {
+      seekToRandomStart();
+      try { scWidget.play(); } catch (_) {}
+    } else {
+      playRandomMix();
+    }
+  });
+  scWidget.bind(SC.Widget.Events.ERROR, (e) => {
+    console.error('[sc] error', e);
+  });
+}
+
+function playRandomMix() {
+  if (!scWidget) return;
+  const url = pickRandomMix();
+  if (!url) return;
+  scWidget.load(url, {
+    auto_play: true,
+    hide_related: true,
+    show_comments: false,
+    show_user: false,
+    show_reposts: false,
+    visual: false,
+    callback: () => {
+      try { scWidget.play(); } catch (_) {}
+      seekToRandomStart();
+    },
+  });
+}
+
+// Called from the Enter click handler — must stay synchronous so
+// the user-gesture context is preserved for mobile autoplay rules.
+function startMusicIfNeeded() {
+  if (scStarted) return;
+  scStarted = true;
+  if (!scWidget) initSoundCloud();
+  // The iframe was pre-loaded with the mix URL, so the widget is
+  // (or will shortly be) ready to play immediately. Calling play
+  // synchronously inside the user gesture is what unlocks the
+  // iOS / mobile audio context.
+  try {
+    if (scWidget) {
+      scWidget.setVolume(100);
+      scWidget.play();
+    }
+  } catch (e) { console.warn('[sc] sync play failed', e); }
+  // Once playback is unlocked, seek to a random spot (deferred so
+  // duration metadata has time to resolve).
+  setTimeout(seekToRandomStart, 800);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initSoundCloud();
+  const btn = document.getElementById('muteBtn');
+  if (btn) {
+    btn.addEventListener('click', () => {
+      scMuted = !scMuted;
+      btn.classList.toggle('muted', scMuted);
+      btn.textContent = scMuted ? '✕' : '♫';
+      if (scWidget) {
+        if (scMuted) scWidget.pause();
+        else if (scStarted) scWidget.play();
+      }
+    });
+  }
+});
 
 // ============================================================
 // CONFIG — tune these
@@ -1054,7 +1213,6 @@ scene.add(voidConeGroup);
     [-29.0,   1.1,    3,       1.9,       0.50],
     [-31.5,   0.0,    1,       1.8,       0.45],  // apex
   ];
-  let colorIdx = 0;
   for (let li = 0; li < layers.length; li++) {
     const [y, ringR, count, size, opacity] = layers[li];
     const angOffset = li * 0.38; // stagger ring rotations so balls don't column up
@@ -1062,10 +1220,10 @@ scene.add(voidConeGroup);
       const ang = angOffset + (i / count) * Math.PI * 2;
       const x = Math.cos(ang) * ringR;
       const z = Math.sin(ang) * ringR;
-      const tint = SHAPE_COLORS[colorIdx % SHAPE_COLORS.length];
-      colorIdx++;
+      // No palette tint — every void ball is a classic orange
+      // basketball (white color × texture = texture unmodified)
       addGiantShape('sphere', size, y, {
-        x, z, opacity, color: tint, parent: voidConeGroup,
+        x, z, opacity, color: 0xffffff, parent: voidConeGroup,
       });
     }
   }
@@ -1264,15 +1422,27 @@ function makeFigure(isPlayer, defIdx, color) {
     });
     g.add(clone);
     mainMesh = clone;
-    // gather all materials so we can flash them red on hit
+    // Clone every material so this figure has its OWN instances —
+    // SkeletonUtils.clone reuses source materials by default, which
+    // would cause all 10 figures to share emissive state and flash
+    // red together whenever any one took a hit.
     const mats = [];
+    const matMap = new Map();
+    function dupMat(src) {
+      if (!src) return src;
+      if (matMap.has(src)) return matMap.get(src);
+      const c = src.clone();
+      matMap.set(src, c);
+      return c;
+    }
     clone.traverse((node) => {
       if (node.isMesh && node.material) {
-        // material may be an array
         if (Array.isArray(node.material)) {
+          node.material = node.material.map(dupMat);
           for (const m of node.material) if (m && !mats.includes(m)) mats.push(m);
-        } else if (!mats.includes(node.material)) {
-          mats.push(node.material);
+        } else {
+          node.material = dupMat(node.material);
+          if (!mats.includes(node.material)) mats.push(node.material);
         }
       }
     });
@@ -2046,18 +2216,16 @@ function startHand() {
   S.hand.holdEnd   = S.hand.holdStart + 0.10 + Math.random() * 0.10;
   S.hand.holdLevel = 0.62 + Math.random() * 0.16;
 
-  const worldPos = new THREE.Vector3(target.x, CFG.plateThick / 2, target.z);
-  plateGroup.localToWorld(worldPos);
-  handGroup.position.x = worldPos.x;
-  handGroup.position.z = worldPos.z;
-  handGroup.position.y = CFG.handIdleY;
-  // (claw already visible from idle hang — no need to toggle visibility)
+  // No position teleport — the claw was hanging at its idle pose
+  // and the telegraph branch in updateHand will lerp it toward the
+  // new target spot. Leaving its current position untouched here.
 
   // claw cable hangs straight down; we still vary the assembly's incoming azimuth
   // so the prong-1 direction varies grab-to-grab and the wrist tilt jitters
   const azimuth = Math.random() * Math.PI * 2;
   S.hand.azimuth = azimuth;
-  handGroup.rotation.y = S.hand.azimuth;
+  // (rotation also drifts smoothly via the telegraph aim wobble math,
+  // not snapped here)
 
   handAnim.tilt.rotation.x = handAnim.baseTiltX + (Math.random() - 0.5) * 0.08;
   handAnim.tilt.rotation.z = handAnim.baseTiltZ + (Math.random() - 0.5) * 0.08;
@@ -2246,9 +2414,23 @@ function updateHand(dt) {
     S.hand.z + dirZ * horizMag + driftZ
   );
   plateGroup.localToWorld(localPos);
-  handGroup.position.x = localPos.x + trX;
-  handGroup.position.y = baseY + trY;
-  handGroup.position.z = localPos.z + trZ;
+  const targetX = localPos.x + trX;
+  const targetY = baseY + trY;
+  const targetZ = localPos.z + trZ;
+  if (S.hand.phase === 'telegraph') {
+    // Smooth-drift the claw from its idle hang position over to the
+    // telegraph spot rather than teleporting on cycle start. Lerp
+    // rate is brisk enough that the claw is settled well before
+    // approach kicks in.
+    const k = 1 - Math.exp(-3.2 * dt);
+    handGroup.position.x += (targetX - handGroup.position.x) * k;
+    handGroup.position.y += (targetY - handGroup.position.y) * k;
+    handGroup.position.z += (targetZ - handGroup.position.z) * k;
+  } else {
+    handGroup.position.x = targetX;
+    handGroup.position.y = targetY;
+    handGroup.position.z = targetZ;
+  }
 
   // phase-specific behavior — prongs, transitions
   if (S.hand.phase === 'telegraph') {
@@ -2265,6 +2447,17 @@ function updateHand(dt) {
     // anticipation flex — all prongs breathe a small inward twitch
     const flex = (Math.sin(tSec * 6.2) * 0.5 + 0.5) * 0.10 * k;
     setAllProngs(flex);
+    // ease rotation.y toward the new azimuth via shortest arc so
+    // the claw rotates smoothly into position during telegraph
+    // instead of snapping when approach starts.
+    let dr = S.hand.azimuth - handGroup.rotation.y;
+    while (dr >  Math.PI) dr -= 2 * Math.PI;
+    while (dr < -Math.PI) dr += 2 * Math.PI;
+    const kr = 1 - Math.exp(-2.6 * dt);
+    handGroup.rotation.y += dr * kr;
+    // ease tilt back toward base before approach takes over
+    handAnim.tilt.rotation.x += (handAnim.baseTiltX - handAnim.tilt.rotation.x) * kr;
+    handAnim.tilt.rotation.z += (handAnim.baseTiltZ - handAnim.tilt.rotation.z) * kr;
     if (S.hand.t >= S.hand.telegraphMs) {
       S.hand.phase = 'approach';
       S.hand.t = 0;
@@ -2610,6 +2803,8 @@ function reset() {
 document.getElementById('start').addEventListener('click', () => {
   document.getElementById('title').classList.add('gone');
   setTimeout(() => document.getElementById('title').remove(), 700);
+  // user gesture — satisfies the autoplay requirement on mobile
+  startMusicIfNeeded();
   reset();
 });
 document.getElementById('again').addEventListener('click', () => {
