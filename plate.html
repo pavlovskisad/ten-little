@@ -1,0 +1,1809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>PLATE — feel test</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    background: #0a0908;
+    overscroll-behavior: none;
+    position: fixed;
+    inset: 0;
+  }
+  body {
+    font-family: 'Cormorant Garamond', serif;
+    color: #e8e1cf;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+  }
+  button { -webkit-tap-highlight-color: transparent; }
+  canvas#c { display: block; position: fixed; inset: 0; width: 100%; height: 100dvh; }
+
+  /* grain overlay */
+  body::after {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 5;
+    background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.45'/></svg>");
+    mix-blend-mode: overlay; opacity: 0.18;
+  }
+
+  /* HUD */
+  .hud {
+    position: fixed; z-index: 10; pointer-events: none;
+    color: #e8e1cf;
+  }
+  .hud .label {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 300; font-style: italic;
+    font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase;
+    opacity: 0.55;
+  }
+  .hud .val {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700; font-size: 28px; line-height: 1; margin-top: 4px;
+  }
+  .hud .sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; opacity: 0.6; margin-top: 2px;
+  }
+  #hud-tl { top: calc(env(safe-area-inset-top) + 18px); left: calc(env(safe-area-inset-left) + 22px); }
+  #hud-tr { top: calc(env(safe-area-inset-top) + 18px); right: calc(env(safe-area-inset-right) + 22px); text-align: right; }
+  #hud-bl { bottom: calc(env(safe-area-inset-bottom) + 18px); left: calc(env(safe-area-inset-left) + 22px); }
+  #hud-br { bottom: calc(env(safe-area-inset-bottom) + 18px); right: calc(env(safe-area-inset-right) + 22px); text-align: right; }
+
+  .hp-row { display: flex; gap: 4px; margin-top: 8px; }
+  .hp-pip {
+    width: 14px; height: 18px;
+    background: #c83838; border: 1px solid #c83838;
+    box-shadow: 0 0 6px rgba(200,56,56,0.5);
+    transition: background 0.15s, opacity 0.15s, box-shadow 0.15s;
+  }
+  .hp-pip.dead {
+    background: transparent; border-color: rgba(200,56,56,0.2);
+    opacity: 0.35; box-shadow: none;
+  }
+  .hp-pip.iframe {
+    background: #ffffff; border-color: #ffffff;
+    box-shadow: 0 0 12px rgba(255,255,255,0.7);
+  }
+
+  /* tilt indicator */
+  #tilt {
+    position: fixed; bottom: calc(env(safe-area-inset-bottom) + 22px); left: 50%; transform: translateX(-50%);
+    width: 64px; height: 64px; z-index: 10; pointer-events: none;
+    border: 1px solid rgba(232,225,207,0.18); border-radius: 50%;
+  }
+  #tilt::before {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(circle, rgba(232,225,207,0.06), transparent 70%);
+    border-radius: 50%;
+  }
+  #tilt-arrow {
+    position: absolute; top: 50%; left: 50%;
+    width: 2px; height: 26px; background: #c83838;
+    transform-origin: 50% 100%;
+    transform: translate(-50%, -100%) rotate(0deg);
+    transition: transform 0.05s linear;
+    box-shadow: 0 0 8px rgba(200,56,56,0.6);
+  }
+  #tilt-arrow::before {
+    content: ''; position: absolute; top: -3px; left: 50%; transform: translateX(-50%);
+    width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent;
+    border-bottom: 6px solid #c83838;
+  }
+  #tilt-label {
+    position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%);
+    font-family: 'Cormorant Garamond', serif; font-style: italic;
+    font-size: 10px; letter-spacing: 0.25em; text-transform: uppercase;
+    color: #e8e1cf; opacity: 0.4; white-space: nowrap;
+  }
+
+  /* title at intro */
+  #title {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; z-index: 20;
+    background: radial-gradient(ellipse at center, rgba(10,9,8,0.4), rgba(10,9,8,0.95));
+    transition: opacity 0.6s ease;
+  }
+  #title h1 {
+    font-family: 'Cormorant Garamond', serif; font-weight: 500;
+    font-size: clamp(48px, 12vw, 120px); letter-spacing: 0.3em;
+    color: #e8e1cf; text-shadow: 0 0 40px rgba(200,56,56,0.15);
+  }
+  #title p {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    letter-spacing: 0.4em; text-transform: uppercase;
+    color: #e8e1cf; opacity: 0.5; margin-top: 16px;
+  }
+  #title button {
+    margin-top: 50px; padding: 14px 36px;
+    background: transparent; border: 1px solid #e8e1cf;
+    color: #e8e1cf; font-family: 'Cormorant Garamond', serif;
+    font-size: 18px; letter-spacing: 0.3em; text-transform: uppercase;
+    cursor: pointer; transition: all 0.2s; pointer-events: auto;
+  }
+  #title button:hover { background: #e8e1cf; color: #0a0908; }
+  #title.gone { opacity: 0; pointer-events: none; }
+
+  /* end overlay */
+  #over {
+    position: fixed; inset: 0; display: none; flex-direction: column;
+    align-items: center; justify-content: center; z-index: 20;
+    background: rgba(10,9,8,0.85);
+  }
+  #over.show { display: flex; }
+  #over .place {
+    font-family: 'Cormorant Garamond', serif; font-weight: 300;
+    font-size: 14px; letter-spacing: 0.4em; text-transform: uppercase;
+    color: #e8e1cf; opacity: 0.5;
+  }
+  #over .ord {
+    font-family: 'Cormorant Garamond', serif; font-weight: 500;
+    font-size: clamp(80px, 18vw, 200px); line-height: 1; margin-top: 10px;
+    color: #e8e1cf;
+  }
+  #over .ord.win { color: #c83838; text-shadow: 0 0 60px rgba(200,56,56,0.4); }
+  #over .stat {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    letter-spacing: 0.2em; opacity: 0.6; margin-top: 20px;
+  }
+  #over button {
+    margin-top: 50px; padding: 14px 36px;
+    background: transparent; border: 1px solid #e8e1cf;
+    color: #e8e1cf; font-family: 'Cormorant Garamond', serif;
+    font-size: 18px; letter-spacing: 0.3em; text-transform: uppercase;
+    cursor: pointer; transition: all 0.2s;
+  }
+  #over button:hover { background: #e8e1cf; color: #0a0908; }
+
+  /* virtual joystick — desktop default left, mobile moves right */
+  #stick {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom) + 30px);
+    left: calc(env(safe-area-inset-left) + 30px);
+    width: 130px; height: 130px; z-index: 15;
+    border: 1px solid rgba(232,225,207,0.15); border-radius: 50%;
+    display: none;
+  }
+  #stick.on { display: block; }
+  #stick-knob {
+    position: absolute; top: 50%; left: 50%;
+    width: 50px; height: 50px; margin: -25px 0 0 -25px;
+    background: rgba(232,225,207,0.25); border: 1px solid rgba(232,225,207,0.4);
+    border-radius: 50%;
+  }
+
+  /* hint banner */
+  #hint {
+    position: fixed; top: calc(env(safe-area-inset-top) + 90px); left: 50%; transform: translateX(-50%);
+    z-index: 10; pointer-events: none;
+    font-family: 'Cormorant Garamond', serif; font-style: italic;
+    font-size: 16px; letter-spacing: 0.15em; opacity: 0;
+    color: #c83838; text-shadow: 0 0 20px rgba(200,56,56,0.4);
+    transition: opacity 0.3s;
+  }
+  #hint.on { opacity: 1; }
+
+  /* ============================================================
+     MOBILE — compact layout, joystick on right, no tilt indicator
+     ============================================================ */
+  @media (max-width: 720px), (pointer: coarse) {
+    .hud .label { font-size: 9px; letter-spacing: 0.25em; }
+    .hud .val { font-size: 22px; }
+    .hud .sub { font-size: 10px; }
+
+    #hud-tl, #hud-tr {
+      top: calc(env(safe-area-inset-top) + 10px);
+    }
+    #hud-tl { left: calc(env(safe-area-inset-left) + 14px); }
+    #hud-tr { right: calc(env(safe-area-inset-right) + 14px); }
+
+    /* hide pick zone / next on mobile to save space */
+    #hud-br { display: none; }
+
+    /* hide tilt indicator — the 3D plate already shows tilt */
+    #tilt { display: none; }
+
+    /* HP at bottom-left, stick at bottom-right */
+    #hud-bl {
+      bottom: calc(env(safe-area-inset-bottom) + 18px);
+      left: calc(env(safe-area-inset-left) + 14px);
+    }
+    .hp-row { gap: 3px; margin-top: 5px; }
+    .hp-pip { width: 9px; height: 14px; }
+
+    #stick {
+      left: auto;
+      bottom: calc(env(safe-area-inset-bottom) + 24px);
+      right: calc(env(safe-area-inset-right) + 24px);
+      width: 150px; height: 150px;
+    }
+    #stick-knob { width: 60px; height: 60px; margin: -30px 0 0 -30px; }
+
+    #hint { top: calc(env(safe-area-inset-top) + 60px); font-size: 14px; }
+
+    /* title and over screens */
+    #title h1 { font-size: clamp(44px, 16vw, 96px); }
+    #title p { font-size: 10px; padding: 0 20px; text-align: center; }
+    #title button { margin-top: 36px; padding: 16px 40px; font-size: 16px; }
+    #over .ord { font-size: clamp(72px, 26vw, 160px); }
+    #over button { margin-top: 36px; padding: 16px 40px; font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud" class="hud">
+  <div id="hud-tl">
+    <div class="label">Alive</div>
+    <div class="val"><span id="alive">10</span><span style="opacity:0.3"> / 10</span></div>
+  </div>
+  <div id="hud-tr">
+    <div class="label">Round</div>
+    <div class="val" id="time">00:00</div>
+    <div class="sub" id="phase">awaiting</div>
+  </div>
+  <div id="hud-bl">
+    <div class="label">Health</div>
+    <div id="hpRow" class="hp-row"></div>
+  </div>
+  <div id="hud-br">
+    <div class="label">Pick zone</div>
+    <div class="val" id="zone">12%</div>
+    <div class="sub" id="next">next hand 0s</div>
+  </div>
+</div>
+
+<div id="tilt">
+  <div id="tilt-arrow"></div>
+  <div id="tilt-label">tilt</div>
+</div>
+
+<div id="hint"></div>
+
+<div id="stick"><div id="stick-knob"></div></div>
+
+<div id="title">
+  <h1>PLATE</h1>
+  <p>ten figures · one hand · last three stand</p>
+  <button id="start">Begin</button>
+</div>
+
+<div id="over">
+  <div class="place">You placed</div>
+  <div class="ord" id="ord">3rd</div>
+  <div class="stat" id="overStat">survived 00:00</div>
+  <button id="again">Again</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script>
+'use strict';
+
+// ============================================================
+// CONFIG — tune these
+// ============================================================
+const CFG = {
+  // plate
+  plateR0: 7.5,
+  plateThick: 0.25,
+  shrinkEveryMs: 14000,
+  shrinkFactor: 0.93,
+  shrinkMin: 3.5,
+
+  // figures
+  figR: 0.32,
+  figH: 0.85,
+  collidR: 0.62,         // separation distance figure-to-figure
+  startCount: 10,
+  podiumCount: 3,        // game ends when this many or fewer alive
+
+  // tilt
+  maxTilt: 0.50,         // ~28°
+  slideForce: 34,        // accel toward CoM at full tilt
+  friction: 3.2,         // velocity damping per second
+  tiltEase: 9,           // how fast tilt responds to CoM changes
+  edgePadFall: 0.05,     // how far past edge before fall triggers
+
+  // movement
+  playerSpeed: 4.5,
+  botSpeed: 3.6,
+  fleeSpeed: 6.2,
+  botAccel: 6.0,
+  playerAccel: 14.0,
+
+  // hand
+  handIdleY: 9.5,
+  handGrabY: 0.55,
+  handCooldownMs: 2600,
+  handTelegraphMs: 1500,
+  handApproachMs: 700,   // descent to hover, ease-out (decelerates into grab)
+  handHoverMs: 180,      // fingers spread, paused above target — selection moment
+  handPinchMs: 220,      // thumb+index swing closed
+  handLiftMs: 850,       // rise away, ease-in (accelerates out of frame)
+  zoneMinFrac: 0.11,     // % of plate radius at startCount alive
+  zoneMaxFrac: 0.55,     // % of plate radius at podiumCount alive
+
+  // contact damage
+  hpMax: 10,
+  contactDmg: 1,
+  iframeMs: 600,         // invuln window after taking a hit
+  drainMs: 550,          // HP=0 death animation
+  bumpForce: 5.5,        // knockback velocity added on damage
+};
+
+// ============================================================
+// STATE
+// ============================================================
+const S = {
+  phase: 'idle',         // idle | play | over
+  t: 0,                  // ms elapsed in round
+  plateR: CFG.plateR0,
+  nextShrinkAt: CFG.shrinkEveryMs,
+  figs: [],              // {id, x, z, vx, vz, alive, isPlayer, mesh, dropping, dropT, picked, pickT, pickStartY, scale}
+  player: null,
+  alive: 0,
+  eliminated: [],        // ids in elimination order (first eliminated = last place)
+  podium: [],            // ids of survivors when game ends
+  hand: { phase: 'idle', t: 0, x: 0, z: 0, zoneR: 0, target: null, captured: [] },
+  nextHandAt: 4500,      // first hand a bit later so player can settle
+  firstHand: true,
+  tilt: { x: 0, z: 0 },  // CoM-derived tilt vector in plate-local coords (-1 to 1)
+  input: { dx: 0, dy: 0 }, // normalized -1..1
+  startedAt: 0,
+};
+
+// ============================================================
+// THREE setup
+// ============================================================
+const canvas = document.getElementById('c');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0908);
+scene.fog = new THREE.Fog(0x0a0908, 18, 38);
+
+const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 100);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+
+// Camera target — recomputed each frame from current plate radius and aspect.
+// tickCamera tweens the actual camera toward this each frame so plate shrinks pull camera in.
+const camTarget = { y: 14, z: 13.5, fov: 42 };
+let camInitialized = false;
+
+function fitCameraTarget() {
+  const w = window.innerWidth, h = window.innerHeight;
+  const aspect = w / h;
+  camera.aspect = aspect;
+  renderer.setSize(w, h);
+
+  // FOV: widen on portrait so the plate doesn't get clipped horizontally
+  let fov;
+  if (aspect < 0.95) {
+    const k = Math.min(1, (1 - aspect) / 0.55);
+    fov = 42 + k * 22;
+  } else {
+    fov = 42;
+  }
+  camTarget.fov = fov;
+
+  // Margin shrinks with plate so late game feels tighter (camera closes in twice:
+  // once from following the plate, once from reducing the empty rim around it).
+  const shrinkProgress = (CFG.plateR0 - S.plateR) / Math.max(0.01, (CFG.plateR0 - CFG.shrinkMin));
+  const margin = lerp(1.12, 1.00, Math.max(0, Math.min(1, shrinkProgress)));
+
+  const plateD = S.plateR * 2;
+  const fovRad = fov * Math.PI / 180;
+  const tanHalf = Math.tan(fovRad / 2);
+  const projFactor = 0.78; // plate viewed from ~45° angle, projected height
+  const dForHoriz = (plateD * margin) / (2 * tanHalf * aspect);
+  const dForVert = (plateD * projFactor * margin) / (2 * tanHalf);
+  const d = Math.max(dForHoriz, dForVert);
+
+  // Camera lies along the (0, 14, 13.5) direction. Scale that by k = d / |(14, 13.5)|.
+  const k = d / 19.45;
+  camTarget.y = 14 * k;
+  camTarget.z = 13.5 * k;
+}
+
+function tickCamera(dt) {
+  if (!camInitialized) {
+    camera.position.set(0, camTarget.y, camTarget.z);
+    camera.fov = camTarget.fov;
+    camera.lookAt(0, 0, 0);
+    camera.updateProjectionMatrix();
+    camInitialized = true;
+    return;
+  }
+  const k = 1 - Math.exp(-2.6 * dt); // ~0.4s response, matches plate shrink tween
+  camera.position.y += (camTarget.y - camera.position.y) * k;
+  camera.position.z += (camTarget.z - camera.position.z) * k;
+  camera.fov += (camTarget.fov - camera.fov) * k;
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+}
+
+fitCameraTarget();
+
+window.addEventListener('resize', fitCameraTarget);
+window.addEventListener('orientationchange', () => setTimeout(fitCameraTarget, 100));
+
+// lights
+const amb = new THREE.AmbientLight(0xfff2d8, 0.35);
+scene.add(amb);
+const key = new THREE.DirectionalLight(0xfff0d0, 1.1);
+key.position.set(6, 14, 4);
+key.castShadow = true;
+key.shadow.mapSize.set(1024, 1024);
+key.shadow.camera.left = -10; key.shadow.camera.right = 10;
+key.shadow.camera.top = 10; key.shadow.camera.bottom = -10;
+key.shadow.camera.near = 1; key.shadow.camera.far = 30;
+key.shadow.bias = -0.0005;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x8090b0, 0.25);
+rim.position.set(-5, 6, -5);
+scene.add(rim);
+
+// ============================================================
+// PLATE — mesh group containing figures so they ride with tilt
+// ============================================================
+const plateGroup = new THREE.Group();
+scene.add(plateGroup);
+
+const plateMat = new THREE.MeshStandardMaterial({
+  color: 0xe8e1cf, roughness: 0.85, metalness: 0.05,
+});
+const plateGeo = new THREE.CylinderGeometry(CFG.plateR0, CFG.plateR0 * 0.97, CFG.plateThick, 96);
+const plateMesh = new THREE.Mesh(plateGeo, plateMat);
+plateMesh.receiveShadow = true;
+plateGroup.add(plateMesh);
+
+// plate rim (subtle dark line)
+const rimGeo = new THREE.TorusGeometry(CFG.plateR0, 0.025, 8, 96);
+const rimMat = new THREE.MeshBasicMaterial({ color: 0x6b6557 });
+const rimMesh = new THREE.Mesh(rimGeo, rimMat);
+rimMesh.rotation.x = Math.PI / 2;
+rimMesh.position.y = CFG.plateThick / 2 + 0.001;
+plateGroup.add(rimMesh);
+
+// inner concentric circles for "ritual" feel
+function ring(r, op) {
+  const g = new THREE.RingGeometry(r - 0.015, r + 0.015, 96);
+  const m = new THREE.MeshBasicMaterial({ color: 0x9a8f78, transparent: true, opacity: op, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(g, m);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = CFG.plateThick / 2 + 0.002;
+  return mesh;
+}
+plateGroup.add(ring(CFG.plateR0 * 0.85, 0.18));
+plateGroup.add(ring(CFG.plateR0 * 0.55, 0.13));
+plateGroup.add(ring(CFG.plateR0 * 0.25, 0.10));
+
+// floor far below to catch fallen figures (visual only)
+const floorGeo = new THREE.PlaneGeometry(80, 80);
+const floorMat = new THREE.MeshStandardMaterial({ color: 0x06060a, roughness: 1 });
+const floor = new THREE.Mesh(floorGeo, floorMat);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = -8;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// ============================================================
+// TELEGRAPH RETICLE — child of plate so it rides tilt
+// ============================================================
+const reticleGroup = new THREE.Group();
+plateGroup.add(reticleGroup);
+
+const retFillMat = new THREE.MeshBasicMaterial({
+  color: 0xc83838, transparent: true, opacity: 0.0, side: THREE.DoubleSide, depthWrite: false,
+});
+const retFillGeo = new THREE.CircleGeometry(1, 48);
+const retFill = new THREE.Mesh(retFillGeo, retFillMat);
+retFill.rotation.x = -Math.PI / 2;
+retFill.position.y = CFG.plateThick / 2 + 0.005;
+reticleGroup.add(retFill);
+
+const retOutlineMat = new THREE.MeshBasicMaterial({
+  color: 0xc83838, transparent: true, opacity: 0.0, side: THREE.DoubleSide,
+});
+const retOutline = new THREE.Mesh(new THREE.RingGeometry(0.99, 1, 64), retOutlineMat);
+retOutline.rotation.x = -Math.PI / 2;
+retOutline.position.y = CFG.plateThick / 2 + 0.006;
+reticleGroup.add(retOutline);
+
+reticleGroup.visible = false;
+
+// ============================================================
+// FIGURES
+// ============================================================
+function makeFigure(isPlayer) {
+  const g = new THREE.Group();
+
+  // base disc
+  const baseGeo = new THREE.CylinderGeometry(CFG.figR * 1.1, CFG.figR * 1.2, 0.06, 16);
+  const baseMat = new THREE.MeshStandardMaterial({ color: 0x101010, roughness: 0.7 });
+  const base = new THREE.Mesh(baseGeo, baseMat);
+  base.position.y = 0.03;
+  base.castShadow = true;
+  g.add(base);
+
+  // body
+  const bodyGeo = new THREE.CylinderGeometry(CFG.figR * 0.85, CFG.figR * 0.95, CFG.figH * 0.65, 12);
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x191919, roughness: 0.55, emissive: 0x000000, emissiveIntensity: 0 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = 0.06 + CFG.figH * 0.65 / 2;
+  body.castShadow = true;
+  g.add(body);
+
+  // head
+  const head = new THREE.Mesh(new THREE.SphereGeometry(CFG.figR * 0.55, 16, 12), bodyMat);
+  head.position.y = 0.06 + CFG.figH * 0.65 + CFG.figR * 0.45;
+  head.castShadow = true;
+  g.add(head);
+
+  // shoulder cap (a thin disc at top of body)
+  const capMat = new THREE.MeshStandardMaterial({ color: 0x252525, roughness: 0.5 });
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(CFG.figR * 0.95, CFG.figR * 0.85, 0.07, 12), capMat);
+  cap.position.y = 0.06 + CFG.figH * 0.65 + 0.03;
+  cap.castShadow = true;
+  g.add(cap);
+
+  // HP pip ring around base — 10 small bars
+  const pipMatLive = new THREE.MeshStandardMaterial({ color: 0xc83838, emissive: 0xc83838, emissiveIntensity: 0.7 });
+  const pipMatDead = new THREE.MeshStandardMaterial({ color: 0x2a1010, emissive: 0x000000, emissiveIntensity: 0 });
+  const pipGeo = new THREE.BoxGeometry(0.05, 0.03, 0.12);
+  const pips = [];
+  for (let i = 0; i < CFG.hpMax; i++) {
+    const a = (i / CFG.hpMax) * Math.PI * 2 - Math.PI / 2;
+    const r = CFG.figR * 1.25;
+    const pip = new THREE.Mesh(pipGeo, pipMatLive);
+    pip.position.set(Math.cos(a) * r, 0.085, Math.sin(a) * r);
+    pip.rotation.y = -a;
+    g.add(pip);
+    pips.push(pip);
+  }
+
+  if (isPlayer) {
+    // red sash on body
+    const sashMat = new THREE.MeshStandardMaterial({ color: 0xc83838, roughness: 0.5, emissive: 0x441010, emissiveIntensity: 0.3 });
+    const sashGeo = new THREE.CylinderGeometry(CFG.figR * 0.86, CFG.figR * 0.96, 0.12, 12);
+    const sash = new THREE.Mesh(sashGeo, sashMat);
+    sash.position.y = 0.06 + CFG.figH * 0.40;
+    g.add(sash);
+    // small red dot on top of head
+    const dotGeo = new THREE.SphereGeometry(CFG.figR * 0.18, 8, 6);
+    const dotMat = new THREE.MeshStandardMaterial({ color: 0xc83838, emissive: 0xc83838, emissiveIntensity: 0.6 });
+    const dot = new THREE.Mesh(dotGeo, dotMat);
+    dot.position.y = 0.06 + CFG.figH * 0.65 + CFG.figR * 1.0;
+    g.add(dot);
+  }
+
+  return { group: g, body, head, cap, pips, pipMatLive, pipMatDead, bodyMat };
+}
+
+function spawnFigures() {
+  // clear any existing
+  for (const f of S.figs) plateGroup.remove(f.mesh);
+  S.figs = [];
+
+  // 10 positions: ring distribution with jitter, player gets random slot
+  const playerSlot = Math.floor(Math.random() * CFG.startCount);
+  for (let i = 0; i < CFG.startCount; i++) {
+    const ang = (i / CFG.startCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.15;
+    const r = CFG.plateR0 * (0.45 + Math.random() * 0.15);
+    const x = Math.cos(ang) * r;
+    const z = Math.sin(ang) * r;
+    const isPlayer = (i === playerSlot);
+    const built = makeFigure(isPlayer);
+    const mesh = built.group;
+    mesh.position.set(x, CFG.plateThick / 2, z);
+    // face center
+    mesh.rotation.y = Math.atan2(-x, -z);
+    plateGroup.add(mesh);
+    const f = {
+      id: i,
+      x, z, vx: 0, vz: 0,
+      alive: true,
+      isPlayer,
+      mesh,
+      body: built.body, head: built.head, cap: built.cap,
+      pips: built.pips, pipMatLive: built.pipMatLive, pipMatDead: built.pipMatDead,
+      bodyMat: built.bodyMat,
+      hp: CFG.hpMax,
+      invulnT: 0,
+      hp0Logged: false,
+      draining: false, drainT: 0,
+      dropping: false, dropT: 0, dropY: 0, dropVy: 0,
+      picked: false, pickT: 0, pickStartX: 0, pickStartZ: 0, pickStartY: 0,
+      scale: 1,
+      wanderAng: Math.random() * Math.PI * 2,
+      wanderTimer: Math.random() * 1.5,
+      boldness: isPlayer ? 0 : Math.random(),  // bots get personality, 0..1
+    };
+    S.figs.push(f);
+    if (isPlayer) S.player = f;
+  }
+  S.alive = CFG.startCount;
+}
+
+// ============================================================
+// HAND — simple stylized silhouette
+// ============================================================
+const handGroup = new THREE.Group();
+handGroup.position.set(0, CFG.handIdleY, 0);
+scene.add(handGroup);
+
+// ============================================================
+// HAND RIG CONFIG — tune these to fit the loaded model into the scene.
+// scale, rotation, and bone-curl axes will likely need 1–2 passes to
+// look right once you see it on screen. Everything is exposed here.
+// ============================================================
+const HAND_RIG = {
+  url: './Arm3.glb',  // sibling file — serve via local http (python -m http.server) or your dev server
+  scale: 0.16,
+  // model is built with fingers along +Y in source; flip so they point down
+  rotX: Math.PI,
+  rotY: 0,
+  rotZ: 0,
+  // offset of model origin inside tilt group; pinch point should sit at handGroup origin
+  offX: 0, offY: 0, offZ: 0,
+  // bones we animate. axis = which local axis curls the finger. closeAngle in radians.
+  // If a finger spreads sideways instead of curling, flip axis 'x' ↔ 'z' or sign.
+  thumb:  { boneName: 'Bone.002', axis: 'x', closeAngle:  1.20 },
+  index:  { boneName: 'Bone.009', axis: 'x', closeAngle:  1.05 },
+  // optional fist curl during pinch (these stay relatively still, but close a bit so
+  // the hand doesn't look stiff while the pincer engages)
+  middle: { boneName: 'Bone.010', axis: 'x', closeAngle:  0.55 },
+  ring:   { boneName: 'Bone.011', axis: 'x', closeAngle:  0.55 },
+  pinky:  { boneName: 'Bone.012', axis: 'x', closeAngle:  0.50 },
+  // surface treatment so it matches game palette
+  color: 0x4a3e34,
+  roughness: 0.55,
+};
+
+// ============================================================
+// Animation references — populated after model loads.
+// Each finger entry holds the bone reference plus its rest rotation
+// on the curl axis (snapshot at load), so curl is interpolated from
+// rest → rest + closeAngle. handAnim.ready guards updateHand from
+// touching uninitialized bones.
+// ============================================================
+const handAnim = {
+  ready: false,
+  tilt: null,
+  thumb: { bone: null, axis: 'x', restAngle: 0, closeAngle: 0 },
+  index: { bone: null, axis: 'x', restAngle: 0, closeAngle: 0 },
+  middle: { bone: null, axis: 'x', restAngle: 0, closeAngle: 0 },
+  ring:   { bone: null, axis: 'x', restAngle: 0, closeAngle: 0 },
+  pinky:  { bone: null, axis: 'x', restAngle: 0, closeAngle: 0 },
+  // these mirror the procedural API: "open" rotation = rest, "closed" = rest + closeAngle
+  thumbOpen: 0, thumbClosed: 0,
+  indexOpen: 0, indexClosed: 0,
+  // base tilt rotation (still applied as a wrapper for wrist wobble)
+  baseTiltX: -0.12, baseTiltZ: -0.20,
+};
+
+// Tilt wrapper inside handGroup — gives us a place to hang wrist wobble that
+// doesn't fight the model's internal rotations.
+(function buildTilt() {
+  const tilt = new THREE.Group();
+  tilt.rotation.z = handAnim.baseTiltZ;
+  tilt.rotation.x = handAnim.baseTiltX;
+  handGroup.add(tilt);
+  handAnim.tilt = tilt;
+})();
+
+// Helper: set curl on a finger entry from a 0..1 progress value (0 = rest, 1 = closed)
+function setCurl(entry, t) {
+  if (!entry.bone) return;
+  entry.bone.rotation[entry.axis] = entry.restAngle + (entry.closeAngle - entry.restAngle) * t;
+}
+
+// Helper: snapshot rest rotation + compute closed-rotation target for a bone entry
+function captureBoneRest(entry, rigSpec) {
+  if (!entry.bone) return;
+  entry.axis = rigSpec.axis;
+  entry.restAngle = entry.bone.rotation[rigSpec.axis];
+  entry.closeAngle = entry.restAngle + rigSpec.closeAngle;
+}
+
+// Async load — model URL is fetched from GitHub raw. The first hand grab
+// won't fire for ~4.5s so this has plenty of time to land.
+(function loadHand() {
+  const loader = new THREE.GLTFLoader();
+  loader.load(HAND_RIG.url, (gltf) => {
+    const model = gltf.scene;
+    model.scale.setScalar(HAND_RIG.scale);
+    model.rotation.set(HAND_RIG.rotX, HAND_RIG.rotY, HAND_RIG.rotZ);
+    model.position.set(HAND_RIG.offX, HAND_RIG.offY, HAND_RIG.offZ);
+
+    // Walk the loaded scene, find bones we care about and apply material tint
+    const boneByName = {};
+    model.traverse((node) => {
+      if (node.isBone) {
+        boneByName[node.name] = node;
+      }
+      if (node.isMesh) {
+        node.castShadow = true;
+        node.receiveShadow = false;
+        if (node.material) {
+          node.material.color.setHex(HAND_RIG.color);
+          node.material.roughness = HAND_RIG.roughness;
+          node.material.metalness = 0;
+        }
+        if (node.isSkinnedMesh && node.skeleton) {
+          // SkinnedMesh needs frustum culling off when wrapped in transformed groups,
+          // or it can be culled incorrectly when the bounding sphere isn't recomputed.
+          node.frustumCulled = false;
+        }
+      }
+    });
+
+    handAnim.thumb.bone  = boneByName[HAND_RIG.thumb.boneName];
+    handAnim.index.bone  = boneByName[HAND_RIG.index.boneName];
+    handAnim.middle.bone = boneByName[HAND_RIG.middle.boneName];
+    handAnim.ring.bone   = boneByName[HAND_RIG.ring.boneName];
+    handAnim.pinky.bone  = boneByName[HAND_RIG.pinky.boneName];
+
+    captureBoneRest(handAnim.thumb,  HAND_RIG.thumb);
+    captureBoneRest(handAnim.index,  HAND_RIG.index);
+    captureBoneRest(handAnim.middle, HAND_RIG.middle);
+    captureBoneRest(handAnim.ring,   HAND_RIG.ring);
+    captureBoneRest(handAnim.pinky,  HAND_RIG.pinky);
+
+    // Mirror old API: open = rest, closed = rest + closeAngle.
+    handAnim.thumbOpen   = handAnim.thumb.restAngle;
+    handAnim.thumbClosed = handAnim.thumb.closeAngle;
+    handAnim.indexOpen   = handAnim.index.restAngle;
+    handAnim.indexClosed = handAnim.index.closeAngle;
+
+    handAnim.tilt.add(model);
+    handAnim.ready = true;
+
+    console.log('[hand] loaded', { bones: Object.keys(boneByName).length });
+  }, undefined, (err) => {
+    console.error('[hand] failed to load model from', HAND_RIG.url, err);
+  });
+})();
+
+handGroup.visible = false;
+
+// ============================================================
+// TILT MATH — recompute from CoM each frame
+// ============================================================
+function updateTilt(dt) {
+  let cx = 0, cz = 0, n = 0;
+  for (const f of S.figs) {
+    if (!f.alive || f.picked || f.dropping) continue;
+    cx += f.x; cz += f.z; n++;
+  }
+  if (n === 0) {
+    S.tilt.x = 0; S.tilt.z = 0;
+  } else {
+    cx /= n; cz /= n;
+    // normalize by current plate radius
+    const tx = Math.max(-1, Math.min(1, cx / S.plateR));
+    const tz = Math.max(-1, Math.min(1, cz / S.plateR));
+    // ease toward target
+    const k = 1 - Math.exp(-CFG.tiltEase * dt);
+    S.tilt.x += (tx - S.tilt.x) * k;
+    S.tilt.z += (tz - S.tilt.z) * k;
+  }
+  // apply visual rotation
+  // tilt.z > 0 means CoM is at +Z, plate should tilt down at +Z, rotation around X+
+  plateGroup.rotation.x = S.tilt.z * CFG.maxTilt;
+  plateGroup.rotation.z = -S.tilt.x * CFG.maxTilt;
+}
+
+// ============================================================
+// FIGURE PHYSICS — slide on tilt, friction, collision, edges
+// ============================================================
+function updateFigures(dt) {
+  // slide acceleration (everyone slides toward CoM direction)
+  const ax = S.tilt.x * CFG.slideForce;
+  const az = S.tilt.z * CFG.slideForce;
+
+  for (const f of S.figs) {
+    // tick invulnerability for everyone still on the plate
+    if (f.invulnT > 0) f.invulnT = Math.max(0, f.invulnT - dt);
+
+    // picked figures animate in their own loop below
+    if (f.picked) continue;
+
+    if (f.draining) {
+      // HP=0 death: scale to 0 with red glow then despawn
+      f.drainT += dt;
+      const k = Math.min(1, f.drainT / (CFG.drainMs / 1000));
+      const s = Math.max(0.001, 1 - k);
+      f.mesh.scale.set(s, s, s);
+      f.mesh.position.y = CFG.plateThick / 2 + k * 0.6;
+      f.mesh.rotation.y += dt * 6;
+      // hold position roughly
+      f.mesh.position.x = f.x;
+      f.mesh.position.z = f.z;
+      if (k >= 1) {
+        if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
+      }
+      continue;
+    }
+
+    if (f.dropping) {
+      // falling off plate visually
+      f.dropT += dt;
+      f.dropVy -= 16 * dt;
+      f.dropY += f.dropVy * dt;
+      f.x += f.vx * dt * 0.4;
+      f.z += f.vz * dt * 0.4;
+      f.mesh.position.set(f.x, CFG.plateThick / 2 + f.dropY, f.z);
+      f.mesh.rotation.x += dt * 4;
+      f.mesh.rotation.z += dt * 3;
+      if (f.dropT > 1.4) {
+        if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
+      }
+      continue;
+    }
+
+    // dead figures with no animation path — skip movement
+    if (!f.alive) continue;
+
+    // intent (input or AI)
+    let dx, dz;
+    if (f.isPlayer) {
+      [dx, dz] = playerIntent(f);
+    } else {
+      [dx, dz] = botIntent(f, dt);
+    }
+
+    // accelerate toward intent
+    const accel = f.isPlayer ? CFG.playerAccel : CFG.botAccel;
+    f.vx += (dx - f.vx) * Math.min(1, accel * dt);
+    f.vz += (dz - f.vz) * Math.min(1, accel * dt);
+
+    // add slide
+    f.vx += ax * dt;
+    f.vz += az * dt;
+
+    // friction
+    const fr = 1 - Math.min(1, CFG.friction * dt);
+    f.vx *= fr;
+    f.vz *= fr;
+
+    // integrate
+    f.x += f.vx * dt;
+    f.z += f.vz * dt;
+  }
+
+  // figure-figure collision + contact damage
+  for (let i = 0; i < S.figs.length; i++) {
+    const a = S.figs[i];
+    if (!a.alive || a.picked || a.dropping || a.draining) continue;
+    for (let j = i + 1; j < S.figs.length; j++) {
+      const b = S.figs[j];
+      if (!b.alive || b.picked || b.dropping || b.draining) continue;
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const d2 = dx * dx + dz * dz;
+      const min = CFG.collidR;
+      if (d2 < min * min && d2 > 0.0001) {
+        const d = Math.sqrt(d2);
+        const overlap = (min - d) * 0.5;
+        const nx = dx / d, nz = dz / d;
+        a.x -= nx * overlap; a.z -= nz * overlap;
+        b.x += nx * overlap; b.z += nz * overlap;
+        // velocity exchange (soft)
+        const va = a.vx * nx + a.vz * nz;
+        const vb = b.vx * nx + b.vz * nz;
+        const exch = (vb - va) * 0.3;
+        a.vx += nx * exch; a.vz += nz * exch;
+        b.vx -= nx * exch; b.vz -= nz * exch;
+
+        // contact damage: only if BOTH out of i-frames
+        if (a.invulnT <= 0 && b.invulnT <= 0) {
+          a.hp -= CFG.contactDmg;
+          b.hp -= CFG.contactDmg;
+          a.invulnT = CFG.iframeMs / 1000;
+          b.invulnT = CFG.iframeMs / 1000;
+          // knockback: shove both apart along contact normal
+          a.vx -= nx * CFG.bumpForce;
+          a.vz -= nz * CFG.bumpForce;
+          b.vx += nx * CFG.bumpForce;
+          b.vz += nz * CFG.bumpForce;
+          if (a.hp <= 0 && !a.draining) {
+            a.draining = true; a.drainT = 0;
+            eliminate(a, 'drained');
+          }
+          if (b.hp <= 0 && !b.draining) {
+            b.draining = true; b.drainT = 0;
+            eliminate(b, 'drained');
+          }
+        }
+      }
+    }
+  }
+
+  // edge check + position update on mesh
+  for (const f of S.figs) {
+    if (!f.alive || f.picked || f.dropping || f.draining) continue;
+    const d = Math.hypot(f.x, f.z);
+    if (d > S.plateR + CFG.edgePadFall) {
+      // start falling
+      f.dropping = true;
+      f.dropT = 0;
+      f.dropY = 0;
+      f.dropVy = 0;
+      eliminate(f, 'fell');
+      continue;
+    }
+    f.mesh.position.x = f.x;
+    f.mesh.position.z = f.z;
+    f.mesh.position.y = CFG.plateThick / 2;
+    // rotate to face movement direction
+    const speed = Math.hypot(f.vx, f.vz);
+    if (speed > 0.3) {
+      const targetRot = Math.atan2(f.vx, f.vz);
+      let dr = targetRot - f.mesh.rotation.y;
+      while (dr > Math.PI) dr -= Math.PI * 2;
+      while (dr < -Math.PI) dr += Math.PI * 2;
+      f.mesh.rotation.y += dr * Math.min(1, 8 * dt);
+    }
+  }
+
+  // visual: HP pips + i-frame flash
+  for (const f of S.figs) {
+    if (f.picked || f.draining || f.dropping) continue;
+    // pip dimming based on hp
+    for (let i = 0; i < f.pips.length; i++) {
+      f.pips[i].material = (i < f.hp) ? f.pipMatLive : f.pipMatDead;
+    }
+    // i-frame: pulse body emissive
+    if (f.invulnT > 0) {
+      const phase = (CFG.iframeMs / 1000 - f.invulnT) / (CFG.iframeMs / 1000);
+      const flash = Math.sin(phase * Math.PI * 6) * 0.5 + 0.5;
+      f.bodyMat.emissive.setHex(0xc83838);
+      f.bodyMat.emissiveIntensity = 0.6 * flash + 0.15;
+    } else {
+      // baseline glow scales with low HP for tension
+      const lowness = 1 - (f.hp / CFG.hpMax);
+      f.bodyMat.emissive.setHex(0x6a1818);
+      f.bodyMat.emissiveIntensity = lowness * 0.45;
+    }
+  }
+
+  // picked figures animation — figures are now in scene root (reparented at capture).
+  // They glide to the pinch point during hover/pinch, then ride with the hand on lift.
+  for (const f of S.figs) {
+    if (f.picked !== true) continue;  // 'done' or false → skip
+    f.pickT += dt;
+    // glide-to-pinch over 0.45s, then track handGroup.position thereafter
+    const glideDur = 0.45;
+    const k = Math.min(1, f.pickT / glideDur);
+    const e = 1 - (1 - k) * (1 - k);
+    f.mesh.position.x = lerp(f.pickStartX, handGroup.position.x, e);
+    f.mesh.position.y = lerp(f.pickStartY, handGroup.position.y, e);
+    f.mesh.position.z = lerp(f.pickStartZ, handGroup.position.z, e);
+    // gentle rotation while being held
+    f.mesh.rotation.y += dt * 1.5;
+    // begin shrinking after pinch closes (~0.45s) — figure disappears into the hand
+    const shrinkStart = 0.65;
+    if (f.pickT > shrinkStart) {
+      const sk = Math.min(1, (f.pickT - shrinkStart) / 0.55);
+      const s = Math.max(0.001, 1 - sk);
+      f.mesh.scale.set(s, s, s);
+      if (s <= 0.01) {
+        scene.remove(f.mesh);
+        f.picked = 'done';
+      }
+    }
+  }
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+// ============================================================
+// PLAYER INPUT
+// ============================================================
+const keys = {};
+window.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
+window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+function playerIntent(f) {
+  let dx = 0, dz = 0;
+  // keyboard
+  if (keys['w'] || keys['arrowup']) dz -= 1;
+  if (keys['s'] || keys['arrowdown']) dz += 1;
+  if (keys['a'] || keys['arrowleft']) dx -= 1;
+  if (keys['d'] || keys['arrowright']) dx += 1;
+  // touch stick
+  if (Math.abs(S.input.dx) + Math.abs(S.input.dy) > 0.05) {
+    dx += S.input.dx;
+    dz += S.input.dy;
+  }
+  const len = Math.hypot(dx, dz);
+  if (len > 1) { dx /= len; dz /= len; }
+  return [dx * CFG.playerSpeed, dz * CFG.playerSpeed];
+}
+
+// touch stick
+const stick = document.getElementById('stick');
+const knob = document.getElementById('stick-knob');
+let stickActive = false, stickCenter = { x: 0, y: 0 }, stickId = null;
+
+function isTouch() {
+  return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+}
+if (isTouch()) stick.classList.add('on');
+
+stick.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  const r = stick.getBoundingClientRect();
+  stickCenter = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  stickActive = true;
+  stickId = e.changedTouches[0].identifier;
+}, { passive: false });
+
+window.addEventListener('touchmove', (e) => {
+  if (!stickActive) return;
+  for (const t of e.changedTouches) {
+    if (t.identifier !== stickId) continue;
+    let dx = t.clientX - stickCenter.x;
+    let dy = t.clientY - stickCenter.y;
+    const max = 50;
+    const d = Math.hypot(dx, dy);
+    if (d > max) { dx = dx / d * max; dy = dy / d * max; }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    S.input.dx = dx / max;
+    S.input.dy = dy / max;
+  }
+}, { passive: false });
+
+window.addEventListener('touchend', (e) => {
+  for (const t of e.changedTouches) {
+    if (t.identifier === stickId) {
+      stickActive = false;
+      stickId = null;
+      knob.style.transform = 'translate(0,0)';
+      S.input.dx = 0; S.input.dy = 0;
+    }
+  }
+});
+
+// ============================================================
+// BOT AI
+// ============================================================
+function botIntent(f, dt) {
+  let dx = 0, dz = 0;
+
+  // wander goal: change direction every couple seconds
+  f.wanderTimer -= dt;
+  if (f.wanderTimer <= 0) {
+    f.wanderAng = Math.random() * Math.PI * 2;
+    f.wanderTimer = 1.2 + Math.random() * 1.5;
+  }
+  const wanderW = 0.5;
+  dx += Math.cos(f.wanderAng) * wanderW;
+  dz += Math.sin(f.wanderAng) * wanderW;
+
+  // flee from active reticle
+  if (S.hand.phase === 'telegraph' || S.hand.phase === 'approach' || S.hand.phase === 'hover') {
+    const ddx = f.x - S.hand.x, ddz = f.z - S.hand.z;
+    const d = Math.max(0.01, Math.hypot(ddx, ddz));
+    if (d < S.hand.zoneR * 2.6) {
+      const urgency = 1 - (d / (S.hand.zoneR * 2.6));
+      dx += (ddx / d) * urgency * 1.6;
+      dz += (ddz / d) * urgency * 1.6;
+    }
+  }
+
+  // edge avoidance — strong push inward when near rim
+  const distC = Math.hypot(f.x, f.z);
+  const fromEdge = S.plateR - distC;
+  if (fromEdge < 1.2) {
+    const inward = 1 - Math.max(0, fromEdge / 1.2);
+    if (distC > 0.01) {
+      dx += (-f.x / distC) * inward * 1.8;
+      dz += (-f.z / distC) * inward * 1.8;
+    }
+  }
+
+  // counter-tilt: walk uphill, weak influence
+  dx += -S.tilt.x * 0.6;
+  dz += -S.tilt.z * 0.6;
+
+  // separation from neighbors (soft) — weighted by own HP
+  // healthy bots stay loose, hurt bots actively avoid contact
+  const sepBoost = 1 + (1 - f.hp / CFG.hpMax) * 1.4;
+  for (const g of S.figs) {
+    if (g === f || !g.alive || g.picked || g.dropping || g.draining) continue;
+    const ddx = f.x - g.x, ddz = f.z - g.z;
+    const d2 = ddx * ddx + ddz * ddz;
+    if (d2 < 1.2 * 1.2 && d2 > 0.001) {
+      const d = Math.sqrt(d2);
+      const w = (1.2 - d) / 1.2 * 0.7 * sepBoost;
+      dx += (ddx / d) * w;
+      dz += (ddz / d) * w;
+    }
+  }
+
+  // engagement: bold + healthy bots seek nearest target to bump (especially low-HP ones)
+  // gated so it never overrides hand-flee or edge-avoid
+  if (f.boldness > 0.45 && f.hp >= 5 && f.invulnT <= 0 &&
+      S.hand.phase !== 'telegraph' && S.hand.phase !== 'descend') {
+    let best = null, bestScore = -1;
+    for (const g of S.figs) {
+      if (g === f || !g.alive || g.picked || g.dropping || g.draining) continue;
+      const ddx = g.x - f.x, ddz = g.z - f.z;
+      const d = Math.hypot(ddx, ddz);
+      if (d < 0.8 || d > 4.5) continue;
+      // prefer closer + lower-HP targets
+      const score = (1 / d) + (CFG.hpMax - g.hp) * 0.15;
+      if (score > bestScore) { bestScore = score; best = g; }
+    }
+    if (best) {
+      const ddx = best.x - f.x, ddz = best.z - f.z;
+      const d = Math.max(0.01, Math.hypot(ddx, ddz));
+      const w = (f.boldness - 0.45) * 1.6;
+      dx += (ddx / d) * w;
+      dz += (ddz / d) * w;
+    }
+  }
+
+  // normalize and scale to bot speed
+  const len = Math.hypot(dx, dz);
+  const speed = (S.hand.phase === 'telegraph' || S.hand.phase === 'approach' || S.hand.phase === 'hover') ? CFG.fleeSpeed : CFG.botSpeed;
+  if (len > 0.001) {
+    dx = (dx / len) * speed;
+    dz = (dz / len) * speed;
+  }
+  return [dx, dz];
+}
+
+// ============================================================
+// HAND state machine
+// ============================================================
+function startHand() {
+  // Defer until model loads — first grab is ~4.5s in so it shouldn't normally hit.
+  if (!handAnim.ready) {
+    S.nextHandAt = S.t + 500;
+    return;
+  }
+  // pick target: weight toward density (clusters draw the hand)
+  const aliveFigs = S.figs.filter(f => f.alive && !f.picked && !f.dropping);
+  if (aliveFigs.length === 0) return;
+  const zoneR = currentZoneR();
+  S.hand.zoneR = zoneR;
+
+  let target;
+  if (S.firstHand) {
+    // densest cluster center: pick the figure with most neighbors within 2*zoneR
+    let best = null, bestN = -1;
+    for (const a of aliveFigs) {
+      let n = 0;
+      for (const b of aliveFigs) {
+        if (a === b) continue;
+        const d = Math.hypot(a.x - b.x, a.z - b.z);
+        if (d < zoneR * 2.2) n++;
+      }
+      if (n > bestN) { bestN = n; best = a; }
+    }
+    target = best;
+    S.firstHand = false;
+  } else {
+    // weighted by local density
+    const weights = aliveFigs.map(a => {
+      let n = 0;
+      for (const b of aliveFigs) {
+        if (a === b) continue;
+        const d = Math.hypot(a.x - b.x, a.z - b.z);
+        if (d < zoneR * 2) n++;
+      }
+      return 1 + n * 1.5;
+    });
+    const total = weights.reduce((s, w) => s + w, 0);
+    let r = Math.random() * total;
+    target = aliveFigs[aliveFigs.length - 1];
+    for (let i = 0; i < aliveFigs.length; i++) {
+      r -= weights[i];
+      if (r <= 0) { target = aliveFigs[i]; break; }
+    }
+  }
+
+  S.hand.target = target;
+  S.hand.x = target.x;
+  S.hand.z = target.z;
+  S.hand.origX = target.x;   // initial telegraphed position (never mutates)
+  S.hand.origZ = target.z;
+  S.hand.aimTarget = null;   // figure being tracked during late-approach auto-aim
+  S.hand.phase = 'telegraph';
+  S.hand.t = 0;
+
+  // Per-grab randomization. Every value below is the "intent" for this single grab —
+  // different timings, different arc, different drift. Nothing about the next grab will
+  // resemble this one in detail. That's where the unpredictability lives.
+  S.hand.telegraphMs = lerp(700, 3300, Math.random()); // 0.7–3.3s — sometimes a quick strike, sometimes drawn-out hunting
+  S.hand.cooldownMs  = CFG.handCooldownMs * (0.70 + Math.random() * 0.60); // 0.70–1.30x — varies dead time between grabs
+  S.hand.approachMs = CFG.handApproachMs * (0.80 + Math.random() * 0.45); // 0.80–1.25x
+  S.hand.hoverMs    = CFG.handHoverMs    * (0.55 + Math.random() * 0.90); // 0.55–1.45x
+  S.hand.pinchMs    = CFG.handPinchMs    * (0.85 + Math.random() * 0.40); // 0.85–1.25x
+  S.hand.liftMs     = CFG.handLiftMs     * (0.90 + Math.random() * 0.25); // 0.90–1.15x
+  S.hand.approachArc = 1.0 + Math.random() * 0.8;  // 1.0–1.8 units of outward offset at start of approach
+  S.hand.liftArc     = 0.8 + Math.random() * 0.7;  // outward arc magnitude during retreat
+  S.hand.approachEaseMix = Math.random();          // 0=swoop (ease-out), 1=tentative (ease-in-out)
+  S.hand.hoverDriftAmp = Math.random() * 0.06;     // lateral wander during hover
+  S.hand.hoverDriftPhase = Math.random() * Math.PI * 2;
+  // index/thumb pinch curve parameters — slight per-grab variation in finger lead and hold beat
+  S.hand.indexLead = 0.16 + Math.random() * 0.12;  // how much later thumb starts (0–1 of pinchMs)
+  S.hand.holdStart = 0.36 + Math.random() * 0.10;  // when the test-grip pause begins
+  S.hand.holdEnd   = S.hand.holdStart + 0.10 + Math.random() * 0.10; // and where it ends
+  S.hand.holdLevel = 0.62 + Math.random() * 0.16;  // how closed during the test-grip plateau
+
+  // position hand in world: above plate-local (target.x, target.z)
+  const worldPos = new THREE.Vector3(target.x, CFG.plateThick / 2, target.z);
+  plateGroup.localToWorld(worldPos);
+  handGroup.position.x = worldPos.x;
+  handGroup.position.z = worldPos.z;
+  handGroup.position.y = CFG.handIdleY;
+  handGroup.visible = true;
+
+  // Orient the wrist to come from outside the plate, with per-grab azimuth wobble
+  const azimuth = Math.atan2(-target.z, target.x);
+  const wobble = (Math.random() - 0.5) * 0.45;
+  S.hand.azimuth = azimuth + wobble;
+  handGroup.rotation.y = S.hand.azimuth;
+
+  // Per-grab tilt jitter
+  handAnim.tilt.rotation.x = handAnim.baseTiltX + (Math.random() - 0.5) * 0.14;
+  handAnim.tilt.rotation.z = handAnim.baseTiltZ + (Math.random() - 0.5) * 0.12;
+
+  // reset fingers to spread (open). setCurl is no-op if bones haven't loaded yet.
+  setCurl(handAnim.thumb,  0);
+  setCurl(handAnim.index,  0);
+  setCurl(handAnim.middle, 0);
+  setCurl(handAnim.ring,   0);
+  setCurl(handAnim.pinky,  0);
+
+  reticleGroup.visible = true;
+  reticleGroup.position.set(target.x, 0, target.z);
+}
+
+function currentZoneR() {
+  const a = S.alive;
+  const tt = (CFG.startCount - a) / (CFG.startCount - CFG.podiumCount);
+  const frac = lerp(CFG.zoneMinFrac, CFG.zoneMaxFrac, Math.max(0, Math.min(1, tt)));
+  return S.plateR * frac;
+}
+
+function captureFiguresInZone() {
+  // Detach captured figures from plateGroup, parent to scene so we can animate
+  // them in world space toward the pinch point (which is handGroup origin).
+  const captured = [];
+  for (const f of S.figs) {
+    if (!f.alive || f.picked || f.dropping || f.draining) continue;
+    const d = Math.hypot(f.x - S.hand.x, f.z - S.hand.z);
+    if (d < S.hand.zoneR) captured.push(f);
+  }
+  for (const f of captured) {
+    f.picked = true;
+    f.pickT = 0;
+    // record current world transform, then reparent to scene
+    const wp = new THREE.Vector3();
+    const wq = new THREE.Quaternion();
+    f.mesh.getWorldPosition(wp);
+    f.mesh.getWorldQuaternion(wq);
+    f.pickStartX = wp.x;
+    f.pickStartY = wp.y;
+    f.pickStartZ = wp.z;
+    if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
+    scene.add(f.mesh);
+    f.mesh.position.copy(wp);
+    f.mesh.quaternion.copy(wq);
+    eliminate(f, 'picked');
+  }
+  S.hand.captured = captured;
+}
+
+function updateHand(dt) {
+  if (S.hand.phase === 'idle') return;
+  S.hand.t += dt * 1000;
+  const tSec = S.hand.t / 1000;
+
+  // ============================================================
+  // 0. PREDATOR AUTO-AIM — continuous across telegraph + approach.
+  //    Drift starts very small (reticle barely moves while watching) and
+  //    only commits near the end. Response is slow during scan so prey
+  //    sees the hand "noticing" them with enough time to react.
+  // ============================================================
+  if (S.hand.phase === 'telegraph' || S.hand.phase === 'approach') {
+    const total = S.hand.telegraphMs + S.hand.approachMs;
+    // Phase-aware progress: telegraph fills 0→0.40, approach fills 0.40→1.0.
+    // This keeps the reticle in "scan mode" the entire telegraph regardless of
+    // its length, so a 3-second telegraph doesn't burn through commit-progress
+    // before the hand has even started descending.
+    let progress;
+    if (S.hand.phase === 'telegraph') {
+      const tp = Math.min(1, S.hand.t / S.hand.telegraphMs);
+      progress = tp * 0.40;
+    } else {
+      const ap = Math.min(1, S.hand.t / S.hand.approachMs);
+      progress = 0.40 + ap * 0.60;
+    }
+
+    // Eased progress — most of the descent is "scan" mode, commitment ramps
+    // sharply near the end. Keeps early game gentle, late game decisive.
+    const driftProgress = Math.pow(progress, 1.8);
+    const respProgress  = Math.pow(progress, 1.5);
+
+    const scanR = Math.max(S.plateR * 0.55, S.hand.zoneR * 3.0);
+    const maxDrift = lerp(S.plateR * 0.07, S.plateR * 0.26, driftProgress);
+
+    // Predator weights — closeness leads early so the reticle stays near
+    // origin while scanning. Movement only takes over late.
+    const moveBias   = lerp(0.4, 1.5, driftProgress);
+    const closenessW = lerp(1.0, 0.5, driftProgress);
+
+    let bestScore = -Infinity, bestX = S.hand.origX, bestZ = S.hand.origZ;
+    for (const f of S.figs) {
+      if (!f.alive || f.picked || f.dropping || f.draining) continue;
+      const dx = f.x - S.hand.origX;
+      const dz = f.z - S.hand.origZ;
+      const d = Math.hypot(dx, dz);
+      if (d > scanR) continue;
+
+      const speed = Math.hypot(f.vx, f.vz);
+      const closeness = 1 - d / scanR;
+
+      let approachDot = 0;
+      if (d > 0.1 && speed > 0.3) {
+        approachDot = -(f.vx * dx + f.vz * dz) / (speed * d);
+        approachDot = Math.max(0, approachDot);
+      }
+
+      const score = closeness * closenessW
+                  + (speed * 0.28) * moveBias
+                  + (approachDot * speed * 0.15) * moveBias;
+      if (score > bestScore) {
+        bestScore = score;
+        bestX = f.x;
+        bestZ = f.z;
+      }
+    }
+
+    // Desired aim — clamped within drift cap from original spot
+    let desX = S.hand.origX, desZ = S.hand.origZ;
+    if (bestScore > -Infinity) {
+      const dx = bestX - S.hand.origX;
+      const dz = bestZ - S.hand.origZ;
+      const d = Math.hypot(dx, dz);
+      if (d > 0.001) {
+        const driftMag = Math.min(d, maxDrift);
+        desX = S.hand.origX + (dx / d) * driftMag;
+        desZ = S.hand.origZ + (dz / d) * driftMag;
+      }
+    }
+
+    // Slow scan, brisk strike — but never snappy enough to feel cheap.
+    const respRate = lerp(1.3, 6.0, respProgress);
+    const respK = 1 - Math.exp(-respRate * dt);
+    S.hand.x += (desX - S.hand.x) * respK;
+    S.hand.z += (desZ - S.hand.z) * respK;
+    reticleGroup.position.set(S.hand.x, 0, S.hand.z);
+  }
+
+  // ============================================================
+  // 1. Compute the BASE (intended) hand position for this phase.
+  //    We unify position math here so the arc, drift, and tremor all
+  //    layer on top cleanly instead of fighting each phase block.
+  // ============================================================
+  const r = Math.hypot(S.hand.x, S.hand.z);
+  const dirX = r > 0.001 ? S.hand.x / r : 1;  // outward direction in plate-local
+  const dirZ = r > 0.001 ? S.hand.z / r : 0;
+
+  let horizMag = 0;     // outward offset (along dir) in plate-local units
+  let baseY = CFG.handIdleY;
+  let driftX = 0, driftZ = 0;
+
+  if (S.hand.phase === 'telegraph') {
+    const k = Math.min(1, S.hand.t / S.hand.telegraphMs);
+    // hand sits offset from target during telegraph — "lining up" before approach
+    horizMag = S.hand.approachArc;
+    baseY = CFG.handIdleY - k * 0.4;
+  } else if (S.hand.phase === 'approach') {
+    const k = Math.min(1, S.hand.t / S.hand.approachMs);
+    // mix two ease curves so the descent profile varies per-grab
+    const eOut = 1 - (1 - k) * (1 - k);
+    const eInOut = k < 0.5 ? 2 * k * k : 1 - 2 * (1 - k) * (1 - k);
+    const e = lerp(eOut, eInOut, S.hand.approachEaseMix);
+    horizMag = lerp(S.hand.approachArc, 0, e);
+    baseY = lerp(CFG.handIdleY - 0.4, CFG.handGrabY, e);
+  } else if (S.hand.phase === 'hover') {
+    horizMag = 0;
+    baseY = CFG.handGrabY;
+    // micro-drift: the hand "recalibrates" — settles toward target via small wander
+    const k = Math.min(1, S.hand.t / S.hand.hoverMs);
+    const wave = Math.sin(k * Math.PI);  // 0→1→0
+    driftX = Math.cos(S.hand.hoverDriftPhase) * S.hand.hoverDriftAmp * wave;
+    driftZ = Math.sin(S.hand.hoverDriftPhase) * S.hand.hoverDriftAmp * wave;
+  } else if (S.hand.phase === 'pinch') {
+    horizMag = 0;
+    baseY = CFG.handGrabY;
+  } else if (S.hand.phase === 'lift') {
+    const k = Math.min(1, S.hand.t / S.hand.liftMs);
+    const eY = k * k;                    // ease-in for vertical
+    const eH = k * k * (3 - 2 * k);      // smoothstep for horizontal arc
+    horizMag = lerp(0, S.hand.liftArc, eH);
+    baseY = lerp(CFG.handGrabY, CFG.handIdleY + 1.8, eY);
+  }
+
+  // ============================================================
+  // 2. Tremor — irregular multi-frequency noise. Strongest during hover.
+  // ============================================================
+  let tremorAmp = 0;
+  if (S.hand.phase === 'approach') tremorAmp = 0.008;
+  else if (S.hand.phase === 'hover') tremorAmp = 0.024;
+  else if (S.hand.phase === 'pinch') {
+    const k = S.hand.t / S.hand.pinchMs;
+    tremorAmp = 0.024 * Math.max(0, 1 - k);
+  }
+  const trX = (Math.sin(tSec * 17.3) * 0.6 + Math.sin(tSec * 38.1 + 1.3) * 0.4) * tremorAmp;
+  const trY = (Math.sin(tSec * 21.7 + 0.9) * 0.6 + Math.sin(tSec * 47.5) * 0.4) * tremorAmp;
+  const trZ = (Math.sin(tSec * 14.9 + 2.1) * 0.6 + Math.sin(tSec * 33.7 + 0.4) * 0.4) * tremorAmp;
+
+  // ============================================================
+  // 3. Compose final world position from the layered intentions.
+  // ============================================================
+  const localPos = new THREE.Vector3(
+    S.hand.x + dirX * horizMag + driftX,
+    CFG.plateThick / 2,
+    S.hand.z + dirZ * horizMag + driftZ
+  );
+  plateGroup.localToWorld(localPos);
+  handGroup.position.x = localPos.x + trX;
+  handGroup.position.y = baseY + trY;
+  handGroup.position.z = localPos.z + trZ;
+
+  // ============================================================
+  // 4. Phase-specific behavior (fingers, rotations, transitions).
+  // ============================================================
+  if (S.hand.phase === 'telegraph') {
+    // Reticle expansion finishes in the first ~40% of telegraph (capped at 700ms),
+    // so short telegraphs still get a visible reticle and long telegraphs hold
+    // at full size for the rest of the duration — the hand visibly hunts.
+    const expandMs = Math.min(S.hand.telegraphMs * 0.40, 700);
+    const k = Math.min(1, S.hand.t / expandMs);
+    const rRet = S.hand.zoneR * k;
+    retFill.scale.set(rRet, rRet, rRet);
+    retOutline.scale.set(rRet, rRet, rRet);
+    const ageK = Math.min(1, S.hand.t / S.hand.telegraphMs);
+    retFill.material.opacity = 0.2 + ageK * 0.18;
+    retOutline.material.opacity = 0.5 + ageK * 0.5;
+    const pulse = 1 + Math.sin(S.hand.t * 0.012) * 0.04 * k;
+    retFill.scale.multiplyScalar(pulse);
+    // anticipation flex — fingers breathe open/closed (small twitch in close direction)
+    const flex = Math.sin(tSec * 6.2) * 0.05 * k;
+    if (handAnim.thumb.bone) {
+      handAnim.thumb.bone.rotation[handAnim.thumb.axis] = handAnim.thumb.restAngle + flex;
+    }
+    if (handAnim.index.bone) {
+      handAnim.index.bone.rotation[handAnim.index.axis] = handAnim.index.restAngle + flex;
+    }
+    if (S.hand.t >= S.hand.telegraphMs) {
+      S.hand.phase = 'approach';
+      S.hand.t = 0;
+    }
+  } else if (S.hand.phase === 'approach') {
+    const k = Math.min(1, S.hand.t / S.hand.approachMs);
+    // wrist articulation — subtle tilt wobble that fades as hand commits
+    const wob = Math.sin(tSec * 7.3) * 0.04 * (1 - k);
+    handAnim.tilt.rotation.x = handAnim.baseTiltX + wob;
+    handAnim.tilt.rotation.z = handAnim.baseTiltZ + Math.cos(tSec * 5.8) * 0.03 * (1 - k);
+    // aim wobble — small Y rotation, settling into final azimuth
+    const aim = Math.sin(tSec * 4.5) * 0.05 * (1 - k);
+    handGroup.rotation.y = S.hand.azimuth + aim;
+    if (S.hand.t >= S.hand.approachMs) {
+      S.hand.phase = 'hover';
+      S.hand.t = 0;
+      captureFiguresInZone();
+    }
+  } else if (S.hand.phase === 'hover') {
+    if (S.hand.t >= S.hand.hoverMs) {
+      S.hand.phase = 'pinch';
+      S.hand.t = 0;
+    }
+  } else if (S.hand.phase === 'pinch') {
+    // Two-stage pinch with a test-grip plateau, layered with asymmetric lead/lag.
+    // pinchCurve(t): ramps to holdLevel, holds, then commits to 1.0
+    const hs = S.hand.holdStart;
+    const he = S.hand.holdEnd;
+    const hl = S.hand.holdLevel;
+    const pinchCurve = (t) => {
+      if (t <= 0) return 0;
+      if (t >= 1) return 1;
+      if (t < hs) return (t / hs) * hl;
+      if (t < he) return hl;
+      return hl + ((t - he) / (1 - he)) * (1 - hl);
+    };
+    const k = S.hand.t / S.hand.pinchMs;
+    // index leads (finishes early); thumb starts later, finishes at end
+    const indexT = Math.max(0, Math.min(1, k / (1 - S.hand.indexLead * 0.4)));
+    const thumbT = Math.max(0, Math.min(1, (k - S.hand.indexLead) / (1 - S.hand.indexLead)));
+    const indexP = pinchCurve(indexT);
+    const thumbP = pinchCurve(thumbT);
+    setCurl(handAnim.index, indexP);
+    setCurl(handAnim.thumb, thumbP);
+    // Other fingers curl into a partial fist during pinch — starts ~30% in
+    const fistT = Math.max(0, Math.min(1, (k - 0.30) / 0.70));
+    const fistE = 1 - (1 - fistT) * (1 - fistT);
+    setCurl(handAnim.middle, fistE);
+    setCurl(handAnim.ring,   fistE);
+    setCurl(handAnim.pinky,  fistE);
+    if (S.hand.t >= S.hand.pinchMs) {
+      S.hand.phase = 'lift';
+      S.hand.t = 0;
+    }
+  } else if (S.hand.phase === 'lift') {
+    const k = Math.min(1, S.hand.t / S.hand.liftMs);
+    // wrist rotation — twist during pull-back, peaks mid-lift
+    handGroup.rotation.y = S.hand.azimuth + Math.sin(k * Math.PI) * 0.20;
+    // tilt back as if drawing toward body
+    handAnim.tilt.rotation.x = handAnim.baseTiltX - k * 0.22;
+    // fade reticle
+    const fade = 1 - k;
+    retFill.material.opacity = 0.38 * fade;
+    retOutline.material.opacity = fade;
+    if (S.hand.t >= S.hand.liftMs) {
+      S.hand.phase = 'idle';
+      handGroup.visible = false;
+      reticleGroup.visible = false;
+      S.nextHandAt = S.t + S.hand.cooldownMs;
+    }
+  }
+}
+
+// ============================================================
+// ELIMINATION + GAME PROGRESS
+// ============================================================
+function eliminate(f, reason) {
+  if (!f.alive) return;
+  f.alive = false;
+  S.alive--;
+  S.eliminated.push({ id: f.id, isPlayer: f.isPlayer, reason, atMs: S.t });
+  if (f.isPlayer) {
+    const msg = reason === 'fell' ? 'you fell'
+              : reason === 'drained' ? 'you were broken'
+              : 'you were taken';
+    showHint(msg);
+  }
+  if (S.alive <= CFG.podiumCount) {
+    endGame();
+  }
+}
+
+function endGame() {
+  if (S.phase === 'over') return;
+  S.phase = 'over';
+  // remaining figures = podium
+  const podium = S.figs.filter(f => f.alive);
+  S.podium = podium.map(f => f.id);
+
+  // determine player placement
+  let placement;
+  if (S.player.alive) {
+    // top 3, rank by... arbitrarily by current "score" (closeness to center? survival?)
+    // for prototype: all 3 survivors share top, but let's say player placed as alive count when game ended
+    // simpler: player placement = number of survivors when player still alive at end
+    // even simpler: count alive figures including player → rank by distance to center? no.
+    // Decision: player placed = (10 - S.eliminated.length) ranked among survivors
+    // For 3 survivors we'd need to rank them. For prototype, give player placement based on time of being last hit
+    // Simplest: if player alive, placement = 1 (they were a survivor, top 3 all "win" but player is treated as winner)
+    // For more nuance: rank survivors by distance from center (closer = better, since they're stable).
+    const sorted = [...podium].sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z));
+    placement = sorted.findIndex(f => f.isPlayer) + 1;
+  } else {
+    // player was eliminated; placement = 10 - eliminated index when player went out
+    const idx = S.eliminated.findIndex(e => e.isPlayer);
+    placement = CFG.startCount - idx; // last eliminated = highest place
+  }
+
+  showOverlay(placement);
+}
+
+function showHint(text) {
+  const h = document.getElementById('hint');
+  h.textContent = text;
+  h.classList.add('on');
+  clearTimeout(showHint._t);
+  showHint._t = setTimeout(() => h.classList.remove('on'), 1600);
+}
+
+function showOverlay(placement) {
+  const o = document.getElementById('over');
+  const ord = document.getElementById('ord');
+  const stat = document.getElementById('overStat');
+  const ords = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th'];
+  ord.textContent = ords[placement - 1] || (placement + 'th');
+  ord.className = 'ord' + (placement <= 2 ? ' win' : '');
+  const sec = Math.floor(S.t / 1000);
+  const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+  const ss = String(sec % 60).padStart(2, '0');
+  stat.textContent = `survived ${mm}:${ss}`;
+  o.classList.add('show');
+}
+
+// ============================================================
+// SHRINK
+// ============================================================
+function maybeShrink(dt) {
+  if (S.t < S.nextShrinkAt) return;
+  const newR = Math.max(CFG.shrinkMin, S.plateR * CFG.shrinkFactor);
+  S.plateR = newR;
+  // animate plate scale
+  const targetScale = newR / CFG.plateR0;
+  // tween over 600ms
+  shrinkTween = { from: plateMesh.scale.x, to: targetScale, t: 0, dur: 0.6 };
+  S.nextShrinkAt = S.t + CFG.shrinkEveryMs;
+  showHint('the plate shrinks');
+}
+
+let shrinkTween = null;
+function tickShrinkTween(dt) {
+  if (!shrinkTween) return;
+  shrinkTween.t += dt;
+  const k = Math.min(1, shrinkTween.t / shrinkTween.dur);
+  const e = 1 - (1 - k) * (1 - k);
+  const s = lerp(shrinkTween.from, shrinkTween.to, e);
+  plateMesh.scale.set(s, 1, s);
+  rimMesh.scale.set(s, 1, s);
+  reticleGroup.scale.set(1, 1, 1); // keep reticle absolute
+  if (k >= 1) shrinkTween = null;
+}
+
+// ============================================================
+// HUD
+// ============================================================
+const hudAlive = document.getElementById('alive');
+const hudTime = document.getElementById('time');
+const hudPhase = document.getElementById('phase');
+const hudZone = document.getElementById('zone');
+const hudNext = document.getElementById('next');
+const tiltArrow = document.getElementById('tilt-arrow');
+const hpRow = document.getElementById('hpRow');
+const hpPipsDom = [];
+for (let i = 0; i < CFG.hpMax; i++) {
+  const p = document.createElement('div');
+  p.className = 'hp-pip';
+  hpRow.appendChild(p);
+  hpPipsDom.push(p);
+}
+
+function updateHud() {
+  hudAlive.textContent = S.alive;
+  const sec = Math.floor(S.t / 1000);
+  const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+  const ss = String(sec % 60).padStart(2, '0');
+  hudTime.textContent = `${mm}:${ss}`;
+  hudPhase.textContent = S.hand.phase === 'telegraph' ? 'a hand descends'
+                       : S.hand.phase === 'approach'  ? 'reaching'
+                       : S.hand.phase === 'hover'     ? 'selecting'
+                       : S.hand.phase === 'pinch'     ? 'grasping'
+                       : S.hand.phase === 'lift'      ? 'taken'
+                       : 'awaiting';
+  const zr = currentZoneR();
+  const pct = Math.round((zr / S.plateR) * 100);
+  hudZone.textContent = pct + '%';
+  if (S.hand.phase === 'idle') {
+    const tt = Math.max(0, S.nextHandAt - S.t);
+    hudNext.textContent = `next hand ${(tt / 1000).toFixed(1)}s`;
+  } else {
+    hudNext.textContent = '— in motion —';
+  }
+  // tilt arrow
+  const ang = Math.atan2(S.tilt.x, -S.tilt.z) * 180 / Math.PI;
+  const mag = Math.min(1, Math.hypot(S.tilt.x, S.tilt.z));
+  tiltArrow.style.transform = `translate(-50%, -100%) rotate(${ang}deg) scaleY(${0.4 + mag * 0.7})`;
+
+  // player HP pips
+  if (S.player) {
+    const hp = Math.max(0, S.player.hp);
+    const inIframe = S.player.invulnT > 0;
+    for (let i = 0; i < CFG.hpMax; i++) {
+      const dom = hpPipsDom[i];
+      dom.classList.toggle('dead', i >= hp);
+      dom.classList.toggle('iframe', inIframe && i < hp);
+    }
+  }
+}
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+
+  if (S.phase === 'play') {
+    S.t = now - S.startedAt;
+    updateTilt(dt);
+    updateFigures(dt);
+    if (S.hand.phase === 'idle' && S.t >= S.nextHandAt && S.alive > CFG.podiumCount) {
+      startHand();
+    }
+    updateHand(dt);
+    maybeShrink(dt);
+    tickShrinkTween(dt);
+    updateHud();
+  } else if (S.phase === 'over') {
+    // keep figures gently moving so the plate looks alive
+    updateTilt(dt);
+    updateFigures(dt);
+    updateHand(dt);
+    tickShrinkTween(dt);
+    updateHud();
+  }
+
+  fitCameraTarget();
+  tickCamera(dt);
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+// ============================================================
+// START / RESET
+// ============================================================
+function reset() {
+  // remove all figures meshes
+  for (const f of S.figs) {
+    if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
+  }
+  S.figs = [];
+  S.player = null;
+  S.alive = 0;
+  S.eliminated = [];
+  S.podium = [];
+  S.t = 0;
+  S.startedAt = performance.now();
+  S.plateR = CFG.plateR0;
+  plateMesh.scale.set(1, 1, 1);
+  rimMesh.scale.set(1, 1, 1);
+  S.nextShrinkAt = CFG.shrinkEveryMs;
+  S.nextHandAt = 4500;
+  S.firstHand = true;
+  S.hand = { phase: 'idle', t: 0, x: 0, z: 0, zoneR: 0, target: null, captured: [] };
+  S.tilt = { x: 0, z: 0 };
+  handGroup.visible = false;
+  reticleGroup.visible = false;
+  shrinkTween = null;
+  camInitialized = false;
+  spawnFigures();
+  S.phase = 'play';
+  document.getElementById('over').classList.remove('show');
+}
+
+document.getElementById('start').addEventListener('click', () => {
+  document.getElementById('title').classList.add('gone');
+  setTimeout(() => document.getElementById('title').remove(), 700);
+  reset();
+});
+document.getElementById('again').addEventListener('click', () => {
+  reset();
+});
+
+// kick off render loop
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

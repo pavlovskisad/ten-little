@@ -1,0 +1,1880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>SHAPE STORE — feel test</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    background: #14110d;
+    overscroll-behavior: none;
+    position: fixed;
+    inset: 0;
+  }
+  body {
+    font-family: 'Cormorant Garamond', serif;
+    color: #f1e5cd;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+  }
+  button { -webkit-tap-highlight-color: transparent; }
+  canvas#c { display: block; position: fixed; inset: 0; width: 100%; height: 100dvh; }
+
+  /* grain overlay */
+  body::after {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 5;
+    background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.45'/></svg>");
+    mix-blend-mode: overlay; opacity: 0.16;
+  }
+
+  /* HUD */
+  .hud {
+    position: fixed; z-index: 10; pointer-events: none;
+    color: #f1e5cd;
+  }
+  .hud .label {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 300; font-style: italic;
+    font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase;
+    opacity: 0.55;
+  }
+  .hud .val {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700; font-size: 28px; line-height: 1; margin-top: 4px;
+  }
+  .hud .sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; opacity: 0.6; margin-top: 2px;
+  }
+  #hud-tl { top: calc(env(safe-area-inset-top) + 18px); left: calc(env(safe-area-inset-left) + 22px); }
+  #hud-tr { top: calc(env(safe-area-inset-top) + 18px); right: calc(env(safe-area-inset-right) + 22px); text-align: right; }
+  #hud-bl { bottom: calc(env(safe-area-inset-bottom) + 18px); left: calc(env(safe-area-inset-left) + 22px); }
+  #hud-br { bottom: calc(env(safe-area-inset-bottom) + 18px); right: calc(env(safe-area-inset-right) + 22px); text-align: right; }
+
+  .hp-row { display: flex; gap: 4px; margin-top: 8px; }
+  .hp-pip {
+    width: 14px; height: 18px;
+    background: #d4421f; border: 1px solid #d4421f;
+    box-shadow: 0 0 6px rgba(212,66,31,0.55);
+    transition: background 0.15s, opacity 0.15s, box-shadow 0.15s;
+  }
+  .hp-pip.dead {
+    background: transparent; border-color: rgba(212,66,31,0.22);
+    opacity: 0.35; box-shadow: none;
+  }
+  .hp-pip.iframe {
+    background: #ffffff; border-color: #ffffff;
+    box-shadow: 0 0 12px rgba(255,255,255,0.75);
+  }
+
+  /* tilt indicator */
+  #tilt {
+    position: fixed; bottom: calc(env(safe-area-inset-bottom) + 22px); left: 50%; transform: translateX(-50%);
+    width: 64px; height: 64px; z-index: 10; pointer-events: none;
+    border: 1px solid rgba(241,229,205,0.18); border-radius: 50%;
+  }
+  #tilt::before {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(circle, rgba(241,229,205,0.06), transparent 70%);
+    border-radius: 50%;
+  }
+  #tilt-arrow {
+    position: absolute; top: 50%; left: 50%;
+    width: 2px; height: 26px; background: #d4421f;
+    transform-origin: 50% 100%;
+    transform: translate(-50%, -100%) rotate(0deg);
+    transition: transform 0.05s linear;
+    box-shadow: 0 0 8px rgba(212,66,31,0.6);
+  }
+  #tilt-arrow::before {
+    content: ''; position: absolute; top: -3px; left: 50%; transform: translateX(-50%);
+    width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent;
+    border-bottom: 6px solid #d4421f;
+  }
+  #tilt-label {
+    position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%);
+    font-family: 'Cormorant Garamond', serif; font-style: italic;
+    font-size: 10px; letter-spacing: 0.25em; text-transform: uppercase;
+    color: #f1e5cd; opacity: 0.4; white-space: nowrap;
+  }
+
+  /* title at intro */
+  #title {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; z-index: 20;
+    background: radial-gradient(ellipse at center, rgba(20,17,13,0.4), rgba(20,17,13,0.95));
+    transition: opacity 0.6s ease;
+  }
+  #title h1 {
+    font-family: 'Cormorant Garamond', serif; font-weight: 500;
+    font-size: clamp(40px, 10vw, 108px); letter-spacing: 0.2em;
+    color: #f5e6c4; text-shadow: 0 0 40px rgba(212,66,31,0.18);
+    text-align: center;
+  }
+  #title .brand {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    letter-spacing: 0.5em; text-transform: uppercase;
+    color: #f5e6c4; opacity: 0.45; margin-top: 6px;
+  }
+  #title p {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    letter-spacing: 0.4em; text-transform: uppercase;
+    color: #f1e5cd; opacity: 0.5; margin-top: 22px;
+  }
+  #title button {
+    margin-top: 50px; padding: 14px 36px;
+    background: transparent; border: 1px solid #f1e5cd;
+    color: #f1e5cd; font-family: 'Cormorant Garamond', serif;
+    font-size: 18px; letter-spacing: 0.3em; text-transform: uppercase;
+    cursor: pointer; transition: all 0.2s; pointer-events: auto;
+  }
+  #title button:hover { background: #f1e5cd; color: #14110d; }
+  #title.gone { opacity: 0; pointer-events: none; }
+
+  /* end overlay */
+  #over {
+    position: fixed; inset: 0; display: none; flex-direction: column;
+    align-items: center; justify-content: center; z-index: 20;
+    background: rgba(20,17,13,0.86);
+  }
+  #over.show { display: flex; }
+  #over .place {
+    font-family: 'Cormorant Garamond', serif; font-weight: 300;
+    font-size: 14px; letter-spacing: 0.4em; text-transform: uppercase;
+    color: #f1e5cd; opacity: 0.5;
+  }
+  #over .ord {
+    font-family: 'Cormorant Garamond', serif; font-weight: 500;
+    font-size: clamp(80px, 18vw, 200px); line-height: 1; margin-top: 10px;
+    color: #f1e5cd;
+  }
+  #over .ord.win { color: #f5c948; text-shadow: 0 0 60px rgba(245,201,72,0.45); }
+  #over .stat {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    letter-spacing: 0.2em; opacity: 0.6; margin-top: 20px;
+  }
+  #over button {
+    margin-top: 50px; padding: 14px 36px;
+    background: transparent; border: 1px solid #f1e5cd;
+    color: #f1e5cd; font-family: 'Cormorant Garamond', serif;
+    font-size: 18px; letter-spacing: 0.3em; text-transform: uppercase;
+    cursor: pointer; transition: all 0.2s;
+  }
+  #over button:hover { background: #f1e5cd; color: #14110d; }
+
+  /* virtual joystick — desktop default left, mobile moves right */
+  #stick {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom) + 30px);
+    left: calc(env(safe-area-inset-left) + 30px);
+    width: 130px; height: 130px; z-index: 15;
+    border: 1px solid rgba(241,229,205,0.15); border-radius: 50%;
+    display: none;
+  }
+  #stick.on { display: block; }
+  #stick-knob {
+    position: absolute; top: 50%; left: 50%;
+    width: 50px; height: 50px; margin: -25px 0 0 -25px;
+    background: rgba(241,229,205,0.25); border: 1px solid rgba(241,229,205,0.4);
+    border-radius: 50%;
+  }
+
+  /* hint banner */
+  #hint {
+    position: fixed; top: calc(env(safe-area-inset-top) + 90px); left: 50%; transform: translateX(-50%);
+    z-index: 10; pointer-events: none;
+    font-family: 'Cormorant Garamond', serif; font-style: italic;
+    font-size: 16px; letter-spacing: 0.15em; opacity: 0;
+    color: #d4421f; text-shadow: 0 0 20px rgba(212,66,31,0.45);
+    transition: opacity 0.3s;
+  }
+  #hint.on { opacity: 1; }
+
+  /* ============================================================
+     MOBILE — compact layout, joystick on right, no tilt indicator
+     ============================================================ */
+  @media (max-width: 720px), (pointer: coarse) {
+    .hud .label { font-size: 9px; letter-spacing: 0.25em; }
+    .hud .val { font-size: 22px; }
+    .hud .sub { font-size: 10px; }
+
+    #hud-tl, #hud-tr {
+      top: calc(env(safe-area-inset-top) + 10px);
+    }
+    #hud-tl { left: calc(env(safe-area-inset-left) + 14px); }
+    #hud-tr { right: calc(env(safe-area-inset-right) + 14px); }
+
+    /* hide pick zone / next on mobile to save space */
+    #hud-br { display: none; }
+
+    /* hide tilt indicator — the 3D plate already shows tilt */
+    #tilt { display: none; }
+
+    /* HP at bottom-left, stick at bottom-right */
+    #hud-bl {
+      bottom: calc(env(safe-area-inset-bottom) + 18px);
+      left: calc(env(safe-area-inset-left) + 14px);
+    }
+    .hp-row { gap: 3px; margin-top: 5px; }
+    .hp-pip { width: 9px; height: 14px; }
+
+    #stick {
+      left: auto;
+      bottom: calc(env(safe-area-inset-bottom) + 24px);
+      right: calc(env(safe-area-inset-right) + 24px);
+      width: 150px; height: 150px;
+    }
+    #stick-knob { width: 60px; height: 60px; margin: -30px 0 0 -30px; }
+
+    #hint { top: calc(env(safe-area-inset-top) + 60px); font-size: 14px; }
+
+    /* title and over screens */
+    #title h1 { font-size: clamp(40px, 14vw, 88px); }
+    #title p { font-size: 10px; padding: 0 20px; text-align: center; }
+    #title button { margin-top: 36px; padding: 16px 40px; font-size: 16px; }
+    #over .ord { font-size: clamp(72px, 26vw, 160px); }
+    #over button { margin-top: 36px; padding: 16px 40px; font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud" class="hud">
+  <div id="hud-tl">
+    <div class="label">Alive</div>
+    <div class="val"><span id="alive">10</span><span style="opacity:0.3"> / 10</span></div>
+  </div>
+  <div id="hud-tr">
+    <div class="label">Round</div>
+    <div class="val" id="time">00:00</div>
+    <div class="sub" id="phase">idle</div>
+  </div>
+  <div id="hud-bl">
+    <div class="label">Health</div>
+    <div id="hpRow" class="hp-row"></div>
+  </div>
+  <div id="hud-br">
+    <div class="label">Pick zone</div>
+    <div class="val" id="zone">12%</div>
+    <div class="sub" id="next">next claw 0s</div>
+  </div>
+</div>
+
+<div id="tilt">
+  <div id="tilt-arrow"></div>
+  <div id="tilt-label">tilt</div>
+</div>
+
+<div id="hint"></div>
+
+<div id="stick"><div id="stick-knob"></div></div>
+
+<div id="title">
+  <h1>SHAPE STORE</h1>
+  <div class="brand">a branded variant of plate</div>
+  <p>ten shapes · arcade claw · last three stand</p>
+  <button id="start">Begin</button>
+</div>
+
+<div id="over">
+  <div class="place">You placed</div>
+  <div class="ord" id="ord">3rd</div>
+  <div class="stat" id="overStat">survived 00:00</div>
+  <button id="again">Again</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+'use strict';
+
+// ============================================================
+// CONFIG — tune these
+// ============================================================
+const CFG = {
+  // plate
+  plateR0: 7.5,
+  plateThick: 0.25,
+  shrinkEveryMs: 14000,
+  shrinkFactor: 0.93,
+  shrinkMin: 3.5,
+
+  // figures (base unit, individual shapes carry their own collidR)
+  figR: 0.42,
+  figH: 0.85,
+  startCount: 10,
+  podiumCount: 3,
+
+  // tilt
+  maxTilt: 0.50,
+  slideForce: 34,
+  friction: 3.2,
+  tiltEase: 9,
+  edgePadFall: 0.05,
+
+  // movement
+  playerSpeed: 4.5,
+  botSpeed: 3.6,
+  fleeSpeed: 6.2,
+  botAccel: 6.0,
+  playerAccel: 14.0,
+
+  // claw
+  handIdleY: 9.5,
+  handGrabY: 0.55,
+  handCooldownMs: 2600,
+  handTelegraphMs: 1500,
+  handApproachMs: 700,
+  handHoverMs: 180,
+  handPinchMs: 220,
+  handLiftMs: 850,
+  zoneMinFrac: 0.11,
+  zoneMaxFrac: 0.55,
+
+  // contact damage
+  hpMax: 10,
+  contactDmg: 1,
+  iframeMs: 600,
+  drainMs: 550,
+  bumpForce: 5.5,
+};
+
+// ============================================================
+// SHAPE CATALOG — colored geometric primitives for figures
+// ============================================================
+const SHAPE_DEFS = [
+  // type, visual size factor, collidR (separation half-radius), yOffset (vertical center above plate top)
+  { type: 'cube',       collidR: 0.42, yOffset: 0.42 },
+  { type: 'sphere',     collidR: 0.45, yOffset: 0.45 },
+  { type: 'cone',       collidR: 0.40, yOffset: 0.50 },
+  { type: 'cylinder',   collidR: 0.40, yOffset: 0.45 },
+  { type: 'octahedron', collidR: 0.45, yOffset: 0.55 },
+  { type: 'pyramid',    collidR: 0.42, yOffset: 0.50 },
+];
+
+const SHAPE_COLORS = [
+  0xe63946, // red
+  0x2a6df4, // blue
+  0xf6c700, // yellow
+  0x3aaa35, // green
+  0xf28d2c, // orange
+  0x8b5cf6, // purple
+  0xe87da7, // pink
+  0x4fc3f7, // light blue
+  0x9ee04d, // lime
+  0xf5d33a, // warm yellow
+];
+
+// ============================================================
+// STATE
+// ============================================================
+const S = {
+  phase: 'idle',
+  t: 0,
+  plateR: CFG.plateR0,
+  nextShrinkAt: CFG.shrinkEveryMs,
+  figs: [],
+  player: null,
+  alive: 0,
+  eliminated: [],
+  podium: [],
+  hand: { phase: 'idle', t: 0, x: 0, z: 0, zoneR: 0, target: null, captured: [] },
+  nextHandAt: 4500,
+  firstHand: true,
+  tilt: { x: 0, z: 0 },
+  input: { dx: 0, dy: 0 },
+  startedAt: 0,
+};
+
+// ============================================================
+// THREE setup
+// ============================================================
+const canvas = document.getElementById('c');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x14110d);
+scene.fog = new THREE.Fog(0x14110d, 22, 48);
+
+const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 100);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+
+const camTarget = { y: 14, z: 13.5, fov: 42 };
+let camInitialized = false;
+
+function fitCameraTarget() {
+  const w = window.innerWidth, h = window.innerHeight;
+  const aspect = w / h;
+  camera.aspect = aspect;
+  renderer.setSize(w, h);
+
+  let fov;
+  if (aspect < 0.95) {
+    const k = Math.min(1, (1 - aspect) / 0.55);
+    fov = 42 + k * 22;
+  } else {
+    fov = 42;
+  }
+  camTarget.fov = fov;
+
+  const shrinkProgress = (CFG.plateR0 - S.plateR) / Math.max(0.01, (CFG.plateR0 - CFG.shrinkMin));
+  const margin = lerp(1.12, 1.00, Math.max(0, Math.min(1, shrinkProgress)));
+
+  const plateD = S.plateR * 2;
+  const fovRad = fov * Math.PI / 180;
+  const tanHalf = Math.tan(fovRad / 2);
+  const projFactor = 0.78;
+  const dForHoriz = (plateD * margin) / (2 * tanHalf * aspect);
+  const dForVert = (plateD * projFactor * margin) / (2 * tanHalf);
+  const d = Math.max(dForHoriz, dForVert);
+
+  const k = d / 19.45;
+  camTarget.y = 14 * k;
+  camTarget.z = 13.5 * k;
+}
+
+function tickCamera(dt) {
+  if (!camInitialized) {
+    camera.position.set(0, camTarget.y, camTarget.z);
+    camera.fov = camTarget.fov;
+    camera.lookAt(0, 0, 0);
+    camera.updateProjectionMatrix();
+    camInitialized = true;
+    return;
+  }
+  const k = 1 - Math.exp(-2.6 * dt);
+  camera.position.y += (camTarget.y - camera.position.y) * k;
+  camera.position.z += (camTarget.z - camera.position.z) * k;
+  camera.fov += (camTarget.fov - camera.fov) * k;
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+}
+
+fitCameraTarget();
+
+window.addEventListener('resize', fitCameraTarget);
+window.addEventListener('orientationchange', () => setTimeout(fitCameraTarget, 100));
+
+// lights — slightly warmer mix to suit wood plate + primary shapes
+const amb = new THREE.AmbientLight(0xfff2d8, 0.55);
+scene.add(amb);
+const key = new THREE.DirectionalLight(0xffe9b8, 1.05);
+key.position.set(6, 14, 4);
+key.castShadow = true;
+key.shadow.mapSize.set(1024, 1024);
+key.shadow.camera.left = -10; key.shadow.camera.right = 10;
+key.shadow.camera.top = 10; key.shadow.camera.bottom = -10;
+key.shadow.camera.near = 1; key.shadow.camera.far = 30;
+key.shadow.bias = -0.0005;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x9a8068, 0.28);
+rim.position.set(-5, 6, -5);
+scene.add(rim);
+
+// ============================================================
+// PLATE — warm wood tone with darker rim and concentric rings
+// ============================================================
+const plateGroup = new THREE.Group();
+scene.add(plateGroup);
+
+const plateMat = new THREE.MeshStandardMaterial({
+  color: 0xd9b88a, roughness: 0.88, metalness: 0.03,
+});
+const plateGeo = new THREE.CylinderGeometry(CFG.plateR0, CFG.plateR0 * 0.97, CFG.plateThick, 96);
+const plateMesh = new THREE.Mesh(plateGeo, plateMat);
+plateMesh.receiveShadow = true;
+plateGroup.add(plateMesh);
+
+const rimGeo = new THREE.TorusGeometry(CFG.plateR0, 0.028, 8, 96);
+const rimMat = new THREE.MeshBasicMaterial({ color: 0x6a4a2c });
+const rimMesh = new THREE.Mesh(rimGeo, rimMat);
+rimMesh.rotation.x = Math.PI / 2;
+rimMesh.position.y = CFG.plateThick / 2 + 0.001;
+plateGroup.add(rimMesh);
+
+// tapered underside — makes the disc read as a dinner plate from the side
+const plateUnderGeo = new THREE.CylinderGeometry(CFG.plateR0 * 0.96, CFG.plateR0 * 0.55, 0.40, 64);
+const plateUnderMat = new THREE.MeshStandardMaterial({ color: 0xa07a52, roughness: 0.88, metalness: 0.04 });
+const plateUnder = new THREE.Mesh(plateUnderGeo, plateUnderMat);
+plateUnder.position.y = -CFG.plateThick / 2 - 0.20;
+plateUnder.receiveShadow = true;
+plateUnder.castShadow = true;
+plateGroup.add(plateUnder);
+
+function ring(r, op) {
+  const g = new THREE.RingGeometry(r - 0.015, r + 0.015, 96);
+  const m = new THREE.MeshBasicMaterial({ color: 0xb89968, transparent: true, opacity: op, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(g, m);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = CFG.plateThick / 2 + 0.002;
+  return mesh;
+}
+plateGroup.add(ring(CFG.plateR0 * 0.85, 0.20));
+plateGroup.add(ring(CFG.plateR0 * 0.55, 0.15));
+plateGroup.add(ring(CFG.plateR0 * 0.25, 0.12));
+
+// ============================================================
+// SHAPE STORE ROOM — wood plank floor + walls of stacked
+// primary-colored foam cubes (the playroom perimeter). The plate
+// floats above as the arena; figures falling off drop into the
+// gap between plate edge and the room floor.
+// ============================================================
+const roomGroup = new THREE.Group();
+scene.add(roomGroup);
+
+// far backstop floor — catches falling figures off-screen
+{
+  const farFloor = new THREE.Mesh(
+    new THREE.PlaneGeometry(120, 120),
+    new THREE.MeshBasicMaterial({ color: 0x0a0806 }),
+  );
+  farFloor.rotation.x = -Math.PI / 2;
+  farFloor.position.y = -8;
+  scene.add(farFloor);
+}
+
+// wood plank floor 2.5 units below the plate — the room floor
+{
+  const woodMat = new THREE.MeshStandardMaterial({
+    color: 0x8b6a44, roughness: 0.92, metalness: 0.04,
+  });
+  const wf = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), woodMat);
+  wf.rotation.x = -Math.PI / 2;
+  wf.position.y = -2.5;
+  wf.receiveShadow = true;
+  roomGroup.add(wf);
+
+  // plank seams — a few darker stripes along Z to read as floorboards
+  const seamMat = new THREE.MeshBasicMaterial({ color: 0x4a2f1c, transparent: true, opacity: 0.55 });
+  for (let i = -8; i <= 8; i++) {
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(80, 0.05), seamMat);
+    line.rotation.x = -Math.PI / 2;
+    line.position.set(0, -2.49, i * 1.8 + (i % 2 === 0 ? 0.6 : -0.3));
+    roomGroup.add(line);
+  }
+}
+
+// shared materials for the foam blocks — keeps draw calls low
+const ROOM_BLOCK_MATS = SHAPE_COLORS.map((c) => new THREE.MeshStandardMaterial({
+  color: c, roughness: 0.62, metalness: 0.04,
+}));
+function pickRoomMat() {
+  return ROOM_BLOCK_MATS[Math.floor(Math.random() * ROOM_BLOCK_MATS.length)];
+}
+
+// ring of stacked foam cubes — the room walls, foam-pit perimeter
+{
+  const blockSize = 1.4;
+  const innerR = 15;
+  const stacks = 64;
+  const baseY = -2.5;
+  for (let i = 0; i < stacks; i++) {
+    const ang = (i / stacks) * Math.PI * 2;
+    // vary radius slightly per stack so the wall isn't a perfect circle
+    const r = innerR + (Math.random() - 0.5) * 0.6;
+    const baseX = Math.cos(ang) * r;
+    const baseZ = Math.sin(ang) * r;
+    // stack height varies — taller at the back of the room (away from camera)
+    const backWeight = (baseZ < 0) ? 1.0 : 0.7;  // -Z is "behind" the plate from camera
+    const h = Math.floor(3 + Math.random() * 3 * backWeight + backWeight * 1.5);
+    for (let k = 0; k < h; k++) {
+      const cube = new THREE.Mesh(
+        new THREE.BoxGeometry(blockSize, blockSize, blockSize),
+        pickRoomMat(),
+      );
+      cube.position.set(
+        baseX + (Math.random() - 0.5) * 0.18,
+        baseY + blockSize / 2 + k * blockSize,
+        baseZ + (Math.random() - 0.5) * 0.18,
+      );
+      cube.rotation.y = (Math.random() - 0.5) * 0.10;
+      cube.castShadow = true;
+      cube.receiveShadow = true;
+      roomGroup.add(cube);
+    }
+  }
+
+  // a second outer ring further back, lower stacks, to thicken the wall
+  const outerR = innerR + 1.7;
+  for (let i = 0; i < stacks * 0.7; i++) {
+    const ang = (i / (stacks * 0.7)) * Math.PI * 2 + 0.05;
+    const r = outerR + Math.random() * 0.8;
+    const x = Math.cos(ang) * r;
+    const z = Math.sin(ang) * r;
+    const h = 2 + Math.floor(Math.random() * 3);
+    for (let k = 0; k < h; k++) {
+      const cube = new THREE.Mesh(
+        new THREE.BoxGeometry(blockSize, blockSize, blockSize),
+        pickRoomMat(),
+      );
+      cube.position.set(
+        x + (Math.random() - 0.5) * 0.15,
+        -2.5 + blockSize / 2 + k * blockSize,
+        z + (Math.random() - 0.5) * 0.15,
+      );
+      cube.rotation.y = (Math.random() - 0.5) * 0.12;
+      cube.castShadow = true;
+      cube.receiveShadow = true;
+      roomGroup.add(cube);
+    }
+  }
+}
+
+// scattered foam shapes on the floor between plate and wall — set dressing
+{
+  const decorCount = 22;
+  for (let i = 0; i < decorCount; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const r = 9 + Math.random() * 4;
+    const x = Math.cos(ang) * r;
+    const z = Math.sin(ang) * r;
+    const t = Math.floor(Math.random() * 5);
+    let geom, ySize;
+    if (t === 0)      { geom = new THREE.BoxGeometry(1.0, 1.0, 1.0);                     ySize = 0.50; }
+    else if (t === 1) { geom = new THREE.SphereGeometry(0.55, 18, 14);                   ySize = 0.55; }
+    else if (t === 2) { geom = new THREE.ConeGeometry(0.55, 1.10, 4);                    ySize = 0.55; }
+    else if (t === 3) { geom = new THREE.CylinderGeometry(0.50, 0.50, 0.90, 20);         ySize = 0.45; }
+    else              { geom = new THREE.ConeGeometry(0.55, 1.10, 22);                   ySize = 0.55; }
+    const mesh = new THREE.Mesh(geom, pickRoomMat());
+    mesh.position.set(x, -2.5 + ySize, z);
+    mesh.rotation.y = Math.random() * Math.PI * 2;
+    if (t === 0) mesh.rotation.z = (Math.random() - 0.5) * 0.3;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    roomGroup.add(mesh);
+  }
+}
+
+// ============================================================
+// TELEGRAPH RETICLE — warm terracotta tone over wood
+// ============================================================
+const reticleGroup = new THREE.Group();
+plateGroup.add(reticleGroup);
+
+const retFillMat = new THREE.MeshBasicMaterial({
+  color: 0xd4421f, transparent: true, opacity: 0.0, side: THREE.DoubleSide, depthWrite: false,
+});
+const retFillGeo = new THREE.CircleGeometry(1, 48);
+const retFill = new THREE.Mesh(retFillGeo, retFillMat);
+retFill.rotation.x = -Math.PI / 2;
+retFill.position.y = CFG.plateThick / 2 + 0.005;
+reticleGroup.add(retFill);
+
+const retOutlineMat = new THREE.MeshBasicMaterial({
+  color: 0xd4421f, transparent: true, opacity: 0.0, side: THREE.DoubleSide,
+});
+const retOutline = new THREE.Mesh(new THREE.RingGeometry(0.99, 1, 64), retOutlineMat);
+retOutline.rotation.x = -Math.PI / 2;
+retOutline.position.y = CFG.plateThick / 2 + 0.006;
+reticleGroup.add(retOutline);
+
+reticleGroup.visible = false;
+
+// ============================================================
+// FIGURES — colored geometric shapes (cubes, spheres, cones, cylinders,
+// octahedra, pyramids). Each figure gets a unique shape+color combo.
+// Slight roughness on materials so they read as painted wood / foam.
+// ============================================================
+function buildShapeMesh(defIdx, color) {
+  const def = SHAPE_DEFS[defIdx];
+  const mat = new THREE.MeshStandardMaterial({
+    color, roughness: 0.62, metalness: 0.05,
+    emissive: 0x000000, emissiveIntensity: 0,
+  });
+  let geom;
+  switch (def.type) {
+    case 'cube':
+      geom = new THREE.BoxGeometry(0.78, 0.78, 0.78);
+      break;
+    case 'sphere':
+      geom = new THREE.SphereGeometry(0.45, 22, 16);
+      break;
+    case 'cone':
+      geom = new THREE.ConeGeometry(0.46, 1.00, 24);
+      break;
+    case 'cylinder':
+      geom = new THREE.CylinderGeometry(0.42, 0.44, 0.86, 24);
+      break;
+    case 'octahedron':
+      geom = new THREE.OctahedronGeometry(0.55, 0);
+      break;
+    case 'pyramid':
+      geom = new THREE.ConeGeometry(0.55, 0.95, 4);  // 4-sided cone = square pyramid
+      break;
+  }
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = false;
+  return { mesh, mat, def };
+}
+
+function makeFigure(isPlayer, defIdx, color) {
+  const g = new THREE.Group();
+  const { mesh, mat, def } = buildShapeMesh(defIdx, color);
+  // center the visual at yOffset above the plate top
+  mesh.position.y = def.yOffset;
+  // pyramid + cone come with apex up; that's the look we want
+  g.add(mesh);
+
+  // subtle base shadow disc to anchor the shape on the wood
+  const discGeo = new THREE.CircleGeometry(def.collidR * 1.05, 18);
+  const discMat = new THREE.MeshBasicMaterial({ color: 0x14110d, transparent: true, opacity: 0.35 });
+  const disc = new THREE.Mesh(discGeo, discMat);
+  disc.rotation.x = -Math.PI / 2;
+  disc.position.y = 0.001;
+  g.add(disc);
+
+  return { group: g, shapeMesh: mesh, shapeMat: mat, def };
+}
+
+// Spinning yellow octahedron-star added to the plate group (NOT the figure)
+// so the figure can freely rotate to face movement without spinning the marker.
+let playerMarker = null;
+function buildPlayerMarker() {
+  const geo = new THREE.OctahedronGeometry(0.18, 0);
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xf5c948,
+    emissive: 0xf5c948, emissiveIntensity: 0.95,
+    roughness: 0.30, metalness: 0.10,
+  });
+  const m = new THREE.Mesh(geo, mat);
+  m.castShadow = false;
+  return m;
+}
+
+function spawnFigures() {
+  for (const f of S.figs) plateGroup.remove(f.mesh);
+  S.figs = [];
+
+  // unique color shuffle, plus a shape rotation so every combo is distinct
+  const colorOrder = [...SHAPE_COLORS].sort(() => Math.random() - 0.5);
+  // shape rotation: cycle through SHAPE_DEFS so we get a mix
+  const shapeBase = Math.floor(Math.random() * SHAPE_DEFS.length);
+
+  const playerSlot = Math.floor(Math.random() * CFG.startCount);
+  for (let i = 0; i < CFG.startCount; i++) {
+    const ang = (i / CFG.startCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.15;
+    const r = CFG.plateR0 * (0.45 + Math.random() * 0.15);
+    const x = Math.cos(ang) * r;
+    const z = Math.sin(ang) * r;
+    const isPlayer = (i === playerSlot);
+    const defIdx = (shapeBase + i) % SHAPE_DEFS.length;
+    const color = colorOrder[i];
+    const built = makeFigure(isPlayer, defIdx, color);
+    const mesh = built.group;
+    mesh.position.set(x, CFG.plateThick / 2, z);
+    mesh.rotation.y = Math.atan2(-x, -z);
+    plateGroup.add(mesh);
+    const f = {
+      id: i,
+      x, z, vx: 0, vz: 0,
+      alive: true,
+      isPlayer,
+      mesh,
+      shapeMesh: built.shapeMesh,
+      shapeMat: built.shapeMat,
+      def: built.def,
+      baseColor: color,
+      collidR: built.def.collidR,
+      yOffset: built.def.yOffset,
+      hp: CFG.hpMax,
+      invulnT: 0,
+      hp0Logged: false,
+      draining: false, drainT: 0,
+      dropping: false, dropT: 0, dropY: 0, dropVy: 0,
+      picked: false, pickT: 0, pickStartX: 0, pickStartZ: 0, pickStartY: 0,
+      scale: 1,
+      wanderAng: Math.random() * Math.PI * 2,
+      wanderTimer: Math.random() * 1.5,
+      boldness: isPlayer ? 0 : Math.random(),
+      // subtle hover bob phase so the shapes feel light, not bolted
+      bobPhase: Math.random() * Math.PI * 2,
+      spinAxis: Math.random() * Math.PI * 2,
+    };
+    S.figs.push(f);
+    if (isPlayer) {
+      S.player = f;
+      // attach the spinning marker; it lives in plateGroup and tracks player position
+      if (playerMarker) plateGroup.remove(playerMarker);
+      playerMarker = buildPlayerMarker();
+      plateGroup.add(playerMarker);
+    }
+  }
+  S.alive = CFG.startCount;
+}
+
+// ============================================================
+// CLAW — procedural three-prong arcade mechanism with cable.
+// Sits inside handAnim.tilt so existing wobble/sway code applies.
+// ============================================================
+const handGroup = new THREE.Group();
+handGroup.position.set(0, CFG.handIdleY, 0);
+scene.add(handGroup);
+
+const CLAW_RIG = {
+  pivotR: 0.15,      // radial offset of prong pivot from claw axis
+  pivotY: 0.735,     // pivot height above pinch point (handGroup origin)
+  prongLen: 0.75,
+  hookLen: 0.22,
+  hookBend: 0.35,    // radians, inward
+  openAngle: 0.55,   // prongs splay outward
+  closedAngle: -0.20,// tips converge at origin (pinch point)
+};
+
+const handAnim = {
+  ready: false,
+  tilt: null,
+  prongs: [],         // array of { group, restAngle, closeAngle }
+  baseTiltX: -0.05,
+  baseTiltZ: -0.05,
+};
+
+(function buildTilt() {
+  const tilt = new THREE.Group();
+  tilt.rotation.z = handAnim.baseTiltZ;
+  tilt.rotation.x = handAnim.baseTiltX;
+  handGroup.add(tilt);
+  handAnim.tilt = tilt;
+})();
+
+function buildClaw() {
+  const root = new THREE.Group();
+
+  const metalMat   = new THREE.MeshStandardMaterial({ color: 0xa6a6a6, roughness: 0.32, metalness: 0.92 });
+  const darkMetal  = new THREE.MeshStandardMaterial({ color: 0x3b3b3b, roughness: 0.50, metalness: 0.80 });
+  const cableMat   = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.70, metalness: 0.30 });
+  const jointMat   = new THREE.MeshStandardMaterial({ color: 0x252525, roughness: 0.55, metalness: 0.65 });
+
+  // cable — extends well above frame so it always reads as a hanging mechanism
+  const cableLen = 12;
+  const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.030, 0.030, cableLen, 8), cableMat);
+  cable.position.y = CLAW_RIG.pivotY + 0.30 + cableLen / 2;
+  root.add(cable);
+
+  // central column beneath the mounting plate
+  const col = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.13, 0.32, 14), darkMetal);
+  col.position.y = CLAW_RIG.pivotY - 0.05;
+  col.castShadow = true;
+  root.add(col);
+
+  // mounting plate — metallic disc just above the prong pivots
+  const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.24, 0.10, 22), metalMat);
+  plate.position.y = CLAW_RIG.pivotY + 0.20;
+  plate.castShadow = true;
+  root.add(plate);
+
+  // top fastener / cap where cable meets the plate
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.10, 12), darkMetal);
+  cap.position.y = CLAW_RIG.pivotY + 0.32;
+  root.add(cap);
+
+  // three prongs equally spaced
+  for (let i = 0; i < 3; i++) {
+    const phi = (i / 3) * Math.PI * 2;
+
+    // pivot group: positioned at the prong pivot, rotated so its local +X axis
+    // points radially outward. Rotation around local +Z then tilts the prong
+    // inward (negative) or outward (positive) — closed/open in the rig spec.
+    const pivot = new THREE.Group();
+    pivot.position.set(CLAW_RIG.pivotR * Math.cos(phi), CLAW_RIG.pivotY, CLAW_RIG.pivotR * Math.sin(phi));
+    pivot.rotation.y = -phi;
+    root.add(pivot);
+
+    // bearing visual at the pivot
+    const joint = new THREE.Mesh(new THREE.SphereGeometry(0.058, 10, 8), jointMat);
+    pivot.add(joint);
+
+    // prongGroup is what we animate (rotation.z toggles open/closed)
+    const prongGroup = new THREE.Group();
+    pivot.add(prongGroup);
+
+    // main prong cylinder hanging down from pivot
+    const prong = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.050, 0.038, CLAW_RIG.prongLen, 10),
+      metalMat,
+    );
+    prong.position.y = -CLAW_RIG.prongLen / 2;
+    prong.castShadow = true;
+    prongGroup.add(prong);
+
+    // hook group attached at the bottom of the prong, tilted inward
+    // (negative rotation.z bends toward the claw axis in this frame)
+    const hookGroup = new THREE.Group();
+    hookGroup.position.y = -CLAW_RIG.prongLen;
+    hookGroup.rotation.z = -CLAW_RIG.hookBend;
+    prongGroup.add(hookGroup);
+
+    const hook = new THREE.Mesh(
+      new THREE.ConeGeometry(0.050, CLAW_RIG.hookLen, 10),
+      metalMat,
+    );
+    hook.position.y = -CLAW_RIG.hookLen / 2;
+    hook.castShadow = true;
+    hookGroup.add(hook);
+
+    // start at "open" rest pose
+    prongGroup.rotation.z = CLAW_RIG.openAngle;
+
+    handAnim.prongs.push({
+      group: prongGroup,
+      restAngle: CLAW_RIG.openAngle,
+      closeAngle: CLAW_RIG.closedAngle,
+    });
+  }
+
+  return root;
+}
+
+(function loadClaw() {
+  const claw = buildClaw();
+  handAnim.tilt.add(claw);
+  handAnim.ready = true;
+})();
+
+handGroup.visible = false;
+
+// progress t: 0 = open, 1 = closed
+function setProng(idx, t) {
+  const p = handAnim.prongs[idx];
+  if (!p) return;
+  const k = Math.max(0, Math.min(1, t));
+  p.group.rotation.z = p.restAngle + (p.closeAngle - p.restAngle) * k;
+}
+
+function setAllProngs(t) {
+  for (let i = 0; i < handAnim.prongs.length; i++) setProng(i, t);
+}
+
+// ============================================================
+// TILT MATH — recompute from CoM each frame
+// ============================================================
+function updateTilt(dt) {
+  let cx = 0, cz = 0, n = 0;
+  for (const f of S.figs) {
+    if (!f.alive || f.picked || f.dropping) continue;
+    cx += f.x; cz += f.z; n++;
+  }
+  if (n === 0) {
+    S.tilt.x = 0; S.tilt.z = 0;
+  } else {
+    cx /= n; cz /= n;
+    const tx = Math.max(-1, Math.min(1, cx / S.plateR));
+    const tz = Math.max(-1, Math.min(1, cz / S.plateR));
+    const k = 1 - Math.exp(-CFG.tiltEase * dt);
+    S.tilt.x += (tx - S.tilt.x) * k;
+    S.tilt.z += (tz - S.tilt.z) * k;
+  }
+  plateGroup.rotation.x = S.tilt.z * CFG.maxTilt;
+  plateGroup.rotation.z = -S.tilt.x * CFG.maxTilt;
+}
+
+// ============================================================
+// FIGURE PHYSICS — slide on tilt, friction, collision, edges
+// ============================================================
+function updateFigures(dt) {
+  const ax = S.tilt.x * CFG.slideForce;
+  const az = S.tilt.z * CFG.slideForce;
+
+  for (const f of S.figs) {
+    if (f.invulnT > 0) f.invulnT = Math.max(0, f.invulnT - dt);
+
+    if (f.picked) continue;
+
+    if (f.draining) {
+      f.drainT += dt;
+      const k = Math.min(1, f.drainT / (CFG.drainMs / 1000));
+      const s = Math.max(0.001, 1 - k);
+      f.mesh.scale.set(s, s, s);
+      f.mesh.position.y = CFG.plateThick / 2 + k * 0.6;
+      f.mesh.rotation.y += dt * 6;
+      f.mesh.position.x = f.x;
+      f.mesh.position.z = f.z;
+      if (k >= 1) {
+        if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
+      }
+      continue;
+    }
+
+    if (f.dropping) {
+      f.dropT += dt;
+      f.dropVy -= 16 * dt;
+      f.dropY += f.dropVy * dt;
+      f.x += f.vx * dt * 0.4;
+      f.z += f.vz * dt * 0.4;
+      f.mesh.position.set(f.x, CFG.plateThick / 2 + f.dropY, f.z);
+      f.mesh.rotation.x += dt * 4;
+      f.mesh.rotation.z += dt * 3;
+      if (f.dropT > 1.4) {
+        if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
+      }
+      continue;
+    }
+
+    if (!f.alive) continue;
+
+    let dx, dz;
+    if (f.isPlayer) {
+      [dx, dz] = playerIntent(f);
+    } else {
+      [dx, dz] = botIntent(f, dt);
+    }
+
+    const accel = f.isPlayer ? CFG.playerAccel : CFG.botAccel;
+    f.vx += (dx - f.vx) * Math.min(1, accel * dt);
+    f.vz += (dz - f.vz) * Math.min(1, accel * dt);
+
+    f.vx += ax * dt;
+    f.vz += az * dt;
+
+    const fr = 1 - Math.min(1, CFG.friction * dt);
+    f.vx *= fr;
+    f.vz *= fr;
+
+    f.x += f.vx * dt;
+    f.z += f.vz * dt;
+  }
+
+  // figure-figure collision + contact damage — per-figure radii
+  for (let i = 0; i < S.figs.length; i++) {
+    const a = S.figs[i];
+    if (!a.alive || a.picked || a.dropping || a.draining) continue;
+    for (let j = i + 1; j < S.figs.length; j++) {
+      const b = S.figs[j];
+      if (!b.alive || b.picked || b.dropping || b.draining) continue;
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const d2 = dx * dx + dz * dz;
+      const min = a.collidR + b.collidR;
+      if (d2 < min * min && d2 > 0.0001) {
+        const d = Math.sqrt(d2);
+        const overlap = (min - d) * 0.5;
+        const nx = dx / d, nz = dz / d;
+        a.x -= nx * overlap; a.z -= nz * overlap;
+        b.x += nx * overlap; b.z += nz * overlap;
+        const va = a.vx * nx + a.vz * nz;
+        const vb = b.vx * nx + b.vz * nz;
+        const exch = (vb - va) * 0.3;
+        a.vx += nx * exch; a.vz += nz * exch;
+        b.vx -= nx * exch; b.vz -= nz * exch;
+
+        if (a.invulnT <= 0 && b.invulnT <= 0) {
+          a.hp -= CFG.contactDmg;
+          b.hp -= CFG.contactDmg;
+          a.invulnT = CFG.iframeMs / 1000;
+          b.invulnT = CFG.iframeMs / 1000;
+          a.vx -= nx * CFG.bumpForce;
+          a.vz -= nz * CFG.bumpForce;
+          b.vx += nx * CFG.bumpForce;
+          b.vz += nz * CFG.bumpForce;
+          if (a.hp <= 0 && !a.draining) {
+            a.draining = true; a.drainT = 0;
+            eliminate(a, 'drained');
+          }
+          if (b.hp <= 0 && !b.draining) {
+            b.draining = true; b.drainT = 0;
+            eliminate(b, 'drained');
+          }
+        }
+      }
+    }
+  }
+
+  // edge check + mesh transforms
+  for (const f of S.figs) {
+    if (!f.alive || f.picked || f.dropping || f.draining) continue;
+    const d = Math.hypot(f.x, f.z);
+    if (d > S.plateR + CFG.edgePadFall) {
+      f.dropping = true;
+      f.dropT = 0;
+      f.dropY = 0;
+      f.dropVy = 0;
+      eliminate(f, 'fell');
+      continue;
+    }
+    f.mesh.position.x = f.x;
+    f.mesh.position.z = f.z;
+    f.mesh.position.y = CFG.plateThick / 2;
+    const speed = Math.hypot(f.vx, f.vz);
+    if (speed > 0.3) {
+      const targetRot = Math.atan2(f.vx, f.vz);
+      let dr = targetRot - f.mesh.rotation.y;
+      while (dr > Math.PI) dr -= Math.PI * 2;
+      while (dr < -Math.PI) dr += Math.PI * 2;
+      f.mesh.rotation.y += dr * Math.min(1, 8 * dt);
+    }
+  }
+
+  // HP visualization — emissive glow intensifies as HP drops, white flash on i-frames.
+  // No HP pip ring on shapes; the body itself is the indicator.
+  for (const f of S.figs) {
+    if (f.picked || f.draining || f.dropping) continue;
+    if (f.invulnT > 0) {
+      const phase = (CFG.iframeMs / 1000 - f.invulnT) / (CFG.iframeMs / 1000);
+      const flash = Math.sin(phase * Math.PI * 6) * 0.5 + 0.5;
+      f.shapeMat.emissive.setHex(0xffffff);
+      f.shapeMat.emissiveIntensity = 0.55 * flash + 0.20;
+    } else {
+      const lowness = 1 - (f.hp / CFG.hpMax);
+      // glow uses the shape's own color, ramping up as HP drops
+      f.shapeMat.emissive.setHex(f.baseColor);
+      f.shapeMat.emissiveIntensity = lowness * 0.55;
+    }
+  }
+
+  // picked figures animation
+  for (const f of S.figs) {
+    if (f.picked !== true) continue;
+    f.pickT += dt;
+    const glideDur = 0.45;
+    const k = Math.min(1, f.pickT / glideDur);
+    const e = 1 - (1 - k) * (1 - k);
+    f.mesh.position.x = lerp(f.pickStartX, handGroup.position.x, e);
+    f.mesh.position.y = lerp(f.pickStartY, handGroup.position.y, e);
+    f.mesh.position.z = lerp(f.pickStartZ, handGroup.position.z, e);
+    f.mesh.rotation.y += dt * 1.5;
+    const shrinkStart = 0.65;
+    if (f.pickT > shrinkStart) {
+      const sk = Math.min(1, (f.pickT - shrinkStart) / 0.55);
+      const s = Math.max(0.001, 1 - sk);
+      f.mesh.scale.set(s, s, s);
+      if (s <= 0.01) {
+        scene.remove(f.mesh);
+        f.picked = 'done';
+      }
+    }
+  }
+
+  // player marker: spinning yellow octahedron-star hovering above the player's shape
+  if (playerMarker && S.player && S.player.alive && !S.player.picked && !S.player.dropping && !S.player.draining) {
+    playerMarker.visible = true;
+    playerMarker.position.set(
+      S.player.x,
+      CFG.plateThick / 2 + S.player.yOffset * 2 + 0.25,
+      S.player.z,
+    );
+    playerMarker.rotation.y += dt * 2.8;
+    playerMarker.rotation.x += dt * 1.7;
+  } else if (playerMarker) {
+    playerMarker.visible = false;
+  }
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+// ============================================================
+// PLAYER INPUT
+// ============================================================
+const keys = {};
+window.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
+window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+function playerIntent(f) {
+  let dx = 0, dz = 0;
+  if (keys['w'] || keys['arrowup']) dz -= 1;
+  if (keys['s'] || keys['arrowdown']) dz += 1;
+  if (keys['a'] || keys['arrowleft']) dx -= 1;
+  if (keys['d'] || keys['arrowright']) dx += 1;
+  if (Math.abs(S.input.dx) + Math.abs(S.input.dy) > 0.05) {
+    dx += S.input.dx;
+    dz += S.input.dy;
+  }
+  const len = Math.hypot(dx, dz);
+  if (len > 1) { dx /= len; dz /= len; }
+  return [dx * CFG.playerSpeed, dz * CFG.playerSpeed];
+}
+
+// touch stick
+const stick = document.getElementById('stick');
+const knob = document.getElementById('stick-knob');
+let stickActive = false, stickCenter = { x: 0, y: 0 }, stickId = null;
+
+function isTouch() {
+  return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+}
+if (isTouch()) stick.classList.add('on');
+
+stick.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  const r = stick.getBoundingClientRect();
+  stickCenter = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  stickActive = true;
+  stickId = e.changedTouches[0].identifier;
+}, { passive: false });
+
+window.addEventListener('touchmove', (e) => {
+  if (!stickActive) return;
+  for (const t of e.changedTouches) {
+    if (t.identifier !== stickId) continue;
+    let dx = t.clientX - stickCenter.x;
+    let dy = t.clientY - stickCenter.y;
+    const max = 50;
+    const d = Math.hypot(dx, dy);
+    if (d > max) { dx = dx / d * max; dy = dy / d * max; }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    S.input.dx = dx / max;
+    S.input.dy = dy / max;
+  }
+}, { passive: false });
+
+window.addEventListener('touchend', (e) => {
+  for (const t of e.changedTouches) {
+    if (t.identifier === stickId) {
+      stickActive = false;
+      stickId = null;
+      knob.style.transform = 'translate(0,0)';
+      S.input.dx = 0; S.input.dy = 0;
+    }
+  }
+});
+
+// ============================================================
+// BOT AI
+// ============================================================
+function botIntent(f, dt) {
+  let dx = 0, dz = 0;
+
+  f.wanderTimer -= dt;
+  if (f.wanderTimer <= 0) {
+    f.wanderAng = Math.random() * Math.PI * 2;
+    f.wanderTimer = 1.2 + Math.random() * 1.5;
+  }
+  const wanderW = 0.5;
+  dx += Math.cos(f.wanderAng) * wanderW;
+  dz += Math.sin(f.wanderAng) * wanderW;
+
+  if (S.hand.phase === 'telegraph' || S.hand.phase === 'approach' || S.hand.phase === 'hover') {
+    const ddx = f.x - S.hand.x, ddz = f.z - S.hand.z;
+    const d = Math.max(0.01, Math.hypot(ddx, ddz));
+    if (d < S.hand.zoneR * 2.6) {
+      const urgency = 1 - (d / (S.hand.zoneR * 2.6));
+      dx += (ddx / d) * urgency * 1.6;
+      dz += (ddz / d) * urgency * 1.6;
+    }
+  }
+
+  const distC = Math.hypot(f.x, f.z);
+  const fromEdge = S.plateR - distC;
+  if (fromEdge < 1.2) {
+    const inward = 1 - Math.max(0, fromEdge / 1.2);
+    if (distC > 0.01) {
+      dx += (-f.x / distC) * inward * 1.8;
+      dz += (-f.z / distC) * inward * 1.8;
+    }
+  }
+
+  dx += -S.tilt.x * 0.6;
+  dz += -S.tilt.z * 0.6;
+
+  const sepBoost = 1 + (1 - f.hp / CFG.hpMax) * 1.4;
+  for (const g of S.figs) {
+    if (g === f || !g.alive || g.picked || g.dropping || g.draining) continue;
+    const ddx = f.x - g.x, ddz = f.z - g.z;
+    const d2 = ddx * ddx + ddz * ddz;
+    const sepR = (f.collidR + g.collidR) * 1.7;
+    if (d2 < sepR * sepR && d2 > 0.001) {
+      const d = Math.sqrt(d2);
+      const w = (sepR - d) / sepR * 0.7 * sepBoost;
+      dx += (ddx / d) * w;
+      dz += (ddz / d) * w;
+    }
+  }
+
+  if (f.boldness > 0.45 && f.hp >= 5 && f.invulnT <= 0 &&
+      S.hand.phase !== 'telegraph' && S.hand.phase !== 'descend') {
+    let best = null, bestScore = -1;
+    for (const g of S.figs) {
+      if (g === f || !g.alive || g.picked || g.dropping || g.draining) continue;
+      const ddx = g.x - f.x, ddz = g.z - f.z;
+      const d = Math.hypot(ddx, ddz);
+      if (d < 0.8 || d > 4.5) continue;
+      const score = (1 / d) + (CFG.hpMax - g.hp) * 0.15;
+      if (score > bestScore) { bestScore = score; best = g; }
+    }
+    if (best) {
+      const ddx = best.x - f.x, ddz = best.z - f.z;
+      const d = Math.max(0.01, Math.hypot(ddx, ddz));
+      const w = (f.boldness - 0.45) * 1.6;
+      dx += (ddx / d) * w;
+      dz += (ddz / d) * w;
+    }
+  }
+
+  const len = Math.hypot(dx, dz);
+  const speed = (S.hand.phase === 'telegraph' || S.hand.phase === 'approach' || S.hand.phase === 'hover') ? CFG.fleeSpeed : CFG.botSpeed;
+  if (len > 0.001) {
+    dx = (dx / len) * speed;
+    dz = (dz / len) * speed;
+  }
+  return [dx, dz];
+}
+
+// ============================================================
+// CLAW state machine — same phases as the original hand
+// ============================================================
+function startHand() {
+  if (!handAnim.ready) {
+    S.nextHandAt = S.t + 500;
+    return;
+  }
+  const aliveFigs = S.figs.filter(f => f.alive && !f.picked && !f.dropping);
+  if (aliveFigs.length === 0) return;
+  const zoneR = currentZoneR();
+  S.hand.zoneR = zoneR;
+
+  let target;
+  if (S.firstHand) {
+    let best = null, bestN = -1;
+    for (const a of aliveFigs) {
+      let n = 0;
+      for (const b of aliveFigs) {
+        if (a === b) continue;
+        const d = Math.hypot(a.x - b.x, a.z - b.z);
+        if (d < zoneR * 2.2) n++;
+      }
+      if (n > bestN) { bestN = n; best = a; }
+    }
+    target = best;
+    S.firstHand = false;
+  } else {
+    const weights = aliveFigs.map(a => {
+      let n = 0;
+      for (const b of aliveFigs) {
+        if (a === b) continue;
+        const d = Math.hypot(a.x - b.x, a.z - b.z);
+        if (d < zoneR * 2) n++;
+      }
+      return 1 + n * 1.5;
+    });
+    const total = weights.reduce((s, w) => s + w, 0);
+    let r = Math.random() * total;
+    target = aliveFigs[aliveFigs.length - 1];
+    for (let i = 0; i < aliveFigs.length; i++) {
+      r -= weights[i];
+      if (r <= 0) { target = aliveFigs[i]; break; }
+    }
+  }
+
+  S.hand.target = target;
+  S.hand.x = target.x;
+  S.hand.z = target.z;
+  S.hand.origX = target.x;
+  S.hand.origZ = target.z;
+  S.hand.aimTarget = null;
+  S.hand.phase = 'telegraph';
+  S.hand.t = 0;
+
+  S.hand.telegraphMs = lerp(700, 3300, Math.random());
+  S.hand.cooldownMs  = CFG.handCooldownMs * (0.70 + Math.random() * 0.60);
+  S.hand.approachMs = CFG.handApproachMs * (0.80 + Math.random() * 0.45);
+  S.hand.hoverMs    = CFG.handHoverMs    * (0.55 + Math.random() * 0.90);
+  S.hand.pinchMs    = CFG.handPinchMs    * (0.85 + Math.random() * 0.40);
+  S.hand.liftMs     = CFG.handLiftMs     * (0.90 + Math.random() * 0.25);
+  S.hand.approachArc = 1.0 + Math.random() * 0.8;
+  S.hand.liftArc     = 0.8 + Math.random() * 0.7;
+  S.hand.approachEaseMix = Math.random();
+  S.hand.hoverDriftAmp = Math.random() * 0.06;
+  S.hand.hoverDriftPhase = Math.random() * Math.PI * 2;
+  // claw test-grip plateau parameters (still applies — the claw hesitates briefly)
+  S.hand.holdStart = 0.36 + Math.random() * 0.10;
+  S.hand.holdEnd   = S.hand.holdStart + 0.10 + Math.random() * 0.10;
+  S.hand.holdLevel = 0.62 + Math.random() * 0.16;
+
+  const worldPos = new THREE.Vector3(target.x, CFG.plateThick / 2, target.z);
+  plateGroup.localToWorld(worldPos);
+  handGroup.position.x = worldPos.x;
+  handGroup.position.z = worldPos.z;
+  handGroup.position.y = CFG.handIdleY;
+  handGroup.visible = true;
+
+  // claw cable hangs straight down; we still vary the assembly's incoming azimuth
+  // so the prong-1 direction varies grab-to-grab and the wrist tilt jitters
+  const azimuth = Math.random() * Math.PI * 2;
+  S.hand.azimuth = azimuth;
+  handGroup.rotation.y = S.hand.azimuth;
+
+  handAnim.tilt.rotation.x = handAnim.baseTiltX + (Math.random() - 0.5) * 0.08;
+  handAnim.tilt.rotation.z = handAnim.baseTiltZ + (Math.random() - 0.5) * 0.08;
+
+  // open all prongs
+  setAllProngs(0);
+
+  reticleGroup.visible = true;
+  reticleGroup.position.set(target.x, 0, target.z);
+}
+
+function currentZoneR() {
+  const a = S.alive;
+  const tt = (CFG.startCount - a) / (CFG.startCount - CFG.podiumCount);
+  const frac = lerp(CFG.zoneMinFrac, CFG.zoneMaxFrac, Math.max(0, Math.min(1, tt)));
+  return S.plateR * frac;
+}
+
+function captureFiguresInZone() {
+  const captured = [];
+  for (const f of S.figs) {
+    if (!f.alive || f.picked || f.dropping || f.draining) continue;
+    const d = Math.hypot(f.x - S.hand.x, f.z - S.hand.z);
+    if (d < S.hand.zoneR) captured.push(f);
+  }
+  for (const f of captured) {
+    f.picked = true;
+    f.pickT = 0;
+    const wp = new THREE.Vector3();
+    const wq = new THREE.Quaternion();
+    f.mesh.getWorldPosition(wp);
+    f.mesh.getWorldQuaternion(wq);
+    f.pickStartX = wp.x;
+    f.pickStartY = wp.y;
+    f.pickStartZ = wp.z;
+    if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
+    scene.add(f.mesh);
+    f.mesh.position.copy(wp);
+    f.mesh.quaternion.copy(wq);
+    eliminate(f, 'picked');
+  }
+  S.hand.captured = captured;
+}
+
+function updateHand(dt) {
+  if (S.hand.phase === 'idle') return;
+  S.hand.t += dt * 1000;
+  const tSec = S.hand.t / 1000;
+
+  // predator auto-aim — same logic, just feeding the claw position
+  if (S.hand.phase === 'telegraph' || S.hand.phase === 'approach') {
+    let progress;
+    if (S.hand.phase === 'telegraph') {
+      const tp = Math.min(1, S.hand.t / S.hand.telegraphMs);
+      progress = tp * 0.40;
+    } else {
+      const ap = Math.min(1, S.hand.t / S.hand.approachMs);
+      progress = 0.40 + ap * 0.60;
+    }
+
+    const driftProgress = Math.pow(progress, 1.8);
+    const respProgress  = Math.pow(progress, 1.5);
+
+    const scanR = Math.max(S.plateR * 0.55, S.hand.zoneR * 3.0);
+    const maxDrift = lerp(S.plateR * 0.07, S.plateR * 0.26, driftProgress);
+
+    const moveBias   = lerp(0.4, 1.5, driftProgress);
+    const closenessW = lerp(1.0, 0.5, driftProgress);
+
+    let bestScore = -Infinity, bestX = S.hand.origX, bestZ = S.hand.origZ;
+    for (const f of S.figs) {
+      if (!f.alive || f.picked || f.dropping || f.draining) continue;
+      const dx = f.x - S.hand.origX;
+      const dz = f.z - S.hand.origZ;
+      const d = Math.hypot(dx, dz);
+      if (d > scanR) continue;
+
+      const speed = Math.hypot(f.vx, f.vz);
+      const closeness = 1 - d / scanR;
+
+      let approachDot = 0;
+      if (d > 0.1 && speed > 0.3) {
+        approachDot = -(f.vx * dx + f.vz * dz) / (speed * d);
+        approachDot = Math.max(0, approachDot);
+      }
+
+      const score = closeness * closenessW
+                  + (speed * 0.28) * moveBias
+                  + (approachDot * speed * 0.15) * moveBias;
+      if (score > bestScore) {
+        bestScore = score;
+        bestX = f.x;
+        bestZ = f.z;
+      }
+    }
+
+    let desX = S.hand.origX, desZ = S.hand.origZ;
+    if (bestScore > -Infinity) {
+      const dx = bestX - S.hand.origX;
+      const dz = bestZ - S.hand.origZ;
+      const d = Math.hypot(dx, dz);
+      if (d > 0.001) {
+        const driftMag = Math.min(d, maxDrift);
+        desX = S.hand.origX + (dx / d) * driftMag;
+        desZ = S.hand.origZ + (dz / d) * driftMag;
+      }
+    }
+
+    const respRate = lerp(1.3, 6.0, respProgress);
+    const respK = 1 - Math.exp(-respRate * dt);
+    S.hand.x += (desX - S.hand.x) * respK;
+    S.hand.z += (desZ - S.hand.z) * respK;
+    reticleGroup.position.set(S.hand.x, 0, S.hand.z);
+  }
+
+  // base position math (arc, drift, tremor compose below)
+  const r = Math.hypot(S.hand.x, S.hand.z);
+  const dirX = r > 0.001 ? S.hand.x / r : 1;
+  const dirZ = r > 0.001 ? S.hand.z / r : 0;
+
+  let horizMag = 0;
+  let baseY = CFG.handIdleY;
+  let driftX = 0, driftZ = 0;
+
+  if (S.hand.phase === 'telegraph') {
+    const k = Math.min(1, S.hand.t / S.hand.telegraphMs);
+    horizMag = S.hand.approachArc;
+    baseY = CFG.handIdleY - k * 0.4;
+  } else if (S.hand.phase === 'approach') {
+    const k = Math.min(1, S.hand.t / S.hand.approachMs);
+    const eOut = 1 - (1 - k) * (1 - k);
+    const eInOut = k < 0.5 ? 2 * k * k : 1 - 2 * (1 - k) * (1 - k);
+    const e = lerp(eOut, eInOut, S.hand.approachEaseMix);
+    horizMag = lerp(S.hand.approachArc, 0, e);
+    baseY = lerp(CFG.handIdleY - 0.4, CFG.handGrabY, e);
+  } else if (S.hand.phase === 'hover') {
+    horizMag = 0;
+    baseY = CFG.handGrabY;
+    const k = Math.min(1, S.hand.t / S.hand.hoverMs);
+    const wave = Math.sin(k * Math.PI);
+    driftX = Math.cos(S.hand.hoverDriftPhase) * S.hand.hoverDriftAmp * wave;
+    driftZ = Math.sin(S.hand.hoverDriftPhase) * S.hand.hoverDriftAmp * wave;
+  } else if (S.hand.phase === 'pinch') {
+    horizMag = 0;
+    baseY = CFG.handGrabY;
+  } else if (S.hand.phase === 'lift') {
+    const k = Math.min(1, S.hand.t / S.hand.liftMs);
+    const eY = k * k;
+    const eH = k * k * (3 - 2 * k);
+    horizMag = lerp(0, S.hand.liftArc, eH);
+    baseY = lerp(CFG.handGrabY, CFG.handIdleY + 1.8, eY);
+  }
+
+  let tremorAmp = 0;
+  if (S.hand.phase === 'approach') tremorAmp = 0.008;
+  else if (S.hand.phase === 'hover') tremorAmp = 0.024;
+  else if (S.hand.phase === 'pinch') {
+    const k = S.hand.t / S.hand.pinchMs;
+    tremorAmp = 0.024 * Math.max(0, 1 - k);
+  }
+  const trX = (Math.sin(tSec * 17.3) * 0.6 + Math.sin(tSec * 38.1 + 1.3) * 0.4) * tremorAmp;
+  const trY = (Math.sin(tSec * 21.7 + 0.9) * 0.6 + Math.sin(tSec * 47.5) * 0.4) * tremorAmp;
+  const trZ = (Math.sin(tSec * 14.9 + 2.1) * 0.6 + Math.sin(tSec * 33.7 + 0.4) * 0.4) * tremorAmp;
+
+  const localPos = new THREE.Vector3(
+    S.hand.x + dirX * horizMag + driftX,
+    CFG.plateThick / 2,
+    S.hand.z + dirZ * horizMag + driftZ
+  );
+  plateGroup.localToWorld(localPos);
+  handGroup.position.x = localPos.x + trX;
+  handGroup.position.y = baseY + trY;
+  handGroup.position.z = localPos.z + trZ;
+
+  // phase-specific behavior — prongs, transitions
+  if (S.hand.phase === 'telegraph') {
+    const expandMs = Math.min(S.hand.telegraphMs * 0.40, 700);
+    const k = Math.min(1, S.hand.t / expandMs);
+    const rRet = S.hand.zoneR * k;
+    retFill.scale.set(rRet, rRet, rRet);
+    retOutline.scale.set(rRet, rRet, rRet);
+    const ageK = Math.min(1, S.hand.t / S.hand.telegraphMs);
+    retFill.material.opacity = 0.20 + ageK * 0.18;
+    retOutline.material.opacity = 0.55 + ageK * 0.45;
+    const pulse = 1 + Math.sin(S.hand.t * 0.012) * 0.04 * k;
+    retFill.scale.multiplyScalar(pulse);
+    // anticipation flex — all prongs breathe a small inward twitch
+    const flex = (Math.sin(tSec * 6.2) * 0.5 + 0.5) * 0.10 * k;
+    setAllProngs(flex);
+    if (S.hand.t >= S.hand.telegraphMs) {
+      S.hand.phase = 'approach';
+      S.hand.t = 0;
+    }
+  } else if (S.hand.phase === 'approach') {
+    const k = Math.min(1, S.hand.t / S.hand.approachMs);
+    const wob = Math.sin(tSec * 7.3) * 0.04 * (1 - k);
+    handAnim.tilt.rotation.x = handAnim.baseTiltX + wob;
+    handAnim.tilt.rotation.z = handAnim.baseTiltZ + Math.cos(tSec * 5.8) * 0.03 * (1 - k);
+    const aim = Math.sin(tSec * 4.5) * 0.05 * (1 - k);
+    handGroup.rotation.y = S.hand.azimuth + aim;
+    // hold prongs open during descent
+    setAllProngs(0);
+    if (S.hand.t >= S.hand.approachMs) {
+      S.hand.phase = 'hover';
+      S.hand.t = 0;
+      captureFiguresInZone();
+    }
+  } else if (S.hand.phase === 'hover') {
+    // micro mechanical "breath" — prongs twitch slightly inward as the claw decides
+    const k = Math.min(1, S.hand.t / S.hand.hoverMs);
+    const breath = Math.sin(k * Math.PI) * 0.18;
+    setAllProngs(breath);
+    if (S.hand.t >= S.hand.hoverMs) {
+      S.hand.phase = 'pinch';
+      S.hand.t = 0;
+    }
+  } else if (S.hand.phase === 'pinch') {
+    // Two-stage pinch with test-grip plateau, applied to all three prongs
+    // with tiny per-prong delays so it reads as mechanical, not robotic.
+    const hs = S.hand.holdStart;
+    const he = S.hand.holdEnd;
+    const hl = S.hand.holdLevel;
+    const pinchCurve = (t) => {
+      if (t <= 0) return 0;
+      if (t >= 1) return 1;
+      if (t < hs) return (t / hs) * hl;
+      if (t < he) return hl;
+      return hl + ((t - he) / (1 - he)) * (1 - hl);
+    };
+    const k = S.hand.t / S.hand.pinchMs;
+    const delays = [0, 0.06, 0.12];
+    for (let i = 0; i < handAnim.prongs.length; i++) {
+      const localT = Math.max(0, Math.min(1, (k - delays[i]) / (1 - delays[i])));
+      setProng(i, pinchCurve(localT));
+    }
+    if (S.hand.t >= S.hand.pinchMs) {
+      S.hand.phase = 'lift';
+      S.hand.t = 0;
+    }
+  } else if (S.hand.phase === 'lift') {
+    const k = Math.min(1, S.hand.t / S.hand.liftMs);
+    // slight twist on the cable assembly as it draws up
+    handGroup.rotation.y = S.hand.azimuth + Math.sin(k * Math.PI) * 0.20;
+    handAnim.tilt.rotation.x = handAnim.baseTiltX - k * 0.10;
+    // keep prongs closed during lift
+    setAllProngs(1);
+    const fade = 1 - k;
+    retFill.material.opacity = 0.38 * fade;
+    retOutline.material.opacity = fade;
+    if (S.hand.t >= S.hand.liftMs) {
+      S.hand.phase = 'idle';
+      handGroup.visible = false;
+      reticleGroup.visible = false;
+      S.nextHandAt = S.t + S.hand.cooldownMs;
+    }
+  }
+}
+
+// ============================================================
+// ELIMINATION + GAME PROGRESS
+// ============================================================
+function eliminate(f, reason) {
+  if (!f.alive) return;
+  f.alive = false;
+  S.alive--;
+  S.eliminated.push({ id: f.id, isPlayer: f.isPlayer, reason, atMs: S.t });
+  if (f.isPlayer) {
+    const msg = reason === 'fell' ? 'you fell'
+              : reason === 'drained' ? 'you cracked'
+              : 'you were taken';
+    showHint(msg);
+  }
+  if (S.alive <= CFG.podiumCount) {
+    endGame();
+  }
+}
+
+function endGame() {
+  if (S.phase === 'over') return;
+  S.phase = 'over';
+  const podium = S.figs.filter(f => f.alive);
+  S.podium = podium.map(f => f.id);
+
+  let placement;
+  if (S.player.alive) {
+    const sorted = [...podium].sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z));
+    placement = sorted.findIndex(f => f.isPlayer) + 1;
+  } else {
+    const idx = S.eliminated.findIndex(e => e.isPlayer);
+    placement = CFG.startCount - idx;
+  }
+
+  showOverlay(placement);
+}
+
+function showHint(text) {
+  const h = document.getElementById('hint');
+  h.textContent = text;
+  h.classList.add('on');
+  clearTimeout(showHint._t);
+  showHint._t = setTimeout(() => h.classList.remove('on'), 1600);
+}
+
+function showOverlay(placement) {
+  const o = document.getElementById('over');
+  const ord = document.getElementById('ord');
+  const stat = document.getElementById('overStat');
+  const ords = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th'];
+  ord.textContent = ords[placement - 1] || (placement + 'th');
+  ord.className = 'ord' + (placement <= 2 ? ' win' : '');
+  const sec = Math.floor(S.t / 1000);
+  const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+  const ss = String(sec % 60).padStart(2, '0');
+  stat.textContent = `survived ${mm}:${ss}`;
+  o.classList.add('show');
+}
+
+// ============================================================
+// SHRINK
+// ============================================================
+function maybeShrink(dt) {
+  if (S.t < S.nextShrinkAt) return;
+  const newR = Math.max(CFG.shrinkMin, S.plateR * CFG.shrinkFactor);
+  S.plateR = newR;
+  const targetScale = newR / CFG.plateR0;
+  shrinkTween = { from: plateMesh.scale.x, to: targetScale, t: 0, dur: 0.6 };
+  S.nextShrinkAt = S.t + CFG.shrinkEveryMs;
+  showHint('the plate shrinks');
+}
+
+let shrinkTween = null;
+function tickShrinkTween(dt) {
+  if (!shrinkTween) return;
+  shrinkTween.t += dt;
+  const k = Math.min(1, shrinkTween.t / shrinkTween.dur);
+  const e = 1 - (1 - k) * (1 - k);
+  const s = lerp(shrinkTween.from, shrinkTween.to, e);
+  plateMesh.scale.set(s, 1, s);
+  rimMesh.scale.set(s, 1, s);
+  reticleGroup.scale.set(1, 1, 1);
+  if (k >= 1) shrinkTween = null;
+}
+
+// ============================================================
+// HUD
+// ============================================================
+const hudAlive = document.getElementById('alive');
+const hudTime = document.getElementById('time');
+const hudPhase = document.getElementById('phase');
+const hudZone = document.getElementById('zone');
+const hudNext = document.getElementById('next');
+const tiltArrow = document.getElementById('tilt-arrow');
+const hpRow = document.getElementById('hpRow');
+const hpPipsDom = [];
+for (let i = 0; i < CFG.hpMax; i++) {
+  const p = document.createElement('div');
+  p.className = 'hp-pip';
+  hpRow.appendChild(p);
+  hpPipsDom.push(p);
+}
+
+function updateHud() {
+  hudAlive.textContent = S.alive;
+  const sec = Math.floor(S.t / 1000);
+  const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+  const ss = String(sec % 60).padStart(2, '0');
+  hudTime.textContent = `${mm}:${ss}`;
+  hudPhase.textContent = S.hand.phase === 'telegraph' ? 'claw activates'
+                       : S.hand.phase === 'approach'  ? 'descending'
+                       : S.hand.phase === 'hover'     ? 'targeting'
+                       : S.hand.phase === 'pinch'     ? 'grasping'
+                       : S.hand.phase === 'lift'      ? 'taken'
+                       : 'idle';
+  const zr = currentZoneR();
+  const pct = Math.round((zr / S.plateR) * 100);
+  hudZone.textContent = pct + '%';
+  if (S.hand.phase === 'idle') {
+    const tt = Math.max(0, S.nextHandAt - S.t);
+    hudNext.textContent = `next claw ${(tt / 1000).toFixed(1)}s`;
+  } else {
+    hudNext.textContent = '— in motion —';
+  }
+  const ang = Math.atan2(S.tilt.x, -S.tilt.z) * 180 / Math.PI;
+  const mag = Math.min(1, Math.hypot(S.tilt.x, S.tilt.z));
+  tiltArrow.style.transform = `translate(-50%, -100%) rotate(${ang}deg) scaleY(${0.4 + mag * 0.7})`;
+
+  if (S.player) {
+    const hp = Math.max(0, S.player.hp);
+    const inIframe = S.player.invulnT > 0;
+    for (let i = 0; i < CFG.hpMax; i++) {
+      const dom = hpPipsDom[i];
+      dom.classList.toggle('dead', i >= hp);
+      dom.classList.toggle('iframe', inIframe && i < hp);
+    }
+  }
+}
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+
+  if (S.phase === 'play') {
+    S.t = now - S.startedAt;
+    updateTilt(dt);
+    updateFigures(dt);
+    if (S.hand.phase === 'idle' && S.t >= S.nextHandAt && S.alive > CFG.podiumCount) {
+      startHand();
+    }
+    updateHand(dt);
+    maybeShrink(dt);
+    tickShrinkTween(dt);
+    updateHud();
+  } else if (S.phase === 'over') {
+    updateTilt(dt);
+    updateFigures(dt);
+    updateHand(dt);
+    tickShrinkTween(dt);
+    updateHud();
+  }
+
+  fitCameraTarget();
+  tickCamera(dt);
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+// ============================================================
+// START / RESET
+// ============================================================
+function reset() {
+  for (const f of S.figs) {
+    if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
+  }
+  S.figs = [];
+  S.player = null;
+  S.alive = 0;
+  S.eliminated = [];
+  S.podium = [];
+  S.t = 0;
+  S.startedAt = performance.now();
+  S.plateR = CFG.plateR0;
+  plateMesh.scale.set(1, 1, 1);
+  rimMesh.scale.set(1, 1, 1);
+  S.nextShrinkAt = CFG.shrinkEveryMs;
+  S.nextHandAt = 4500;
+  S.firstHand = true;
+  S.hand = { phase: 'idle', t: 0, x: 0, z: 0, zoneR: 0, target: null, captured: [] };
+  S.tilt = { x: 0, z: 0 };
+  handGroup.visible = false;
+  reticleGroup.visible = false;
+  shrinkTween = null;
+  camInitialized = false;
+  spawnFigures();
+  S.phase = 'play';
+  document.getElementById('over').classList.remove('show');
+}
+
+document.getElementById('start').addEventListener('click', () => {
+  document.getElementById('title').classList.add('gone');
+  setTimeout(() => document.getElementById('title').remove(), 700);
+  reset();
+});
+document.getElementById('again').addEventListener('click', () => {
+  reset();
+});
+
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>
