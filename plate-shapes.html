@@ -4,7 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>SHAPE STORE — feel test</title>
-<!-- old-school internet typography: Times + Comic Sans, both system fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Comic Neue: upright Comic Sans alternative. iOS doesn't bundle Comic
+     Sans, so without this it falls back to a cursive substitute that
+     renders slanted/italic. -->
+<link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
@@ -18,15 +23,18 @@
     inset: 0;
   }
   body {
-    /* Times for informative reading; Comic Sans applied per-element */
-    /* for headlines and buttons. No italic anywhere. */
+    /* Times for informative reading; Comic Neue for headlines and
+       buttons (loaded above as a stable upright Comic-Sans-like).
+       No italic anywhere — every block sets font-style: normal. */
     font-family: 'Times New Roman', Times, serif;
-    color: #f1e5cd;
+    color: #ffffff;
     font-size: 16px;
+    font-style: normal;
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent;
     touch-action: none;
   }
+  body, body * { font-style: normal !important; }
   button { -webkit-tap-highlight-color: transparent; }
   canvas#c { display: block; position: fixed; inset: 0; width: 100%; height: 100dvh; }
 
@@ -37,66 +45,54 @@
     mix-blend-mode: overlay; opacity: 0.16;
   }
 
-  /* HUD — Times for info, big enough to read. Comic Sans is reserved
-     for headlines and buttons only. */
+  /* HUD — single top row, Times throughout, plain white. */
   .hud {
     position: fixed; z-index: 10; pointer-events: none;
-    color: #f1e5cd;
+    color: #ffffff;
   }
-  .hud .label {
+  #hud-bar {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 14px);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex; align-items: center; flex-wrap: nowrap; gap: 14px;
     font-family: 'Times New Roman', Times, serif;
-    font-size: 14px;
-    opacity: 0.60;
-    font-style: normal;
+    font-size: 18px; line-height: 1;
+    white-space: nowrap;
+    max-width: calc(100vw - 32px);
   }
-  .hud .val {
+  #hud-bar .stat {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: #ffffff;
+  }
+  #hud-bar .label {
     font-family: 'Times New Roman', Times, serif;
-    font-size: 28px; line-height: 1.05; margin-top: 2px;
-    font-weight: 400; font-style: normal;
+    font-size: 16px;
+    opacity: 0.65;
   }
-  .hud .sub {
+  #hud-bar .val {
     font-family: 'Times New Roman', Times, serif;
-    font-size: 13px; opacity: 0.70; margin-top: 4px;
-    font-style: normal;
+    font-size: 22px;
   }
-  /* Reworked layout:
-       - hud-tl: alive count, top-left
-       - hud-tr: round time + phase, top-right (round info)
-       - hud-bl: health label + pips, bottom-left
-       - hud-br: pick zone + next claw, bottom-right (desktop only)
-     Bigger insets so the HUD breathes; nothing crowds the action. */
-  #hud-tl {
-    top: calc(env(safe-area-inset-top) + 22px);
-    left: calc(env(safe-area-inset-left) + 26px);
+  #hud-bar .dim { opacity: 0.45; }
+  #hud-bar .sep { opacity: 0.30; font-size: 18px; }
+  #hud-bar .phase { color: #ffffff; }
+  /* Health: a row of small red unicode shapes, plain red. Each pip
+     is one of the brand's primitives (square, circle, triangle,
+     diamond, star). When dead, the pip dims; when in i-frame, it
+     flashes white. */
+  .hp-row {
+    display: inline-flex; gap: 4px; align-items: center;
+    font-family: 'Times New Roman', Times, serif;
+    line-height: 1;
   }
-  #hud-tr {
-    top: calc(env(safe-area-inset-top) + 22px);
-    right: calc(env(safe-area-inset-right) + 26px);
-    text-align: right;
-  }
-  #hud-bl {
-    bottom: calc(env(safe-area-inset-bottom) + 22px);
-    left: calc(env(safe-area-inset-left) + 26px);
-  }
-  #hud-br {
-    bottom: calc(env(safe-area-inset-bottom) + 22px);
-    right: calc(env(safe-area-inset-right) + 26px);
-    text-align: right;
-  }
-
-  .hp-row { display: flex; gap: 4px; margin-top: 6px; }
   .hp-pip {
-    width: 14px; height: 20px;
-    background: #d4421f; border: 1px solid #d4421f;
-    transition: background 0.15s, opacity 0.15s;
+    display: inline-block; font-size: 18px;
+    color: #e63235;
+    transition: color 0.15s, opacity 0.15s;
   }
-  .hp-pip.dead {
-    background: transparent; border-color: rgba(212,66,31,0.30);
-    opacity: 0.40;
-  }
-  .hp-pip.iframe {
-    background: #ffffff; border-color: #ffffff;
-  }
+  .hp-pip.dead { color: rgba(230,50,53,0.22); }
+  .hp-pip.iframe { color: #ffffff; }
 
   /* tilt indicator */
   #tilt {
@@ -130,34 +126,56 @@
     font-style: normal;
   }
 
-  /* title at intro — Comic Sans headline, plain lowercase, no italic */
+  /* title at intro — three lines stacked, each letter a different
+     primary from the palette, no italic, big plain Comic Neue sign.
+     "shape" is 5 chars; "the" and "store" letter-space to match it. */
   #title {
     position: fixed; inset: 0; display: flex; flex-direction: column;
     align-items: center; justify-content: center; z-index: 20;
-    background: rgba(20,17,13,0.94);
+    background: rgba(20,17,13,0.95);
     transition: opacity 0.6s ease;
   }
   #title h1 {
-    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
-    font-weight: 400; font-style: normal;
-    font-size: clamp(34px, 7vw, 56px);
-    color: #f1e5cd;
+    font-family: 'Comic Neue', 'Comic Sans MS', 'Comic Sans', cursive;
+    font-weight: 700; font-style: normal;
+    font-size: clamp(54px, 13vw, 128px);
     text-align: center;
     text-transform: lowercase;
-    line-height: 1.15;
+    line-height: 1.0;
+    margin: 0;
   }
+  #title h1 .line { display: block; }
+  /* spread letters so each line matches the visual width of "shape" */
+  #title h1 .line-the   { letter-spacing: 0.62em; padding-left: 0.62em; }
+  #title h1 .line-shape { letter-spacing: 0.02em; padding-left: 0.02em; }
+  #title h1 .line-store { letter-spacing: 0.02em; padding-left: 0.02em; }
+  /* per-letter primary palette colors */
+  #title h1 .c0  { color: #ff1a1a; } /* red */
+  #title h1 .c1  { color: #1a40e0; } /* blue */
+  #title h1 .c2  { color: #ffd000; } /* yellow */
+  #title h1 .c3  { color: #0fb020; } /* green */
+  #title h1 .c4  { color: #ff7a10; } /* orange */
+  #title h1 .c5  { color: #9010e0; } /* purple */
+  #title h1 .c6  { color: #ff2080; } /* hot pink */
+  #title h1 .c7  { color: #00b8ff; } /* cyan */
+  #title h1 .c8  { color: #70d800; } /* lime */
+  #title h1 .c9  { color: #ffaa00; } /* amber */
+
+  /* enter link: Times New Roman hyperlink, no frame */
   #title button {
-    margin-top: 30px; padding: 6px 20px;
-    background: transparent; border: 1px solid #f1e5cd;
-    color: #f1e5cd;
-    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+    margin-top: 36px; padding: 0;
+    background: transparent; border: 0;
+    color: #ffffff;
+    font-family: 'Times New Roman', Times, serif;
     font-weight: 400; font-style: normal;
-    font-size: 18px;
-    cursor: pointer; transition: background 0.15s, color 0.15s;
+    font-size: 22px;
+    cursor: pointer;
     pointer-events: auto;
+    text-decoration: underline;
+    text-underline-offset: 4px;
     text-transform: lowercase;
   }
-  #title button:hover { background: #f1e5cd; color: #14110d; }
+  #title button:hover { color: #ffd000; }
   #title.gone { opacity: 0; pointer-events: none; }
 
   /* end overlay */
@@ -174,7 +192,7 @@
     font-style: normal;
   }
   #over .ord {
-    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+    font-family: 'Comic Neue', 'Comic Sans MS', 'Comic Sans', cursive;
     font-weight: 400; font-style: normal;
     font-size: clamp(40px, 9vw, 72px); line-height: 1; margin-top: 8px;
     color: #f1e5cd;
@@ -187,16 +205,18 @@
     font-style: normal;
   }
   #over button {
-    margin-top: 30px; padding: 6px 20px;
-    background: transparent; border: 1px solid #f1e5cd;
-    color: #f1e5cd;
-    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+    margin-top: 26px; padding: 0;
+    background: transparent; border: 0;
+    color: #ffffff;
+    font-family: 'Times New Roman', Times, serif;
     font-weight: 400; font-style: normal;
-    font-size: 18px;
-    cursor: pointer; transition: background 0.15s, color 0.15s;
+    font-size: 20px;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 4px;
     text-transform: lowercase;
   }
-  #over button:hover { background: #f1e5cd; color: #14110d; }
+  #over button:hover { color: #ffd000; }
 
   /* virtual joystick — desktop default left, mobile moves right */
   #stick {
@@ -231,25 +251,22 @@
      MOBILE — compact layout, joystick on right, no tilt indicator
      ============================================================ */
   @media (max-width: 720px), (pointer: coarse) {
-    .hud .label { font-size: 13px; opacity: 0.62; }
-    .hud .val { font-size: 24px; }
-    .hud .sub { font-size: 12px; }
-
-    #hud-tl, #hud-tr {
-      top: calc(env(safe-area-inset-top) + 14px);
+    #hud-bar {
+      top: calc(env(safe-area-inset-top) + 10px);
+      gap: 10px;
+      font-size: 15px;
     }
-    #hud-tl { left: calc(env(safe-area-inset-left) + 16px); }
-    #hud-tr { right: calc(env(safe-area-inset-right) + 16px); }
+    #hud-bar .label { font-size: 13px; }
+    #hud-bar .val { font-size: 17px; }
+    .hp-pip { font-size: 15px; }
+    /* on small screens, drop the "pick zone" and "next claw" stats
+       to keep the row in one line */
+    #hud-bar .stat-pickzone, #hud-bar .stat-next,
+    #hud-bar .sep.sep-after-phase, #hud-bar .sep.sep-after-zone {
+      display: none;
+    }
 
-    #hud-br { display: none; }
     #tilt { display: none; }
-
-    #hud-bl {
-      bottom: calc(env(safe-area-inset-bottom) + 16px);
-      left: calc(env(safe-area-inset-left) + 16px);
-    }
-    .hp-row { gap: 3px; margin-top: 4px; }
-    .hp-pip { width: 11px; height: 16px; }
 
     #stick {
       left: auto;
@@ -259,14 +276,14 @@
     }
     #stick-knob { width: 56px; height: 56px; margin: -28px 0 0 -28px; }
 
-    #hint { top: calc(env(safe-area-inset-top) + 64px); font-size: 16px; }
+    #hint { top: calc(env(safe-area-inset-top) + 56px); font-size: 16px; }
 
-    #title h1 { font-size: clamp(30px, 8vw, 46px); }
-    #title button { margin-top: 24px; padding: 6px 18px; font-size: 16px; }
+    #title h1 { font-size: clamp(46px, 14vw, 92px); }
+    #title button { font-size: 18px; }
     #over .ord { font-size: clamp(36px, 11vw, 60px); }
     #over .place { font-size: 14px; }
     #over .stat { font-size: 13px; }
-    #over button { margin-top: 24px; padding: 6px 18px; font-size: 16px; }
+    #over button { font-size: 18px; }
   }
 </style>
 </head>
@@ -274,23 +291,18 @@
 <canvas id="c"></canvas>
 
 <div id="hud" class="hud">
-  <div id="hud-tl">
-    <div class="label">alive</div>
-    <div class="val"><span id="alive">10</span><span style="opacity:0.3"> / 10</span></div>
-  </div>
-  <div id="hud-tr">
-    <div class="label">round</div>
-    <div class="val" id="time">00:00</div>
-    <div class="sub" id="phase">idle</div>
-  </div>
-  <div id="hud-bl">
-    <div class="label">health</div>
-    <div id="hpRow" class="hp-row"></div>
-  </div>
-  <div id="hud-br">
-    <div class="label">pick zone</div>
-    <div class="val" id="zone">12%</div>
-    <div class="sub" id="next">next claw 0s</div>
+  <div id="hud-bar">
+    <span class="stat"><span class="label">alive</span> <span class="val" id="alive">10</span><span class="dim"> / 10</span></span>
+    <span class="sep">·</span>
+    <span class="stat"><span class="label">health</span> <span id="hpRow" class="hp-row"></span></span>
+    <span class="sep">·</span>
+    <span class="stat"><span class="label">round</span> <span class="val" id="time">00:00</span></span>
+    <span class="sep sep-after-phase">·</span>
+    <span class="stat phase" id="phase">idle</span>
+    <span class="sep sep-after-zone stat-pickzone">·</span>
+    <span class="stat stat-pickzone"><span class="label">pick zone</span> <span id="zone">12%</span></span>
+    <span class="sep stat-next">·</span>
+    <span class="stat stat-next" id="next">next claw 0s</span>
   </div>
 </div>
 
@@ -304,7 +316,11 @@
 <div id="stick"><div id="stick-knob"></div></div>
 
 <div id="title">
-  <h1>the shape store</h1>
+  <h1>
+    <span class="line line-the"><span class="c0">t</span><span class="c2">h</span><span class="c1">e</span></span>
+    <span class="line line-shape"><span class="c3">s</span><span class="c4">h</span><span class="c5">a</span><span class="c6">p</span><span class="c7">e</span></span>
+    <span class="line line-store"><span class="c8">s</span><span class="c9">t</span><span class="c2">o</span><span class="c0">r</span><span class="c7">e</span></span>
+  </h1>
   <button id="start">enter</button>
 </div>
 
@@ -2137,7 +2153,7 @@ function maybeShrink(dt) {
   const targetScale = newR / CFG.plateR0;
   shrinkTween = { from: plateMesh.scale.x, to: targetScale, t: 0, dur: 0.6 };
   S.nextShrinkAt = S.t + CFG.shrinkEveryMs;
-  showHint('the plate shrinks');
+  showHint('the shape shrinks');
 }
 
 let shrinkTween = null;
@@ -2164,9 +2180,12 @@ const hudNext = document.getElementById('next');
 const tiltArrow = document.getElementById('tilt-arrow');
 const hpRow = document.getElementById('hpRow');
 const hpPipsDom = [];
+// each pip is one of the brand's shape glyphs, plain red
+const HP_SHAPES = ['■','●','▲','◆','★','◼','◉','▼','◇','⬢'];
 for (let i = 0; i < CFG.hpMax; i++) {
-  const p = document.createElement('div');
+  const p = document.createElement('span');
   p.className = 'hp-pip';
+  p.textContent = HP_SHAPES[i % HP_SHAPES.length];
   hpRow.appendChild(p);
   hpPipsDom.push(p);
 }
