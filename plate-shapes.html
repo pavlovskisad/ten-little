@@ -584,29 +584,35 @@ const plateMesh = new THREE.Mesh(plateGeo, [plateSideMat, plateTopMat, plateBott
 plateMesh.receiveShadow = true;
 plateGroup.add(plateMesh);
 
-// thick metallic rim — sits on the plate edge as a chunky border
-const rimGeo = new THREE.TorusGeometry(CFG.plateR0, 0.075, 10, 96);
+// glowing rim — the torus IS the edge light. Thick enough to be
+// unmistakable from any tilt angle; wraps the plate boundary so
+// nothing floats above the surface.
+const rimGeo = new THREE.TorusGeometry(CFG.plateR0, 0.085, 12, 96);
 const rimMat = new THREE.MeshStandardMaterial({
-  color: 0x222222,
-  emissive: 0x0a0a0a, emissiveIntensity: 0.40,
-  roughness: 0.35, metalness: 0.85,
+  color: 0xffd9a0,
+  emissive: 0xffd9a0, emissiveIntensity: 1.05,
+  roughness: 0.45, metalness: 0.10,
 });
 const rimMesh = new THREE.Mesh(rimGeo, rimMat);
 rimMesh.rotation.x = Math.PI / 2;
 rimMesh.position.y = CFG.plateThick / 2 + 0.001;
 plateGroup.add(rimMesh);
 
-// glowing edge strip — bright fluorescent band just inside the rim,
-// makes the plate silhouette unmistakable from any angle. Pulses
-// slowly in the ambient tick so the edge feels alive.
+// side LED band — thin emissive cylinder wrapped around the plate's
+// outer face, fused to the cylinder body so there's no gap between
+// edge light and floor. Pulses opacity in the ambient tick.
 const plateEdgeStrip = (() => {
-  const g = new THREE.RingGeometry(CFG.plateR0 * 0.945, CFG.plateR0 * 0.985, 96);
+  const g = new THREE.CylinderGeometry(
+    CFG.plateR0 * 1.002,
+    CFG.plateR0 * 0.975,
+    0.12, 96, 1, true,
+  );
   const m = new THREE.MeshBasicMaterial({
-    color: 0xffe9a8, transparent: true, opacity: 0.95, side: THREE.DoubleSide,
+    color: 0xffe9a8, transparent: true, opacity: 0.92,
+    side: THREE.DoubleSide, depthWrite: false,
   });
   const mesh = new THREE.Mesh(g, m);
-  mesh.rotation.x = -Math.PI / 2;
-  mesh.position.y = CFG.plateThick / 2 + 0.005;
+  mesh.position.y = CFG.plateThick / 2 - 0.06;  // sits flush under the rim
   plateGroup.add(mesh);
   return mesh;
 })();
@@ -897,20 +903,21 @@ function makeDiscoBallTexture() {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#2a2a2a';
+  // bright silver base — mirror tiles dominate, grout is mid-grey
+  ctx.fillStyle = '#5a5a5a';
   ctx.fillRect(0, 0, c.width, c.height);
-  const tiles = 18;
+  const tiles = 20;
   const sz = c.width / tiles;
   for (let i = 0; i < tiles; i++) {
     for (let j = 0; j < tiles; j++) {
       const r = Math.random();
-      const fill = r > 0.65 ? '#f4f4f4' : r > 0.30 ? '#9a9a9a' : '#555';
+      const fill = r > 0.50 ? '#ffffff' : r > 0.20 ? '#d8d8d8' : '#a0a0a0';
       ctx.fillStyle = fill;
-      ctx.fillRect(i * sz + 0.8, j * sz + 0.8, sz - 1.6, sz - 1.6);
-      // tiny corner highlight on the brighter tiles for sparkle
-      if (r > 0.85) {
+      ctx.fillRect(i * sz + 0.9, j * sz + 0.9, sz - 1.8, sz - 1.8);
+      // sparkle highlight on most of the bright tiles
+      if (r > 0.55) {
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(i * sz + sz * 0.10, j * sz + sz * 0.10, sz * 0.30, sz * 0.30);
+        ctx.fillRect(i * sz + sz * 0.10, j * sz + sz * 0.10, sz * 0.35, sz * 0.35);
       }
     }
   }
@@ -928,19 +935,23 @@ let discoBall = null;
   cable.position.set(0, 10, 0);
   scene.add(cable);
 
+  const ballTex = makeDiscoBallTexture();
   const ballMat = new THREE.MeshStandardMaterial({
-    map: makeDiscoBallTexture(),
+    map: ballTex,
+    emissiveMap: ballTex,        // tiles emit their own brightness
     color: 0xffffff,
-    roughness: 0.30, metalness: 0.95,
-    emissive: 0x202020,
+    emissive: 0xffffff, emissiveIntensity: 0.45,
+    roughness: 0.08,             // near-mirror finish
+    metalness: 1.0,
   });
-  discoBall = new THREE.Mesh(new THREE.SphereGeometry(0.60, 36, 24), ballMat);
-  discoBall.position.set(0, 6.0, 0);
+  // bigger ball — more presence in frame, more obvious tumble
+  discoBall = new THREE.Mesh(new THREE.SphereGeometry(0.95, 48, 32), ballMat);
+  discoBall.position.set(0, 6.2, 0);
   discoBall.castShadow = false;
   scene.add(discoBall);
 
-  // soft warm under-glow from the ball
-  const discoGlow = new THREE.PointLight(0xfff0d0, 0.45, 9, 2);
+  // brighter warm under-glow from the ball
+  const discoGlow = new THREE.PointLight(0xfff4d8, 0.85, 12, 2);
   discoGlow.position.set(0, 6.0, 0);
   scene.add(discoGlow);
 }
