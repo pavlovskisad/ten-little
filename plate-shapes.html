@@ -334,7 +334,7 @@
     <span class="line line-shape"><span class="c3">s</span><span class="c4">h</span><span class="c5">a</span><span class="c6">p</span><span class="c7">e</span></span>
     <span class="line line-store"><span class="c8">s</span><span class="c9">t</span><span class="c2">o</span><span class="c0">r</span><span class="c7">e</span></span>
   </h1>
-  <button id="start">enter</button>
+  <button id="start" style="pointer-events:none;opacity:0.65">loading...</button>
 </div>
 
 <div id="over">
@@ -346,6 +346,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
 <script>
 'use strict';
 
@@ -401,6 +402,40 @@ const CFG = {
   drainMs: 550,
   bumpForce: 11.0,        // knockback velocity added on damage
 };
+
+// ============================================================
+// CHARACTER MODEL — rigged running biped (Meshy). Cloned per figure
+// with SkeletonUtils so each player has its own skeleton + animation.
+// ============================================================
+let runnerLoaded = false;
+let runnerModel = null;
+let runnerWalkClip = null;
+// Visual tuning constants for the character. Set so feet land at the
+// plate top and the body's horizontal footprint roughly matches the
+// previous primitive figures.
+const runnerScale = 0.85;
+const runnerYOffset = 0;     // local Y where the clone sits in the figure group
+const runnerCollidR = 0.40;
+const runnerCenterY = 0.85;  // approx half-height for marker placement
+(function loadRunner() {
+  const loader = new THREE.GLTFLoader();
+  loader.load('./runner.glb', (gltf) => {
+    runnerModel = gltf.scene;
+    if (gltf.animations && gltf.animations.length > 0) {
+      // pick the longest clip as the walk loop
+      runnerWalkClip = gltf.animations.reduce(
+        (best, c) => (c.duration > best.duration ? c : best),
+        gltf.animations[0],
+      );
+    }
+    runnerLoaded = true;
+    const btn = document.getElementById('start');
+    if (btn) { btn.textContent = 'enter'; btn.style.pointerEvents = 'auto'; }
+    console.log('[runner.glb] loaded; clips:', gltf.animations && gltf.animations.length);
+  }, undefined, (err) => {
+    console.error('[runner.glb] failed', err);
+  });
+})();
 
 // ============================================================
 // SHAPE CATALOG — colored geometric primitives for figures
@@ -1094,23 +1129,68 @@ function buildShapeMesh(defIdx, color) {
 
 function makeFigure(isPlayer, defIdx, color) {
   const g = new THREE.Group();
-  const { mesh, mat, def } = buildShapeMesh(defIdx, color);
-  // center the visual at yOffset above the plate top
-  mesh.position.y = def.yOffset;
-  // pyramid + cone come with apex up; that's the look we want
-  g.add(mesh);
+  let mainMesh, mat, def, mixer = null;
+  let collidR, yOffset;
 
-  // base shadow disc to anchor the shape on the glass
-  const discGeo = new THREE.CircleGeometry(def.collidR * 1.05, 18);
+  if (runnerLoaded) {
+    // Clone the rigged character with its own skeleton + animation.
+    const clone = THREE.SkeletonUtils.clone(runnerModel);
+    clone.scale.setScalar(runnerScale);
+    // Drop the clone so its feet sit on the plate surface (y=0 in
+    // figure-local space — the figure group itself is positioned at
+    // CFG.plateThick / 2 so feet land on the disc top).
+    clone.position.y = runnerYOffset;
+    clone.traverse((node) => {
+      if (node.isMesh) { node.castShadow = true; node.receiveShadow = false; }
+    });
+    g.add(clone);
+    mainMesh = clone;
+    // gather all materials so we can flash them red on hit
+    const mats = [];
+    clone.traverse((node) => {
+      if (node.isMesh && node.material) {
+        // material may be an array
+        if (Array.isArray(node.material)) {
+          for (const m of node.material) if (m && !mats.includes(m)) mats.push(m);
+        } else if (!mats.includes(node.material)) {
+          mats.push(node.material);
+        }
+      }
+    });
+    mat = { _list: mats };
+    def = { collidR: runnerCollidR, yOffset: runnerCenterY };
+    collidR = runnerCollidR;
+    yOffset = runnerCenterY;
+    // mixer + walk loop, random phase so every figure isn't in lockstep
+    if (runnerWalkClip) {
+      mixer = new THREE.AnimationMixer(clone);
+      const action = mixer.clipAction(runnerWalkClip);
+      action.play();
+      action.time = Math.random() * runnerWalkClip.duration;
+    }
+  } else {
+    // Fallback: keep the geometric primitive if the GLB hasn't
+    // finished loading yet.
+    const built = buildShapeMesh(defIdx, color);
+    mainMesh = built.mesh;
+    mainMesh.position.y = built.def.yOffset;
+    g.add(mainMesh);
+    mat = built.mat;
+    def = built.def;
+    collidR = def.collidR;
+    yOffset = def.yOffset;
+  }
+
+  // base shadow disc — sized to whichever footprint the figure has
+  const discGeo = new THREE.CircleGeometry(collidR * 1.05, 18);
   const discMat = new THREE.MeshBasicMaterial({ color: 0x14110d, transparent: true, opacity: 0.35 });
   const disc = new THREE.Mesh(discGeo, discMat);
   disc.rotation.x = -Math.PI / 2;
   disc.position.y = 0.001;
   g.add(disc);
 
-  // danger ring — hidden by default, becomes a blinking red glow when
-  // the figure is at hp<=3
-  const dangerGeo = new THREE.RingGeometry(def.collidR * 0.88, def.collidR * 1.18, 32);
+  // danger ring — hidden by default, blinks red at hp<=3
+  const dangerGeo = new THREE.RingGeometry(collidR * 0.88, collidR * 1.18, 32);
   const dangerMat = new THREE.MeshBasicMaterial({
     color: 0xff1c1c, transparent: true, opacity: 0.0, side: THREE.DoubleSide, depthWrite: false,
   });
@@ -1120,7 +1200,7 @@ function makeFigure(isPlayer, defIdx, color) {
   dangerRing.visible = false;
   g.add(dangerRing);
 
-  return { group: g, shapeMesh: mesh, shapeMat: mat, def, dangerRing };
+  return { group: g, shapeMesh: mainMesh, shapeMat: mat, def, dangerRing, mixer };
 }
 
 // Spinning yellow octahedron-star + a glowing ground ring under the
@@ -1191,6 +1271,7 @@ function spawnFigures() {
       shapeMat: built.shapeMat,
       def: built.def,
       dangerRing: built.dangerRing,
+      mixer: built.mixer,
       baseColor: color,
       collidR: built.def.collidR,
       yOffset: built.def.yOffset,
@@ -1534,18 +1615,35 @@ function updateFigures(dt) {
   // No HP pip ring on shapes; the body itself is the indicator.
   for (const f of S.figs) {
     if (f.picked || f.draining || f.dropping) continue;
+    // Set emissive on the figure body — handles both the primitive
+    // material (single mat) and the character (mat._list of materials).
+    let emColor, emIntensity;
     if (f.invulnT > 0) {
-      // brief solid-red blink right at contact, linear fade across
-      // the i-frame window. Reads as a clean hit flash.
       const frac = f.invulnT / (CFG.iframeMs / 1000); // 1.0 at hit → 0 at i-frame end
-      f.shapeMat.emissive.setHex(0xff0000);
-      f.shapeMat.emissiveIntensity = frac * 0.85;
+      emColor = 0xff0000;
+      emIntensity = frac * 0.85;
     } else {
       const lowness = 1 - (f.hp / CFG.hpMax);
-      // gentle baseline glow in the shape's own color as HP drops
-      f.shapeMat.emissive.setHex(f.baseColor);
-      f.shapeMat.emissiveIntensity = lowness * 0.32;
+      emColor = f.baseColor;
+      emIntensity = lowness * 0.32;
     }
+    if (f.shapeMat) {
+      const mats = f.shapeMat._list || [f.shapeMat];
+      for (const m of mats) {
+        if (m.emissive) m.emissive.setHex(emColor);
+        if (m.emissiveIntensity !== undefined) m.emissiveIntensity = emIntensity;
+      }
+    }
+  }
+
+  // Tick each figure's animation mixer (walking loop). Step rate scales
+  // with movement speed so a fleeing figure visibly hustles.
+  for (const f of S.figs) {
+    if (!f.mixer) continue;
+    if (!f.alive && !f.picked) continue;
+    const speed = Math.hypot(f.vx, f.vz);
+    const scale = Math.max(0.4, Math.min(2.0, speed / 3));
+    f.mixer.update(dt * scale);
   }
 
   // picked figures animation
