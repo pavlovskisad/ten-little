@@ -436,14 +436,43 @@ function seekToRandomStart() {
   } catch (e) { console.warn('[sc] seek failed', e); }
 }
 
+// Enter button only enables when BOTH the character GLB and the
+// SoundCloud widget are ready. That way the synchronous play()
+// call inside the click handler has a widget that's actually
+// ready to receive it — critical for mobile audio unlock.
+function maybeEnableEnter() {
+  if (!runnerLoaded || !scReady) return;
+  const btn = document.getElementById('start');
+  if (btn) {
+    btn.textContent = 'enter';
+    btn.style.pointerEvents = 'auto';
+    btn.style.opacity = '';
+  }
+}
+
 function initSoundCloud() {
   const iframe = document.getElementById('sc-iframe');
-  if (!iframe || typeof SC === 'undefined' || !SC.Widget) return;
+  if (!iframe || typeof SC === 'undefined' || !SC.Widget) {
+    // SC API didn't load (ad-blocker, slow CDN). Don't gate the game.
+    scReady = true;
+    maybeEnableEnter();
+    return;
+  }
   scWidget = SC.Widget(iframe);
   scWidget.bind(SC.Widget.Events.READY, () => {
     scReady = true;
     console.log('[sc] widget ready');
+    maybeEnableEnter();
   });
+  // Fallback: if READY hasn't fired in 5s, enable the game anyway —
+  // we'd rather let the user play silently than block them entirely.
+  setTimeout(() => {
+    if (!scReady) {
+      console.warn('[sc] not ready after 5s — enabling game without confirmed audio');
+      scReady = true;
+      maybeEnableEnter();
+    }
+  }, 5000);
   scWidget.bind(SC.Widget.Events.FINISH, () => {
     // single mix on loop → just seek to a new random spot + replay.
     // Multiple mixes → load a different random one.
@@ -665,8 +694,7 @@ const runnerCenterY = 0.85;  // approx half-height for marker placement
       );
     }
     runnerLoaded = true;
-    const btn = document.getElementById('start');
-    if (btn) { btn.textContent = 'enter'; btn.style.pointerEvents = 'auto'; }
+    maybeEnableEnter();
     console.log('[runner.glb] loaded; clips:', gltf.animations && gltf.animations.length);
   }, undefined, (err) => {
     console.error('[runner.glb] failed', err);
