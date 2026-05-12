@@ -559,20 +559,20 @@ const plateGroup = new THREE.Group();
 scene.add(plateGroup);
 
 const plateSideMat = new THREE.MeshStandardMaterial({
-  color: 0x0e0a06, roughness: 0.55, metalness: 0.30,
+  color: 0x1c1410, roughness: 0.55, metalness: 0.30,
 });
-// Neutral glass: physically transparent dance floor that catches the
-// light beams and the disco ball overhead but lets you sense the
-// psychedelic void underneath. Lower opacity so it reads as glass.
+// Neutral glass: physically transparent but only somewhat so — you
+// sense the void underneath but the floor still reads as a solid
+// glass dance floor, not a window.
 const plateTopMat = new THREE.MeshPhysicalMaterial({
   color: 0x9c9c9c,
   roughness: 0.06,
   metalness: 0.0,
-  transmission: 0.70,
+  transmission: 0.50,
   thickness: 0.5,
   ior: 1.45,
   transparent: true,
-  opacity: 0.55,
+  opacity: 0.80,
   side: THREE.DoubleSide,
   emissive: 0x0c0c0c, emissiveIntensity: 0.08,
 });
@@ -584,23 +584,32 @@ const plateMesh = new THREE.Mesh(plateGeo, [plateSideMat, plateTopMat, plateBott
 plateMesh.receiveShadow = true;
 plateGroup.add(plateMesh);
 
-// thick, near-black rim — high contrast against bright shapes + void below
-const rimGeo = new THREE.TorusGeometry(CFG.plateR0, 0.060, 10, 96);
-const rimMat = new THREE.MeshStandardMaterial({ color: 0x130905, roughness: 0.55, metalness: 0.15 });
+// thick metallic rim — sits on the plate edge as a chunky border
+const rimGeo = new THREE.TorusGeometry(CFG.plateR0, 0.075, 10, 96);
+const rimMat = new THREE.MeshStandardMaterial({
+  color: 0x222222,
+  emissive: 0x0a0a0a, emissiveIntensity: 0.40,
+  roughness: 0.35, metalness: 0.85,
+});
 const rimMesh = new THREE.Mesh(rimGeo, rimMat);
 rimMesh.rotation.x = Math.PI / 2;
 rimMesh.position.y = CFG.plateThick / 2 + 0.001;
 plateGroup.add(rimMesh);
 
-// inner dark band just inside the rim — keeps the silhouette sharp
-{
-  const edgeRingGeo = new THREE.RingGeometry(CFG.plateR0 * 0.965, CFG.plateR0 * 0.992, 96);
-  const edgeRingMat = new THREE.MeshBasicMaterial({ color: 0x0e0805, side: THREE.DoubleSide });
-  const edgeRing = new THREE.Mesh(edgeRingGeo, edgeRingMat);
-  edgeRing.rotation.x = -Math.PI / 2;
-  edgeRing.position.y = CFG.plateThick / 2 + 0.003;
-  plateGroup.add(edgeRing);
-}
+// glowing edge strip — bright fluorescent band just inside the rim,
+// makes the plate silhouette unmistakable from any angle. Pulses
+// slowly in the ambient tick so the edge feels alive.
+const plateEdgeStrip = (() => {
+  const g = new THREE.RingGeometry(CFG.plateR0 * 0.945, CFG.plateR0 * 0.985, 96);
+  const m = new THREE.MeshBasicMaterial({
+    color: 0xffe9a8, transparent: true, opacity: 0.95, side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(g, m);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = CFG.plateThick / 2 + 0.005;
+  plateGroup.add(mesh);
+  return mesh;
+})();
 
 function ring(r, op) {
   const g = new THREE.RingGeometry(r - 0.015, r + 0.015, 96);
@@ -730,6 +739,7 @@ function tickConfetti(dt) {
   confetti.t += dt;
   const g = 14; // gravity
   for (const c of confetti.cubes) {
+    if (!c.mesh.visible) continue;
     c.vy -= g * dt;
     c.mesh.position.x += c.vx * dt;
     c.mesh.position.y += c.vy * dt;
@@ -737,6 +747,9 @@ function tickConfetti(dt) {
     c.mesh.rotation.x += c.rx * dt;
     c.mesh.rotation.y += c.ry * dt;
     c.mesh.rotation.z += c.rz * dt;
+    // once a cube has fallen well past the tunnel, hide it so we
+    // stop integrating it. The pieces are gone visually anyway.
+    if (c.mesh.position.y < -50) c.mesh.visible = false;
   }
 }
 
@@ -2016,7 +2029,6 @@ function eliminate(f, reason) {
 function endGame() {
   if (S.phase === 'over') return;
   S.phase = 'over';
-  explodeRoom();
   const podium = S.figs.filter(f => f.alive);
   S.podium = podium.map(f => f.id);
 
@@ -2141,6 +2153,8 @@ function updateHud() {
 function tickAmbient(dt, tSec) {
   // glass floor breathes faintly so it isn't dead
   plateTopMat.emissiveIntensity = 0.05 + Math.sin(tSec * 1.8) * 0.03;
+  // edge strip pulses brightness so the silhouette stays alive
+  plateEdgeStrip.material.opacity = 0.85 + Math.sin(tSec * 1.4) * 0.10;
 
   for (let i = 0; i < tunnelRings.length; i++) {
     const tr = tunnelRings[i];
@@ -2243,6 +2257,10 @@ function reset() {
   camInitialized = false;
   spawnFigures();
   S.phase = 'play';
+  // blow the walls outward as the round begins — the room scatters,
+  // gameplay happens in the cleared void above. Idempotent: once the
+  // wall has exploded, subsequent rounds skip silently.
+  explodeRoom();
   document.getElementById('over').classList.remove('show');
 }
 
