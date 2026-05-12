@@ -556,50 +556,16 @@ addLightBeam(0xffd070,  0.0,  0.0, { radius: 0.9, opacity: 0.18, apexY: 11.5, ba
 const plateGroup = new THREE.Group();
 scene.add(plateGroup);
 
-// Procedural disco-floor texture: grid of primary-colored cells with
-// dark grout, a handful of cells left dark for that LED-tile-room look.
-function makeDiscoFloorTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 512;
-  const ctx = c.getContext('2d');
-  const colors = SHAPE_COLORS.map((hex) => '#' + hex.toString(16).padStart(6, '0'));
-  ctx.fillStyle = '#0a0805';
-  ctx.fillRect(0, 0, c.width, c.height);
-  const cols = 18, rows = 18;
-  const w = c.width / cols, h = c.height / rows;
-  const pad = 3;
-  for (let i = 0; i < cols; i++) {
-    for (let j = 0; j < rows; j++) {
-      if (Math.random() < 0.12) continue; // some cells left dark for texture
-      const col = colors[(i * 11 + j * 7 + Math.floor(Math.random() * 3)) % colors.length];
-      ctx.fillStyle = col;
-      ctx.fillRect(i * w + pad, j * h + pad, w - pad * 2, h - pad * 2);
-    }
-  }
-  // subtle vignette toward edges so the center reads brighter
-  const grad = ctx.createRadialGradient(c.width / 2, c.height / 2, c.width * 0.20, c.width / 2, c.height / 2, c.width * 0.58);
-  grad.addColorStop(0, 'rgba(0,0,0,0)');
-  grad.addColorStop(1, 'rgba(0,0,0,0.35)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, c.width, c.height);
-  const tex = new THREE.CanvasTexture(c);
-  tex.encoding = THREE.sRGBEncoding;
-  tex.anisotropy = 4;
-  tex.center.set(0.5, 0.5);
-  return tex;
-}
-const discoFloorTex = makeDiscoFloorTexture();
-
 const plateSideMat = new THREE.MeshStandardMaterial({
-  color: 0x14110d, roughness: 0.55, metalness: 0.30,
+  color: 0x0e0a06, roughness: 0.55, metalness: 0.30,
 });
-// Glass-type dance floor: very low roughness + high metalness so it acts
-// like a polished glassy surface catching the light beams and disco ball.
-// The disco tile pattern shows through as if etched under glass.
+// Plain glass dance floor — dark warm tone, very low roughness, high
+// metalness so it acts as a polished mirror surface catching the light
+// beams and the disco ball overhead.
 const plateTopMat = new THREE.MeshStandardMaterial({
-  map: discoFloorTex, emissiveMap: discoFloorTex,
-  emissive: 0xffffff, emissiveIntensity: 0.18,
-  roughness: 0.10, metalness: 0.70,
+  color: 0x1a130a,
+  emissive: 0x0c0805, emissiveIntensity: 0.06,
+  roughness: 0.08, metalness: 0.85,
 });
 const plateBottomMat = new THREE.MeshStandardMaterial({
   color: 0x0a0805, roughness: 0.95, metalness: 0.05,
@@ -2035,10 +2001,8 @@ function updateHud() {
 // Always running so the void looks alive on title/over screens too.
 // ============================================================
 function tickAmbient(dt, tSec) {
-  // disco-floor texture drifts slowly so the tiles aren't dead-static
-  discoFloorTex.rotation += dt * 0.06;
-  // ...and the emissive glow on the floor pulses
-  plateTopMat.emissiveIntensity = 0.26 + Math.sin(tSec * 2.1) * 0.10;
+  // glass floor breathes faintly so it isn't dead
+  plateTopMat.emissiveIntensity = 0.05 + Math.sin(tSec * 1.8) * 0.03;
 
   for (let i = 0; i < tunnelRings.length; i++) {
     const tr = tunnelRings[i];
