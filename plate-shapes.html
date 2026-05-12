@@ -54,7 +54,7 @@
   }
   #hud-bar {
     position: fixed;
-    top: calc(env(safe-area-inset-top) + 14px);
+    top: calc(env(safe-area-inset-top) + 62px);
     left: 50%;
     transform: translateX(-50%);
     display: flex; align-items: center; flex-wrap: nowrap; gap: 16px;
@@ -79,10 +79,10 @@
   #hud-bar .dim { opacity: 0.50; }
   #hud-bar .sep { opacity: 0.40; font-size: 20px; }
 
-  /* Big HP row: spread across most of the screen width, glyphs large. */
+  /* Big HP row: at the very top, screen-wide, glyphs large. */
   #hud-hp {
     position: fixed;
-    top: calc(env(safe-area-inset-top) + 58px);
+    top: calc(env(safe-area-inset-top) + 14px);
     left: 0; right: 0;
     display: flex; align-items: center; justify-content: center;
     gap: 14px;
@@ -272,14 +272,14 @@
      ============================================================ */
   @media (max-width: 720px), (pointer: coarse) {
     #hud-bar {
-      top: calc(env(safe-area-inset-top) + 10px);
+      top: calc(env(safe-area-inset-top) + 50px);
       gap: 12px;
       font-size: 17px;
     }
     #hud-bar .label { font-size: 15px; }
     #hud-bar .val { font-size: 20px; }
     #hud-bar .sep { font-size: 17px; }
-    #hud-hp { top: calc(env(safe-area-inset-top) + 46px); gap: 10px; }
+    #hud-hp { top: calc(env(safe-area-inset-top) + 10px); gap: 10px; }
     #hud-hp .hp-label { font-size: 15px; }
     .hp-row { gap: 14px; }
     .hp-pip { font-size: 28px; }
