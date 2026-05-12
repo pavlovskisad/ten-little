@@ -2108,7 +2108,7 @@ function tickShrinkTween(dt) {
   const e = 1 - (1 - k) * (1 - k);
   const s = lerp(shrinkTween.from, shrinkTween.to, e);
   plateMesh.scale.set(s, 1, s);
-  rimMesh.scale.set(s, 1, s);
+  plateCollar.scale.set(s, 1, s);
   reticleGroup.scale.set(1, 1, 1);
   if (k >= 1) shrinkTween = null;
 }
@@ -2266,7 +2266,7 @@ function reset() {
   S.startedAt = performance.now();
   S.plateR = CFG.plateR0;
   plateMesh.scale.set(1, 1, 1);
-  rimMesh.scale.set(1, 1, 1);
+  plateCollar.scale.set(1, 1, 1);
   S.nextShrinkAt = CFG.shrinkEveryMs;
   S.nextHandAt = 4500;
   S.firstHand = true;
