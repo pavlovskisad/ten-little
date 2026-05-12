@@ -1054,7 +1054,6 @@ scene.add(voidConeGroup);
     [-29.0,   1.1,    3,       1.9,       0.50],
     [-31.5,   0.0,    1,       1.8,       0.45],  // apex
   ];
-  let colorIdx = 0;
   for (let li = 0; li < layers.length; li++) {
     const [y, ringR, count, size, opacity] = layers[li];
     const angOffset = li * 0.38; // stagger ring rotations so balls don't column up
@@ -1062,10 +1061,10 @@ scene.add(voidConeGroup);
       const ang = angOffset + (i / count) * Math.PI * 2;
       const x = Math.cos(ang) * ringR;
       const z = Math.sin(ang) * ringR;
-      const tint = SHAPE_COLORS[colorIdx % SHAPE_COLORS.length];
-      colorIdx++;
+      // No palette tint — every void ball is a classic orange
+      // basketball (white color × texture = texture unmodified)
       addGiantShape('sphere', size, y, {
-        x, z, opacity, color: tint, parent: voidConeGroup,
+        x, z, opacity, color: 0xffffff, parent: voidConeGroup,
       });
     }
   }
