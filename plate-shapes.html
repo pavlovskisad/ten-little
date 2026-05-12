@@ -398,7 +398,7 @@ const CFG = {
   contactDmg: 1,
   iframeMs: 600,
   drainMs: 550,
-  bumpForce: 5.5,
+  bumpForce: 11.0,        // knockback velocity added on damage
 };
 
 // ============================================================
@@ -1534,16 +1534,14 @@ function updateFigures(dt) {
   for (const f of S.figs) {
     if (f.picked || f.draining || f.dropping) continue;
     if (f.invulnT > 0) {
-      // i-frame pulse: brief brightening in the figure's OWN color so
-      // a clustered melee doesn't bleach every shape to white. The
-      // figure reads as "lit up" without losing its primary.
-      const phase = (CFG.iframeMs / 1000 - f.invulnT) / (CFG.iframeMs / 1000);
-      const flash = Math.sin(phase * Math.PI * 6) * 0.5 + 0.5;
-      f.shapeMat.emissive.setHex(f.baseColor);
-      f.shapeMat.emissiveIntensity = 0.30 * flash + 0.10;
+      // brief solid-red blink right at contact, linear fade across
+      // the i-frame window. Reads as a clean hit flash.
+      const frac = f.invulnT / (CFG.iframeMs / 1000); // 1.0 at hit → 0 at i-frame end
+      f.shapeMat.emissive.setHex(0xff0000);
+      f.shapeMat.emissiveIntensity = frac * 0.85;
     } else {
       const lowness = 1 - (f.hp / CFG.hpMax);
-      // glow uses the shape's own color, ramping gently as HP drops
+      // gentle baseline glow in the shape's own color as HP drops
       f.shapeMat.emissive.setHex(f.baseColor);
       f.shapeMat.emissiveIntensity = lowness * 0.32;
     }
