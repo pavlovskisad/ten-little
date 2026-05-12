@@ -403,11 +403,13 @@
 //     URL into the array.
 // ============================================================
 const MIXES = [
-  // Examples (replace with your own):
-  // 'https://soundcloud.com/user/long-hiphop-mix-2025',
-  // 'https://soundcloud.com/dj-name/2hr-vinyl-set',
-  'https://soundcloud.com/discover',  // placeholder — overwrite
+  'https://on.soundcloud.com/fqoIPDlVWBhMhPNItM',
 ];
+
+// max starting offset — every play seeks to a random point between
+// 0 and this many milliseconds (capped at the track's actual length).
+// 50 minutes feels like a fair window for a long DJ mix.
+const MAX_RANDOM_START_MS = 50 * 60 * 1000;
 
 let scWidget = null;
 let scReady = false;
@@ -444,8 +446,20 @@ function playRandomMix() {
     show_reposts: false,
     visual: false,
     callback: () => {
-      // load completes async; in case READY hasn't fired yet, retry
-      try { scWidget.play(); } catch (_) {}
+      // Start at a random spot inside the first 50 minutes (or the
+      // track's length, whichever is shorter). With one mix on
+      // rotation this gives variety on every replay instead of
+      // always picking up from minute 0.
+      try {
+        scWidget.play();
+        scWidget.getDuration((dur) => {
+          const cap = Math.min(dur || MAX_RANDOM_START_MS, MAX_RANDOM_START_MS);
+          if (cap > 1000) {
+            const startMs = Math.floor(Math.random() * cap);
+            scWidget.seekTo(startMs);
+          }
+        });
+      } catch (_) {}
     },
   });
 }
