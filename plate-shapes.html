@@ -449,11 +449,11 @@ let basketballGlbTex = null;
 // their own tint.
 function applyBasketballGlbToScene() {
   if (!basketballGlbGeom) return;
-  // Shared Lambert for the wall — no specular blowout under the
-  // accent lights; map is the GLB texture if present, else the
-  // procedural canvas one we built earlier.
+  // Always use the cleaner procedural texture (basketballTex) — the
+  // GLB's bundled texture has very chunky black seams that read as
+  // cartoony. Procedural keeps thin warm-brown seams + grain.
   const wallMat = new THREE.MeshLambertMaterial({
-    map: basketballGlbTex || basketballTex,
+    map: basketballTex,
     color: 0xffffff,
   });
   for (const ball of wallCubes) {
@@ -462,14 +462,14 @@ function applyBasketballGlbToScene() {
     ball.material = wallMat;
   }
   // Void: swap geom on sphere-tagged entries and rebuild the
-  // material with the new texture, preserving per-shape tint + opacity.
+  // material with the procedural texture + per-shape tint/opacity.
   for (const g of giantShapes) {
     if (g.glbSwappable) {
       g.mesh.geometry = basketballGlbGeom;
       g.mesh.scale.setScalar(g.glbBaseSize);
     }
     const m = new THREE.MeshLambertMaterial({
-      map: basketballGlbTex || basketballTex,
+      map: basketballTex,
       color: g.tintColor,
       transparent: true,
       opacity: g.baseOpacity,
@@ -805,23 +805,55 @@ scene.add(roomGroup);
 // canonical black seam curves. Same texture shared across every ball
 // in the wall, with per-ball random rotation so seams aren't lockstep.
 function makeBasketballTexture() {
+  // Higher-res canvas so the seams stay sharp on bigger balls. Texture
+  // is the classic basketball: warm rubbery orange with a subtle radial
+  // gradient (soft shadow toward poles when wrapped on a sphere), four
+  // thin dark-brown seam lines (not pure black), and a fine grain.
   const c = document.createElement('canvas');
-  c.width = c.height = 256;
+  c.width = c.height = 512;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#e07020';
-  ctx.fillRect(0, 0, 256, 256);
-  ctx.strokeStyle = '#0c0807';
-  ctx.lineWidth = 8;
+
+  // base orange with a soft fall-off — looks like leather, not vinyl
+  const grad = ctx.createRadialGradient(256, 256, 60, 256, 256, 380);
+  grad.addColorStop(0.0, '#d96c20');
+  grad.addColorStop(0.6, '#b85518');
+  grad.addColorStop(1.0, '#8a3e10');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 512);
+
+  // fine grain — random tiny specks so the surface isn't perfectly smooth
+  for (let i = 0; i < 3000; i++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 512;
+    const a = 0.05 + Math.random() * 0.08;
+    ctx.fillStyle = Math.random() < 0.5
+      ? `rgba(50, 24, 8, ${a})`
+      : `rgba(230, 145, 70, ${a * 0.6})`;
+    ctx.fillRect(x, y, 1.5, 1.5);
+  }
+
+  // seam lines: thin, dark warm brown (not pure black) — reads as
+  // recessed grooves rather than printed-on stripes
+  ctx.strokeStyle = '#2a1408';
+  ctx.lineWidth = 4;
   ctx.lineCap = 'round';
-  // horizontal seam
-  ctx.beginPath(); ctx.moveTo(0, 128); ctx.lineTo(256, 128); ctx.stroke();
-  // vertical seam
-  ctx.beginPath(); ctx.moveTo(128, 0); ctx.lineTo(128, 256); ctx.stroke();
-  // two curved seams sweeping vertically — fake the equator curves
-  ctx.beginPath(); ctx.ellipse(0, 128, 96, 200, 0, -Math.PI / 2, Math.PI / 2); ctx.stroke();
-  ctx.beginPath(); ctx.ellipse(256, 128, 96, 200, 0, Math.PI / 2, 3 * Math.PI / 2); ctx.stroke();
+  // equator + meridian
+  ctx.beginPath(); ctx.moveTo(0, 256); ctx.lineTo(512, 256); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(256, 0); ctx.lineTo(256, 512); ctx.stroke();
+  // two C-curve seams (the basketball's signature crossing arcs)
+  ctx.beginPath(); ctx.ellipse(0, 256, 192, 400, 0, -Math.PI / 2, Math.PI / 2); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(512, 256, 192, 400, 0, Math.PI / 2, 3 * Math.PI / 2); ctx.stroke();
+
+  // soft highlight along the top half — adds dimensional read
+  const hi = ctx.createRadialGradient(180, 150, 20, 180, 150, 240);
+  hi.addColorStop(0, 'rgba(255, 220, 180, 0.30)');
+  hi.addColorStop(1, 'rgba(255, 220, 180, 0)');
+  ctx.fillStyle = hi;
+  ctx.fillRect(0, 0, 512, 512);
+
   const tex = new THREE.CanvasTexture(c);
   tex.encoding = THREE.sRGBEncoding;
+  tex.anisotropy = 4;
   return tex;
 }
 
@@ -1012,15 +1044,15 @@ const voidConeGroup = new THREE.Group();
 scene.add(voidConeGroup);
 {
   const layers = [
-    // [y,     ringR,  count,  ballSize,  opacity]
-    [-6.5,    0.0,    1,       3.2,       0.85],
-    [-9.0,    2.4,    3,       3.4,       0.75],
-    [-12.0,   3.8,    5,       3.8,       0.70],
-    [-15.0,   5.0,    6,       4.0,       0.65],
-    [-18.5,   6.0,    7,       4.4,       0.60],
-    [-22.0,   6.8,    8,       4.6,       0.55],
-    [-26.0,   7.4,    9,       4.8,       0.50],
-    [-30.5,   7.8,    9,       5.0,       0.45],
+    // [y,     ringR,  count,  ballSize,  opacity]   wide top → narrow apex
+    [-7.5,    7.8,    9,       5.0,       0.85],
+    [-11.0,   7.4,    9,       4.8,       0.75],
+    [-14.5,   6.8,    8,       4.6,       0.70],
+    [-18.0,   6.0,    7,       4.4,       0.65],
+    [-21.0,   5.0,    6,       4.0,       0.60],
+    [-24.0,   3.8,    5,       3.8,       0.55],
+    [-26.5,   2.4,    3,       3.4,       0.50],
+    [-28.5,   0.0,    1,       3.2,       0.45],  // apex
   ];
   let colorIdx = 0;
   for (let li = 0; li < layers.length; li++) {
