@@ -491,10 +491,9 @@ const rim = new THREE.DirectionalLight(0x5a708a, 0.18);
 rim.position.set(-5, 6, -5);
 scene.add(rim);
 
-// stage spotlight from above the plate — the dance floor / arena beam.
-// Lower intensity so cumulative diffuse on the shapes doesn't saturate
-// past ACES headroom and bleach them to white.
-const stageSpot = new THREE.SpotLight(0xfff0c8, 1.10, 30, Math.PI / 4.2, 0.55, 1.05);
+// stage spotlight from above the plate — kept gentle so the central
+// column of light through the disco ball doesn't bleach the figures.
+const stageSpot = new THREE.SpotLight(0xfff0c8, 0.55, 30, Math.PI / 4.2, 0.55, 1.05);
 stageSpot.position.set(0, 12, 0);
 stageSpot.target.position.set(0, 0, 0);
 scene.add(stageSpot);
@@ -552,7 +551,8 @@ addLightBeam(0xff2840, -4.5,  3.5, { radius: 1.5, opacity: 0.14 });
 addLightBeam(0x2a6df4,  4.5, -3.5, { radius: 1.5, opacity: 0.14 });
 addLightBeam(0xd44dff, -5.0, -5.0, { radius: 1.3, opacity: 0.12 });
 addLightBeam(0x42e8ff,  5.0,  5.0, { radius: 1.3, opacity: 0.12 });
-addLightBeam(0xffd070,  0.0,  0.0, { radius: 0.9, opacity: 0.18, apexY: 11.5, baseY: 0.25 });
+// (removed the warm-gold center beam — it was the white column from the
+// disco ball that was bleaching everything underneath it)
 
 // ============================================================
 // PLATE — the dance floor. Disco-tile top, near-black rim, no
@@ -919,9 +919,8 @@ let discoBall = null;
   scene.add(ballRoot);
   discoBall = ballRoot;
 
-  // warm under-glow point light — kept gentle so it doesn't double up
-  // with the stage spot directly above the plate
-  const discoGlow = new THREE.PointLight(0xfff4d8, 0.35, 11, 2);
+  // very subtle warm under-glow so the ball isn't completely lifeless
+  const discoGlow = new THREE.PointLight(0xfff4d8, 0.18, 10, 2);
   discoGlow.position.set(0, 6.0, 0);
   scene.add(discoGlow);
 
@@ -943,10 +942,12 @@ let discoBall = null;
     // Replace the GLB's bundled materials with a known-bright silver
     // mirror so the ball reads as a real disco ball rather than the
     // dark gold tint the export came with.
+    // Pure mirror, no self-emission. The ball reflects direct lights
+    // via specular; it shouldn't act as its own light source.
     const mirrorMat = new THREE.MeshStandardMaterial({
-      color: 0xe8e8e8,
-      emissive: 0xe8e8e8, emissiveIntensity: 0.20,
-      metalness: 1.0, roughness: 0.12,
+      color: 0xcfcfcf,
+      emissive: 0x000000, emissiveIntensity: 0.0,
+      metalness: 1.0, roughness: 0.15,
     });
     model.traverse((node) => {
       if (node.isMesh) {
@@ -1469,10 +1470,13 @@ function updateFigures(dt) {
   for (const f of S.figs) {
     if (f.picked || f.draining || f.dropping) continue;
     if (f.invulnT > 0) {
+      // i-frame pulse: brief brightening in the figure's OWN color so
+      // a clustered melee doesn't bleach every shape to white. The
+      // figure reads as "lit up" without losing its primary.
       const phase = (CFG.iframeMs / 1000 - f.invulnT) / (CFG.iframeMs / 1000);
       const flash = Math.sin(phase * Math.PI * 6) * 0.5 + 0.5;
-      f.shapeMat.emissive.setHex(0xffffff);
-      f.shapeMat.emissiveIntensity = 0.40 * flash + 0.12;
+      f.shapeMat.emissive.setHex(f.baseColor);
+      f.shapeMat.emissiveIntensity = 0.30 * flash + 0.10;
     } else {
       const lowness = 1 - (f.hp / CFG.hpMax);
       // glow uses the shape's own color, ramping gently as HP drops
