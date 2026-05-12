@@ -413,7 +413,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputEncoding = THREE.sRGBEncoding;
 // Cinematic tone mapping so the loud club lights don't wash everything out
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.88;
+renderer.toneMappingExposure = 0.78;
 
 const camTarget = { y: 14, z: 13.5, fov: 42 };
 let camInitialized = false;
@@ -962,11 +962,11 @@ reticleGroup.visible = false;
 // ============================================================
 function buildShapeMesh(defIdx, color) {
   const def = SHAPE_DEFS[defIdx];
-  // More matte than before: high roughness, near-zero metalness so the
-  // shapes hold their primary colors instead of catching tinted highlights
-  // from every accent light in the room and going pastel.
-  const mat = new THREE.MeshStandardMaterial({
-    color, roughness: 0.88, metalness: 0.02,
+  // Lambert: pure diffuse, no specular highlights at all. Even with the
+  // stage spotlight blasting from overhead the shapes can't blow out to
+  // white anymore; they hold their saturated primary color.
+  const mat = new THREE.MeshLambertMaterial({
+    color,
     emissive: 0x000000, emissiveIntensity: 0,
   });
   let geom;
