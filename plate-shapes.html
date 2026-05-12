@@ -294,6 +294,7 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script>
 'use strict';
 
@@ -584,38 +585,33 @@ const plateMesh = new THREE.Mesh(plateGeo, [plateSideMat, plateTopMat, plateBott
 plateMesh.receiveShadow = true;
 plateGroup.add(plateMesh);
 
-// glowing rim — the torus IS the edge light. Thick enough to be
-// unmistakable from any tilt angle; wraps the plate boundary so
-// nothing floats above the surface.
-const rimGeo = new THREE.TorusGeometry(CFG.plateR0, 0.085, 12, 96);
-const rimMat = new THREE.MeshStandardMaterial({
-  color: 0xffd9a0,
-  emissive: 0xffd9a0, emissiveIntensity: 1.05,
-  roughness: 0.45, metalness: 0.10,
-});
-const rimMesh = new THREE.Mesh(rimGeo, rimMat);
-rimMesh.rotation.x = Math.PI / 2;
-rimMesh.position.y = CFG.plateThick / 2 + 0.001;
-plateGroup.add(rimMesh);
-
-// side LED band — thin emissive cylinder wrapped around the plate's
-// outer face, fused to the cylinder body so there's no gap between
-// edge light and floor. Pulses opacity in the ambient tick.
-const plateEdgeStrip = (() => {
+// Plate edge as ONE element: a thick emissive collar wrapping the
+// outer cylindrical face. Entirely outside the transparent glass
+// body so transmission/refraction can't distort the silhouette.
+// No floating ring, no torus half-submerged in the glass.
+const plateCollar = (() => {
   const g = new THREE.CylinderGeometry(
-    CFG.plateR0 * 1.002,
-    CFG.plateR0 * 0.975,
-    0.12, 96, 1, true,
+    CFG.plateR0 * 1.012,  // top radius: slightly outside the plate body
+    CFG.plateR0 * 1.000,  // bottom radius: flush with the plate's outer cylinder
+    0.22, 96, 1, true,    // height 0.22, open-ended (no caps)
   );
-  const m = new THREE.MeshBasicMaterial({
-    color: 0xffe9a8, transparent: true, opacity: 0.92,
-    side: THREE.DoubleSide, depthWrite: false,
+  const m = new THREE.MeshStandardMaterial({
+    color: 0xffd9a0,
+    emissive: 0xffd9a0, emissiveIntensity: 1.15,
+    roughness: 0.30, metalness: 0.15,
+    side: THREE.DoubleSide,
   });
   const mesh = new THREE.Mesh(g, m);
-  mesh.position.y = CFG.plateThick / 2 - 0.06;  // sits flush under the rim
+  // center vertically so the top edge protrudes slightly above the
+  // plate top surface (acts as a raised lip), bottom edge sits well
+  // inside the cylinder's side wall
+  mesh.position.y = CFG.plateThick / 2 - 0.04;
   plateGroup.add(mesh);
   return mesh;
 })();
+
+// expose as plateEdgeStrip so tickAmbient's pulse still works
+const plateEdgeStrip = plateCollar;
 
 function ring(r, op) {
   const g = new THREE.RingGeometry(r - 0.015, r + 0.015, 96);
@@ -899,32 +895,12 @@ scene.add(tunnelStars);
 // while the plate tilts. Texture-mapped mirror tile grid so the
 // rotation is actually legible — a smooth sphere can't show spin.
 // ============================================================
-function makeDiscoBallTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 256;
-  const ctx = c.getContext('2d');
-  // bright silver base — mirror tiles dominate, grout is mid-grey
-  ctx.fillStyle = '#5a5a5a';
-  ctx.fillRect(0, 0, c.width, c.height);
-  const tiles = 20;
-  const sz = c.width / tiles;
-  for (let i = 0; i < tiles; i++) {
-    for (let j = 0; j < tiles; j++) {
-      const r = Math.random();
-      const fill = r > 0.50 ? '#ffffff' : r > 0.20 ? '#d8d8d8' : '#a0a0a0';
-      ctx.fillStyle = fill;
-      ctx.fillRect(i * sz + 0.9, j * sz + 0.9, sz - 1.8, sz - 1.8);
-      // sparkle highlight on most of the bright tiles
-      if (r > 0.55) {
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(i * sz + sz * 0.10, j * sz + sz * 0.10, sz * 0.35, sz * 0.35);
-      }
-    }
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.encoding = THREE.sRGBEncoding;
-  return tex;
-}
+// disco ball loaded from disco.glb. We create an empty group up front
+// so the animation tick can already rotate "the ball" before the GLB
+// resolves; the loaded model is mounted inside on load. We auto-scale
+// to a target diameter and recenter so rotation tumbles around its own
+// middle, not whatever origin the modeler exported with.
+const DISCO_TARGET_DIAMETER = 2.0;  // world units across — tweak to taste
 
 let discoBall = null;
 {
@@ -935,25 +911,57 @@ let discoBall = null;
   cable.position.set(0, 10, 0);
   scene.add(cable);
 
-  const ballTex = makeDiscoBallTexture();
-  const ballMat = new THREE.MeshStandardMaterial({
-    map: ballTex,
-    emissiveMap: ballTex,        // tiles emit their own brightness
-    color: 0xffffff,
-    emissive: 0xffffff, emissiveIntensity: 0.45,
-    roughness: 0.08,             // near-mirror finish
-    metalness: 1.0,
-  });
-  // bigger ball — more presence in frame, more obvious tumble
-  discoBall = new THREE.Mesh(new THREE.SphereGeometry(0.95, 48, 32), ballMat);
-  discoBall.position.set(0, 6.2, 0);
-  discoBall.castShadow = false;
-  scene.add(discoBall);
+  const ballRoot = new THREE.Group();
+  ballRoot.position.set(0, 6.2, 0);
+  scene.add(ballRoot);
+  discoBall = ballRoot;
 
-  // brighter warm under-glow from the ball
-  const discoGlow = new THREE.PointLight(0xfff4d8, 0.85, 12, 2);
+  // warm under-glow point light — pin to the ball's world position
+  const discoGlow = new THREE.PointLight(0xfff4d8, 0.95, 14, 2);
   discoGlow.position.set(0, 6.0, 0);
   scene.add(discoGlow);
+
+  const loader = new THREE.GLTFLoader();
+  loader.load('./disco.glb', (gltf) => {
+    const model = gltf.scene;
+
+    // auto-scale to a target diameter
+    let bbox = new THREE.Box3().setFromObject(model);
+    const size = bbox.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+    if (maxDim > 0) model.scale.setScalar(DISCO_TARGET_DIAMETER / maxDim);
+
+    // recenter so rotation tumbles around the model's geometric center
+    bbox = new THREE.Box3().setFromObject(model);
+    const center = bbox.getCenter(new THREE.Vector3());
+    model.position.sub(center);
+
+    // boost mirror feel: max metalness, clamp roughness low, mild emissive
+    model.traverse((node) => {
+      if (node.isMesh && node.material) {
+        node.castShadow = false;
+        const mat = node.material;
+        mat.metalness = 1.0;
+        if (mat.roughness !== undefined) mat.roughness = Math.min(mat.roughness, 0.10);
+        if (mat.emissive) mat.emissive.setHex(0x202020);
+        if (mat.emissiveIntensity !== undefined) mat.emissiveIntensity = 0.25;
+        mat.needsUpdate = true;
+      }
+    });
+
+    ballRoot.add(model);
+  }, undefined, (err) => {
+    console.error('[disco.glb] failed to load', err);
+    // procedural fallback so the scene still has a ball visible
+    const fallback = new THREE.Mesh(
+      new THREE.SphereGeometry(0.95, 32, 22),
+      new THREE.MeshStandardMaterial({
+        color: 0xeeeeee, roughness: 0.10, metalness: 1.0,
+        emissive: 0x222222, emissiveIntensity: 0.30,
+      }),
+    );
+    ballRoot.add(fallback);
+  });
 }
 
 // ============================================================
