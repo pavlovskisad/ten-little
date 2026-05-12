@@ -18,13 +18,14 @@
     inset: 0;
   }
   body {
-    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+    /* Times for informative reading; Comic Sans applied per-element */
+    /* for headlines and buttons. No italic anywhere. */
+    font-family: 'Times New Roman', Times, serif;
     color: #f1e5cd;
-    font-size: 14px;
+    font-size: 16px;
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent;
     touch-action: none;
-    text-transform: lowercase;
   }
   button { -webkit-tap-highlight-color: transparent; }
   canvas#c { display: block; position: fixed; inset: 0; width: 100%; height: 100dvh; }
@@ -36,41 +37,62 @@
     mix-blend-mode: overlay; opacity: 0.16;
   }
 
-  /* HUD — plain lowercase text, no caps, no glow */
+  /* HUD — Times for info, big enough to read. Comic Sans is reserved
+     for headlines and buttons only. */
   .hud {
     position: fixed; z-index: 10; pointer-events: none;
     color: #f1e5cd;
   }
   .hud .label {
-    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
-    font-size: 11px;
-    opacity: 0.55;
-    text-transform: lowercase;
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 14px;
+    opacity: 0.60;
+    font-style: normal;
   }
   .hud .val {
-    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
-    font-size: 16px; line-height: 1; margin-top: 2px;
-    text-transform: lowercase;
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 28px; line-height: 1.05; margin-top: 2px;
+    font-weight: 400; font-style: normal;
   }
   .hud .sub {
-    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
-    font-size: 11px; opacity: 0.6; margin-top: 2px;
-    text-transform: lowercase;
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 13px; opacity: 0.70; margin-top: 4px;
+    font-style: normal;
   }
-  #hud-tl { top: calc(env(safe-area-inset-top) + 18px); left: calc(env(safe-area-inset-left) + 22px); }
-  #hud-tr { top: calc(env(safe-area-inset-top) + 18px); right: calc(env(safe-area-inset-right) + 22px); text-align: right; }
-  #hud-bl { bottom: calc(env(safe-area-inset-bottom) + 18px); left: calc(env(safe-area-inset-left) + 22px); }
-  #hud-br { bottom: calc(env(safe-area-inset-bottom) + 18px); right: calc(env(safe-area-inset-right) + 22px); text-align: right; }
+  /* Reworked layout:
+       - hud-tl: alive count, top-left
+       - hud-tr: round time + phase, top-right (round info)
+       - hud-bl: health label + pips, bottom-left
+       - hud-br: pick zone + next claw, bottom-right (desktop only)
+     Bigger insets so the HUD breathes; nothing crowds the action. */
+  #hud-tl {
+    top: calc(env(safe-area-inset-top) + 22px);
+    left: calc(env(safe-area-inset-left) + 26px);
+  }
+  #hud-tr {
+    top: calc(env(safe-area-inset-top) + 22px);
+    right: calc(env(safe-area-inset-right) + 26px);
+    text-align: right;
+  }
+  #hud-bl {
+    bottom: calc(env(safe-area-inset-bottom) + 22px);
+    left: calc(env(safe-area-inset-left) + 26px);
+  }
+  #hud-br {
+    bottom: calc(env(safe-area-inset-bottom) + 22px);
+    right: calc(env(safe-area-inset-right) + 26px);
+    text-align: right;
+  }
 
-  .hp-row { display: flex; gap: 3px; margin-top: 4px; }
+  .hp-row { display: flex; gap: 4px; margin-top: 6px; }
   .hp-pip {
-    width: 10px; height: 14px;
+    width: 14px; height: 20px;
     background: #d4421f; border: 1px solid #d4421f;
     transition: background 0.15s, opacity 0.15s;
   }
   .hp-pip.dead {
     background: transparent; border-color: rgba(212,66,31,0.30);
-    opacity: 0.45;
+    opacity: 0.40;
   }
   .hp-pip.iframe {
     background: #ffffff; border-color: #ffffff;
@@ -102,35 +124,35 @@
   }
   #tilt-label {
     position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%);
-    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
-    font-size: 10px;
-    color: #f1e5cd; opacity: 0.45; white-space: nowrap;
-    text-transform: lowercase;
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 12px;
+    color: #f1e5cd; opacity: 0.50; white-space: nowrap;
+    font-style: normal;
   }
 
-  /* title at intro — minimal 90s lowercase plain text */
+  /* title at intro — Comic Sans headline, plain lowercase, no italic */
   #title {
     position: fixed; inset: 0; display: flex; flex-direction: column;
     align-items: center; justify-content: center; z-index: 20;
-    background: rgba(20,17,13,0.92);
+    background: rgba(20,17,13,0.94);
     transition: opacity 0.6s ease;
   }
   #title h1 {
     font-family: 'Comic Sans MS', 'Comic Sans', cursive;
-    font-weight: 400;
-    font-size: clamp(24px, 5vw, 38px);
+    font-weight: 400; font-style: normal;
+    font-size: clamp(34px, 7vw, 56px);
     color: #f1e5cd;
     text-align: center;
     text-transform: lowercase;
-    line-height: 1.2;
+    line-height: 1.15;
   }
   #title button {
-    margin-top: 28px; padding: 4px 14px;
+    margin-top: 30px; padding: 6px 20px;
     background: transparent; border: 1px solid #f1e5cd;
     color: #f1e5cd;
     font-family: 'Comic Sans MS', 'Comic Sans', cursive;
-    font-weight: 400;
-    font-size: 14px;
+    font-weight: 400; font-style: normal;
+    font-size: 18px;
     cursor: pointer; transition: background 0.15s, color 0.15s;
     pointer-events: auto;
     text-transform: lowercase;
@@ -142,33 +164,35 @@
   #over {
     position: fixed; inset: 0; display: none; flex-direction: column;
     align-items: center; justify-content: center; z-index: 20;
-    background: rgba(20,17,13,0.92);
+    background: rgba(20,17,13,0.94);
   }
   #over.show { display: flex; }
   #over .place {
-    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
-    font-size: 12px; opacity: 0.55;
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 16px; opacity: 0.65;
     color: #f1e5cd;
-    text-transform: lowercase;
+    font-style: normal;
   }
   #over .ord {
     font-family: 'Comic Sans MS', 'Comic Sans', cursive;
-    font-size: clamp(32px, 7vw, 56px); line-height: 1; margin-top: 6px;
+    font-weight: 400; font-style: normal;
+    font-size: clamp(40px, 9vw, 72px); line-height: 1; margin-top: 8px;
     color: #f1e5cd;
     text-transform: lowercase;
   }
   #over .ord.win { color: #f5c948; }
   #over .stat {
-    font-family: 'Comic Sans MS', 'Comic Sans', cursive; font-size: 11px;
-    opacity: 0.6; margin-top: 14px;
-    text-transform: lowercase;
+    font-family: 'Times New Roman', Times, serif; font-size: 14px;
+    opacity: 0.65; margin-top: 18px;
+    font-style: normal;
   }
   #over button {
-    margin-top: 28px; padding: 4px 14px;
+    margin-top: 30px; padding: 6px 20px;
     background: transparent; border: 1px solid #f1e5cd;
     color: #f1e5cd;
     font-family: 'Comic Sans MS', 'Comic Sans', cursive;
-    font-size: 14px;
+    font-weight: 400; font-style: normal;
+    font-size: 18px;
     cursor: pointer; transition: background 0.15s, color 0.15s;
     text-transform: lowercase;
   }
@@ -191,15 +215,15 @@
     border-radius: 50%;
   }
 
-  /* hint banner */
+  /* hint banner — Times so it reads as informative text, not a logo */
   #hint {
-    position: fixed; top: calc(env(safe-area-inset-top) + 80px); left: 50%; transform: translateX(-50%);
+    position: fixed; top: calc(env(safe-area-inset-top) + 84px); left: 50%; transform: translateX(-50%);
     z-index: 10; pointer-events: none;
-    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
-    font-size: 14px; opacity: 0;
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 18px; opacity: 0;
     color: #d4421f;
     transition: opacity 0.3s;
-    text-transform: lowercase;
+    font-style: normal;
   }
   #hint.on { opacity: 1; }
 
@@ -207,40 +231,42 @@
      MOBILE — compact layout, joystick on right, no tilt indicator
      ============================================================ */
   @media (max-width: 720px), (pointer: coarse) {
-    .hud .label { font-size: 10px; }
-    .hud .val { font-size: 14px; }
-    .hud .sub { font-size: 10px; }
+    .hud .label { font-size: 13px; opacity: 0.62; }
+    .hud .val { font-size: 24px; }
+    .hud .sub { font-size: 12px; }
 
     #hud-tl, #hud-tr {
-      top: calc(env(safe-area-inset-top) + 10px);
+      top: calc(env(safe-area-inset-top) + 14px);
     }
-    #hud-tl { left: calc(env(safe-area-inset-left) + 14px); }
-    #hud-tr { right: calc(env(safe-area-inset-right) + 14px); }
+    #hud-tl { left: calc(env(safe-area-inset-left) + 16px); }
+    #hud-tr { right: calc(env(safe-area-inset-right) + 16px); }
 
     #hud-br { display: none; }
     #tilt { display: none; }
 
     #hud-bl {
       bottom: calc(env(safe-area-inset-bottom) + 16px);
-      left: calc(env(safe-area-inset-left) + 14px);
+      left: calc(env(safe-area-inset-left) + 16px);
     }
-    .hp-row { gap: 2px; margin-top: 3px; }
-    .hp-pip { width: 7px; height: 11px; }
+    .hp-row { gap: 3px; margin-top: 4px; }
+    .hp-pip { width: 11px; height: 16px; }
 
     #stick {
       left: auto;
       bottom: calc(env(safe-area-inset-bottom) + 24px);
       right: calc(env(safe-area-inset-right) + 24px);
-      width: 130px; height: 130px;
+      width: 140px; height: 140px;
     }
-    #stick-knob { width: 50px; height: 50px; margin: -25px 0 0 -25px; }
+    #stick-knob { width: 56px; height: 56px; margin: -28px 0 0 -28px; }
 
-    #hint { top: calc(env(safe-area-inset-top) + 56px); font-size: 13px; }
+    #hint { top: calc(env(safe-area-inset-top) + 64px); font-size: 16px; }
 
-    #title h1 { font-size: clamp(22px, 6.5vw, 34px); }
-    #title button { margin-top: 22px; padding: 4px 14px; font-size: 14px; }
-    #over .ord { font-size: clamp(28px, 9vw, 48px); }
-    #over button { margin-top: 22px; padding: 4px 14px; font-size: 14px; }
+    #title h1 { font-size: clamp(30px, 8vw, 46px); }
+    #title button { margin-top: 24px; padding: 6px 18px; font-size: 16px; }
+    #over .ord { font-size: clamp(36px, 11vw, 60px); }
+    #over .place { font-size: 14px; }
+    #over .stat { font-size: 13px; }
+    #over button { margin-top: 24px; padding: 6px 18px; font-size: 16px; }
   }
 </style>
 </head>
