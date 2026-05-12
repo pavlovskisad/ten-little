@@ -3,13 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>SHAPE STORE — feel test</title>
+<title>ten little</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- Comic Neue: upright Comic Sans alternative. iOS doesn't bundle Comic
-     Sans, so without this it falls back to a cursive substitute that
-     renders slanted/italic. -->
-<link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet">
+<!-- Press Start 2P: classic NES-pixel font for headlines + buttons.
+     VT323: pixel terminal monospace for HUD + body. -->
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
@@ -23,10 +22,9 @@
     inset: 0;
   }
   body {
-    /* Times for informative reading; Comic Neue for headlines and
-       buttons (loaded above as a stable upright Comic-Sans-like).
-       No italic anywhere — every block sets font-style: normal. */
-    font-family: 'Times New Roman', Times, serif;
+    /* VT323 (pixel terminal) for body / HUD informational text;
+       Press Start 2P for headlines + buttons. Both loaded above. */
+    font-family: 'VT323', monospace;
     color: #ffffff;
     font-size: 16px;
     font-style: normal;
@@ -45,54 +43,77 @@
     mix-blend-mode: overlay; opacity: 0.16;
   }
 
-  /* HUD — single top row, three stats only (alive / health / round).
-     Phase + pick-zone + next-claw moved out — they were over-informing
-     and made the row overflow. Plain white Times. */
+  /* HUD — two rows.
+       Row 1 (centered, top): the two numeric stats — alive, round.
+       Row 2 (centered, just below): the health row, big & spread. */
   .hud {
     position: fixed; z-index: 10; pointer-events: none;
     color: #ffffff;
   }
   #hud-bar {
     position: fixed;
-    top: calc(env(safe-area-inset-top) + 14px);
+    top: calc(env(safe-area-inset-top) + 62px);
     left: 50%;
     transform: translateX(-50%);
-    display: flex; align-items: center; flex-wrap: nowrap; gap: 14px;
-    font-family: 'Times New Roman', Times, serif;
-    font-size: 18px; line-height: 1;
+    display: flex; align-items: center; flex-wrap: nowrap; gap: 16px;
+    font-family: 'VT323', monospace;
+    font-size: 26px; line-height: 1;
     white-space: nowrap;
     max-width: calc(100vw - 32px);
   }
   #hud-bar .stat {
-    display: inline-flex; align-items: center; gap: 6px;
+    display: inline-flex; align-items: center; gap: 8px;
     color: #ffffff;
   }
   #hud-bar .label {
-    font-family: 'Times New Roman', Times, serif;
-    font-size: 16px;
-    opacity: 0.70;
+    font-family: 'VT323', monospace;
+    font-size: 22px;
+    opacity: 0.75;
   }
   #hud-bar .val {
-    font-family: 'Times New Roman', Times, serif;
-    font-size: 22px;
+    font-family: 'VT323', monospace;
+    font-size: 30px;
   }
-  #hud-bar .dim { opacity: 0.50; }
-  #hud-bar .sep { opacity: 0.40; font-size: 18px; }
-  /* Health: a row of small red shape glyphs — three universally
-     supported shapes (▲ ■ ●) cycled, plain bright red. Dead pips
-     dim, i-frame pips flash white. */
+  #hud-bar .dim { opacity: 0.55; }
+  #hud-bar .sep { opacity: 0.45; font-size: 24px; }
+
+  /* Big HP row: at the very top, screen-wide, glyphs large. */
+  #hud-hp {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 14px);
+    left: 0; right: 0;
+    display: flex; align-items: center; justify-content: center;
+    gap: 14px;
+    pointer-events: none;
+  }
+  #hud-hp .hp-label {
+    font-family: 'VT323', monospace;
+    font-size: 24px;
+    color: #ffffff;
+    opacity: 0.75;
+  }
+  /* Health: row of pixel-heart icons (gay.png). All pips identical;
+     dead pips dim out, i-frame pips brighten. */
   .hp-row {
-    display: inline-flex; gap: 5px; align-items: center;
-    font-family: 'Times New Roman', Times, serif;
+    display: flex; align-items: center; justify-content: center;
+    gap: 14px;
     line-height: 1;
   }
   .hp-pip {
-    display: inline-block; font-size: 17px;
-    color: #ff1a1a;
-    transition: color 0.15s, opacity 0.15s;
+    display: inline-block;
+    width: 36px; height: 36px;
+    background: url('./gay.png') no-repeat center / contain;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    transition: opacity 0.15s, filter 0.15s;
   }
-  .hp-pip.dead { color: rgba(255,26,26,0.22); }
-  .hp-pip.iframe { color: #ffffff; }
+  .hp-pip.dead {
+    opacity: 0.18;
+    filter: grayscale(0.7);
+  }
+  .hp-pip.iframe {
+    filter: brightness(2.0) saturate(0.5);
+  }
 
   /* tilt indicator */
   #tilt {
@@ -119,15 +140,15 @@
   }
   #tilt-label {
     position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%);
-    font-family: 'Times New Roman', Times, serif;
+    font-family: 'VT323', monospace;
     font-size: 12px;
     color: #ffffff; opacity: 0.50; white-space: nowrap;
     font-style: normal;
   }
 
-  /* title at intro — three lines stacked, each letter a different
-     primary from the palette, no italic, big plain Comic Neue sign.
-     "shape" is 5 chars; "the" and "store" letter-space to match it. */
+  /* title at intro — two lines stacked, each letter a different
+     primary from the palette, big chunky pixel signage in Press
+     Start 2P. */
   #title {
     position: fixed; inset: 0; display: flex; flex-direction: column;
     align-items: center; justify-content: center; z-index: 20;
@@ -135,19 +156,21 @@
     transition: opacity 0.6s ease;
   }
   #title h1 {
-    font-family: 'Comic Neue', 'Comic Sans MS', 'Comic Sans', cursive;
-    font-weight: 700; font-style: normal;
-    font-size: clamp(54px, 13vw, 128px);
+    font-family: 'Press Start 2P', monospace;
+    font-weight: 400; font-style: normal;
+    font-size: clamp(36px, 9vw, 96px);
     text-align: center;
     text-transform: lowercase;
-    line-height: 1.0;
+    line-height: 1.25;
     margin: 0;
+    letter-spacing: 0.04em;
   }
   #title h1 .line { display: block; }
-  /* spread letters so each line matches the visual width of "shape" */
-  #title h1 .line-the   { letter-spacing: 0.62em; padding-left: 0.62em; }
-  #title h1 .line-shape { letter-spacing: 0.02em; padding-left: 0.02em; }
-  #title h1 .line-store { letter-spacing: 0.02em; padding-left: 0.02em; }
+  /* 'little' (6 chars) is the visual-width reference. Spread the
+     shorter words so all three lines align in width. */
+  #title h1 .line-ten    { letter-spacing: 0.95em; padding-left: 0.95em; }
+  #title h1 .line-little { letter-spacing: 0.04em; padding-left: 0.04em; }
+  #title h1 .line-nigas  { letter-spacing: 0.30em; padding-left: 0.30em; }
   /* per-letter primary palette colors */
   #title h1 .c0  { color: #ff1a1a; } /* red */
   #title h1 .c1  { color: #1a40e0; } /* blue */
@@ -160,18 +183,18 @@
   #title h1 .c8  { color: #70d800; } /* lime */
   #title h1 .c9  { color: #ffaa00; } /* amber */
 
-  /* enter button: classic web-1.0 blue underlined hyperlink */
+  /* enter button: classic web-1.0 blue underlined hyperlink, BIG */
   #title button {
-    margin-top: 36px; padding: 0;
+    margin-top: 48px; padding: 0;
     background: transparent; border: 0;
     color: #0000ee;
-    font-family: 'Times New Roman', Times, serif;
+    font-family: 'VT323', monospace;
     font-weight: 400; font-style: normal;
-    font-size: 22px;
+    font-size: 64px; line-height: 1;
     cursor: pointer;
     pointer-events: auto;
     text-decoration: underline;
-    text-underline-offset: 3px;
+    text-underline-offset: 6px;
     text-transform: lowercase;
   }
   #title button:hover { color: #551a8b; }
@@ -186,13 +209,13 @@
   }
   #over.show { display: flex; }
   #over .place {
-    font-family: 'Times New Roman', Times, serif;
+    font-family: 'VT323', monospace;
     font-size: 16px; opacity: 0.65;
     color: #ffffff;
     font-style: normal;
   }
   #over .ord {
-    font-family: 'Comic Neue', 'Comic Sans MS', 'Comic Sans', cursive;
+    font-family: 'Press Start 2P', monospace;
     font-weight: 400; font-style: normal;
     font-size: clamp(40px, 9vw, 72px); line-height: 1; margin-top: 8px;
     color: #ffffff;
@@ -200,7 +223,7 @@
   }
   #over .ord.win { color: #ffd000; }
   #over .stat {
-    font-family: 'Times New Roman', Times, serif; font-size: 14px;
+    font-family: 'VT323', monospace; font-size: 14px;
     opacity: 0.65; margin-top: 18px;
     font-style: normal;
   }
@@ -208,7 +231,7 @@
     margin-top: 26px; padding: 0;
     background: transparent; border: 0;
     color: #0000ee;
-    font-family: 'Times New Roman', Times, serif;
+    font-family: 'VT323', monospace;
     font-weight: 400; font-style: normal;
     font-size: 20px;
     cursor: pointer;
@@ -236,11 +259,11 @@
     border-radius: 50%;
   }
 
-  /* hint banner — Times, bright primary red */
+  /* hint banner — Times, bright primary red, sits below the HP row */
   #hint {
-    position: fixed; top: calc(env(safe-area-inset-top) + 64px); left: 50%; transform: translateX(-50%);
+    position: fixed; top: calc(env(safe-area-inset-top) + 122px); left: 50%; transform: translateX(-50%);
     z-index: 10; pointer-events: none;
-    font-family: 'Times New Roman', Times, serif;
+    font-family: 'VT323', monospace;
     font-size: 22px; opacity: 0;
     color: #ff1a1a;
     transition: opacity 0.3s;
@@ -253,19 +276,17 @@
      ============================================================ */
   @media (max-width: 720px), (pointer: coarse) {
     #hud-bar {
-      top: calc(env(safe-area-inset-top) + 10px);
-      gap: 10px;
-      font-size: 15px;
+      top: calc(env(safe-area-inset-top) + 50px);
+      gap: 12px;
+      font-size: 17px;
     }
-    #hud-bar .label { font-size: 13px; }
-    #hud-bar .val { font-size: 17px; }
-    .hp-pip { font-size: 15px; }
-    /* on small screens, drop the "pick zone" and "next claw" stats
-       to keep the row in one line */
-    #hud-bar .stat-pickzone, #hud-bar .stat-next,
-    #hud-bar .sep.sep-after-phase, #hud-bar .sep.sep-after-zone {
-      display: none;
-    }
+    #hud-bar .label { font-size: 15px; }
+    #hud-bar .val { font-size: 20px; }
+    #hud-bar .sep { font-size: 17px; }
+    #hud-hp { top: calc(env(safe-area-inset-top) + 10px); gap: 10px; }
+    #hud-hp .hp-label { font-size: 15px; }
+    .hp-row { gap: 12px; }
+    .hp-pip { width: 24px; height: 24px; }
 
     #tilt { display: none; }
 
@@ -277,10 +298,10 @@
     }
     #stick-knob { width: 56px; height: 56px; margin: -28px 0 0 -28px; }
 
-    #hint { top: calc(env(safe-area-inset-top) + 56px); font-size: 16px; }
+    #hint { top: calc(env(safe-area-inset-top) + 100px); font-size: 16px; }
 
-    #title h1 { font-size: clamp(46px, 14vw, 92px); }
-    #title button { font-size: 18px; }
+    #title h1 { font-size: clamp(28px, 8vw, 56px); line-height: 1.2; }
+    #title button { font-size: 46px; margin-top: 32px; }
     #over .ord { font-size: clamp(36px, 11vw, 60px); }
     #over .place { font-size: 14px; }
     #over .stat { font-size: 13px; }
@@ -295,9 +316,11 @@
   <div id="hud-bar">
     <span class="stat"><span class="label">alive</span> <span class="val" id="alive">10</span><span class="dim"> / 10</span></span>
     <span class="sep">·</span>
-    <span class="stat"><span class="label">health</span> <span id="hpRow" class="hp-row"></span></span>
-    <span class="sep">·</span>
     <span class="stat"><span class="label">round</span> <span class="val" id="time">00:00</span></span>
+  </div>
+  <div id="hud-hp">
+    <span class="hp-label">hp</span>
+    <div id="hpRow" class="hp-row"></div>
   </div>
 </div>
 
@@ -312,11 +335,11 @@
 
 <div id="title">
   <h1>
-    <span class="line line-the"><span class="c0">t</span><span class="c2">h</span><span class="c1">e</span></span>
-    <span class="line line-shape"><span class="c3">s</span><span class="c4">h</span><span class="c5">a</span><span class="c6">p</span><span class="c7">e</span></span>
-    <span class="line line-store"><span class="c8">s</span><span class="c9">t</span><span class="c2">o</span><span class="c0">r</span><span class="c7">e</span></span>
+    <span class="line line-ten"><span class="c0">t</span><span class="c2">e</span><span class="c1">n</span></span>
+    <span class="line line-little"><span class="c3">l</span><span class="c4">i</span><span class="c5">t</span><span class="c6">t</span><span class="c7">l</span><span class="c8">e</span></span>
+    <span class="line line-nigas"><span class="c9">n</span><span class="c0">i</span><span class="c3">g</span><span class="c6">a</span><span class="c7">s</span></span>
   </h1>
-  <button id="start">enter</button>
+  <button id="start" style="pointer-events:none;opacity:0.65">loading...</button>
 </div>
 
 <div id="over">
@@ -328,6 +351,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
 <script>
 'use strict';
 
@@ -346,7 +370,9 @@ const CFG = {
   figR: 0.42,
   figH: 0.85,
   startCount: 10,
-  podiumCount: 3,
+  podiumCount: 1,        // round runs until one figure remains; placement
+                         // is decided by elimination order so 3rd/2nd/1st
+                         // can be distinguished (tiered prizes)
 
   // tilt
   maxTilt: 0.50,
@@ -379,8 +405,114 @@ const CFG = {
   contactDmg: 1,
   iframeMs: 600,
   drainMs: 550,
-  bumpForce: 5.5,
+  bumpForce: 11.0,        // knockback velocity added on damage
 };
+
+// ============================================================
+// BASKETBALL GLB — supplied model used for the wall + the void
+// sphere shapes. Loaded async; until it resolves, the wall renders
+// with a procedural canvas-texture sphere (basketballMat below).
+// ============================================================
+let basketballGlbGeom = null;
+let basketballGlbTex = null;
+(function loadBasketballGlb() {
+  const loader = new THREE.GLTFLoader();
+  loader.load('./basketball.glb', (gltf) => {
+    let geom = null, tex = null;
+    gltf.scene.traverse((node) => {
+      if (node.isMesh && !geom) {
+        geom = node.geometry;
+        if (node.material && node.material.map) tex = node.material.map;
+      }
+    });
+    if (!geom) { console.warn('[basketball.glb] no mesh found'); return; }
+    // normalize geometry so bounding-sphere radius = 1, easier scaling
+    geom.computeBoundingSphere();
+    const r = (geom.boundingSphere && geom.boundingSphere.radius) || 1;
+    const norm = geom.clone();
+    if (r > 0 && Math.abs(r - 1) > 1e-3) {
+      const sm = new THREE.Matrix4().makeScale(1 / r, 1 / r, 1 / r);
+      norm.applyMatrix4(sm);
+      norm.computeBoundingSphere();
+    }
+    basketballGlbGeom = norm;
+    basketballGlbTex = tex;
+    applyBasketballGlbToScene();
+    console.log('[basketball.glb] loaded; texture:', !!tex);
+  }, undefined, (err) => {
+    console.error('[basketball.glb] failed', err);
+  });
+})();
+
+// Wall + void swap, called once the GLB resolves. Wall balls share
+// one Lambert material; void shapes each get a cloned Lambert with
+// their own tint.
+function applyBasketballGlbToScene() {
+  if (!basketballGlbGeom) return;
+  // Always use the cleaner procedural texture (basketballTex) — the
+  // GLB's bundled texture has very chunky black seams that read as
+  // cartoony. Procedural keeps thin warm-brown seams + grain.
+  const wallMat = new THREE.MeshLambertMaterial({
+    map: basketballTex,
+    color: 0xffffff,
+  });
+  for (const ball of wallCubes) {
+    ball.geometry = basketballGlbGeom;
+    ball.scale.setScalar(0.7); // match the previous SphereGeometry(0.7) radius
+    ball.material = wallMat;
+  }
+  // Void: swap geom on sphere-tagged entries and rebuild the
+  // material with the procedural texture + per-shape tint/opacity.
+  for (const g of giantShapes) {
+    if (g.glbSwappable) {
+      g.mesh.geometry = basketballGlbGeom;
+      g.mesh.scale.setScalar(g.glbBaseSize);
+    }
+    const m = new THREE.MeshLambertMaterial({
+      map: basketballTex,
+      color: g.tintColor,
+      transparent: true,
+      opacity: g.baseOpacity,
+      side: THREE.DoubleSide,
+    });
+    g.mesh.material = m;
+    g.mat = m;
+  }
+}
+
+// ============================================================
+// CHARACTER MODEL — rigged running biped (Meshy). Cloned per figure
+// with SkeletonUtils so each player has its own skeleton + animation.
+// ============================================================
+let runnerLoaded = false;
+let runnerModel = null;
+let runnerWalkClip = null;
+// Visual tuning constants for the character. Set so feet land at the
+// plate top and the body's horizontal footprint roughly matches the
+// previous primitive figures.
+const runnerScale = 0.85;
+const runnerYOffset = 0;     // local Y where the clone sits in the figure group
+const runnerCollidR = 0.40;
+const runnerCenterY = 0.85;  // approx half-height for marker placement
+(function loadRunner() {
+  const loader = new THREE.GLTFLoader();
+  loader.load('./runner.glb', (gltf) => {
+    runnerModel = gltf.scene;
+    if (gltf.animations && gltf.animations.length > 0) {
+      // pick the longest clip as the walk loop
+      runnerWalkClip = gltf.animations.reduce(
+        (best, c) => (c.duration > best.duration ? c : best),
+        gltf.animations[0],
+      );
+    }
+    runnerLoaded = true;
+    const btn = document.getElementById('start');
+    if (btn) { btn.textContent = 'enter'; btn.style.pointerEvents = 'auto'; }
+    console.log('[runner.glb] loaded; clips:', gltf.animations && gltf.animations.length);
+  }, undefined, (err) => {
+    console.error('[runner.glb] failed', err);
+  });
+})();
 
 // ============================================================
 // SHAPE CATALOG — colored geometric primitives for figures
@@ -669,23 +801,73 @@ plateGroup.add(ring(CFG.plateR0 * 0.25, 0.12));
 const roomGroup = new THREE.Group();
 scene.add(roomGroup);
 
-// shared materials for the foam blocks — Lambert so they hold their
-// saturated primary color under the cumulative club lighting (no
-// specular blowout to white when they tumble through the explosion).
-const ROOM_BLOCK_MATS = SHAPE_COLORS.map((c) => new THREE.MeshLambertMaterial({ color: c }));
-ROOM_BLOCK_MATS.push(new THREE.MeshLambertMaterial({ color: 0x2a2a2a }));
-ROOM_BLOCK_MATS.push(new THREE.MeshLambertMaterial({ color: 0x1a1a1a }));
-ROOM_BLOCK_MATS.push(new THREE.MeshLambertMaterial({ color: 0x3a2d22 }));
+// Procedural basketball texture: classic orange base with the four
+// canonical black seam curves. Same texture shared across every ball
+// in the wall, with per-ball random rotation so seams aren't lockstep.
+function makeBasketballTexture() {
+  // Higher-res canvas so the seams stay sharp on bigger balls. Texture
+  // is the classic basketball: warm rubbery orange with a subtle radial
+  // gradient (soft shadow toward poles when wrapped on a sphere), four
+  // thin dark-brown seam lines (not pure black), and a fine grain.
+  const c = document.createElement('canvas');
+  c.width = c.height = 512;
+  const ctx = c.getContext('2d');
 
-function pickRoomMat() {
-  return ROOM_BLOCK_MATS[Math.floor(Math.random() * ROOM_BLOCK_MATS.length)];
+  // base orange with a soft fall-off — looks like leather, not vinyl
+  const grad = ctx.createRadialGradient(256, 256, 60, 256, 256, 380);
+  grad.addColorStop(0.0, '#d96c20');
+  grad.addColorStop(0.6, '#b85518');
+  grad.addColorStop(1.0, '#8a3e10');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 512);
+
+  // fine grain — random tiny specks so the surface isn't perfectly smooth
+  for (let i = 0; i < 3000; i++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 512;
+    const a = 0.05 + Math.random() * 0.08;
+    ctx.fillStyle = Math.random() < 0.5
+      ? `rgba(50, 24, 8, ${a})`
+      : `rgba(230, 145, 70, ${a * 0.6})`;
+    ctx.fillRect(x, y, 1.5, 1.5);
+  }
+
+  // seam lines: thin, dark warm brown (not pure black) — reads as
+  // recessed grooves rather than printed-on stripes
+  ctx.strokeStyle = '#2a1408';
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  // equator + meridian
+  ctx.beginPath(); ctx.moveTo(0, 256); ctx.lineTo(512, 256); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(256, 0); ctx.lineTo(256, 512); ctx.stroke();
+  // two C-curve seams (the basketball's signature crossing arcs)
+  ctx.beginPath(); ctx.ellipse(0, 256, 192, 400, 0, -Math.PI / 2, Math.PI / 2); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(512, 256, 192, 400, 0, Math.PI / 2, 3 * Math.PI / 2); ctx.stroke();
+
+  // soft highlight along the top half — adds dimensional read
+  const hi = ctx.createRadialGradient(180, 150, 20, 180, 150, 240);
+  hi.addColorStop(0, 'rgba(255, 220, 180, 0.30)');
+  hi.addColorStop(1, 'rgba(255, 220, 180, 0)');
+  ctx.fillStyle = hi;
+  ctx.fillRect(0, 0, 512, 512);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.encoding = THREE.sRGBEncoding;
+  tex.anisotropy = 4;
+  return tex;
 }
 
-// foam-block walls — bases hidden in shadow, tall stacks so tops feel
-// cavernous when the colored point lights catch them. Every cube is
-// tracked in wallCubes so the game-end explosion can launch them as
-// confetti.
+const basketballTex = makeBasketballTexture();
+const basketballMat = new THREE.MeshLambertMaterial({
+  map: basketballTex,
+  color: 0xffffff,
+});
+
+// Wall of basketballs — stacked in rings around the plate. Each ball
+// gets a random orientation so the seams read as varied. Tracked in
+// wallCubes so the start-of-round explosion can launch them.
 const wallCubes = [];
+const ballGeom = new THREE.SphereGeometry(0.7, 22, 14);
 {
   const blockSize = 1.4;
   const innerR = 15;
@@ -699,20 +881,21 @@ const wallCubes = [];
     const backWeight = (baseZ < 0) ? 1.0 : 0.85;
     const h = Math.floor(7 + Math.random() * 4 + backWeight * 1.8);
     for (let k = 0; k < h; k++) {
-      const cube = new THREE.Mesh(
-        new THREE.BoxGeometry(blockSize, blockSize, blockSize),
-        pickRoomMat(),
-      );
-      cube.position.set(
+      const ball = new THREE.Mesh(ballGeom, basketballMat);
+      ball.position.set(
         baseX + (Math.random() - 0.5) * 0.18,
         baseY + blockSize / 2 + k * blockSize,
         baseZ + (Math.random() - 0.5) * 0.18,
       );
-      cube.rotation.y = (Math.random() - 0.5) * 0.10;
-      cube.castShadow = true;
-      cube.receiveShadow = true;
-      roomGroup.add(cube);
-      wallCubes.push(cube);
+      ball.rotation.set(
+        Math.random() * Math.PI * 2,
+        Math.random() * Math.PI * 2,
+        Math.random() * Math.PI * 2,
+      );
+      ball.castShadow = true;
+      ball.receiveShadow = true;
+      roomGroup.add(ball);
+      wallCubes.push(ball);
     }
   }
 
@@ -724,20 +907,21 @@ const wallCubes = [];
     const z = Math.sin(ang) * r;
     const h = 5 + Math.floor(Math.random() * 4);
     for (let k = 0; k < h; k++) {
-      const cube = new THREE.Mesh(
-        new THREE.BoxGeometry(blockSize, blockSize, blockSize),
-        pickRoomMat(),
-      );
-      cube.position.set(
+      const ball = new THREE.Mesh(ballGeom, basketballMat);
+      ball.position.set(
         x + (Math.random() - 0.5) * 0.15,
         -7 + blockSize / 2 + k * blockSize,
         z + (Math.random() - 0.5) * 0.15,
       );
-      cube.rotation.y = (Math.random() - 0.5) * 0.12;
-      cube.castShadow = true;
-      cube.receiveShadow = true;
-      roomGroup.add(cube);
-      wallCubes.push(cube);
+      ball.rotation.set(
+        Math.random() * Math.PI * 2,
+        Math.random() * Math.PI * 2,
+        Math.random() * Math.PI * 2,
+      );
+      ball.castShadow = true;
+      ball.receiveShadow = true;
+      roomGroup.add(ball);
+      wallCubes.push(ball);
     }
   }
 }
@@ -813,94 +997,76 @@ function giantGeom(type, size) {
   }
 }
 
-function addGiantShape(type, size, color, y, opts = {}) {
-  const mode = opts.mode || 'wire'; // 'wire' or 'solid'
+function addGiantShape(type, size, y, opts = {}) {
+  // Basketball cascade: every giant shape wears the basketball texture
+  // (black seams). Material color multiplies the texture so each shape
+  // can be tinted with a different palette primary — the orange basket-
+  // ball becomes a red / blue / green / etc basketball.
   const geom = giantGeom(type, size);
-  let mesh, mat;
-  if (mode === 'solid') {
-    mat = new THREE.MeshStandardMaterial({
-      color,
-      roughness: 0.75, metalness: 0.05,
-      transparent: true, opacity: opts.opacity ?? 0.55,
-      side: THREE.DoubleSide,
-      emissive: color, emissiveIntensity: 0.12,
-    });
-    mesh = new THREE.Mesh(geom, mat);
-  } else {
-    const wireGeom = new THREE.WireframeGeometry(geom);
-    mat = new THREE.LineBasicMaterial({
-      color, transparent: true, opacity: opts.opacity ?? 0.85,
-    });
-    mesh = new THREE.LineSegments(wireGeom, mat);
-  }
-  mesh.position.y = y;
-  scene.add(mesh);
+  const mat = new THREE.MeshLambertMaterial({
+    map: basketballTex,
+    color: opts.color ?? 0xffffff,
+    transparent: true, opacity: opts.opacity ?? 0.75,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.set(opts.x || 0, y, opts.z || 0);
+  // random initial orientation so seams don't all align
+  mesh.rotation.set(
+    Math.random() * Math.PI * 2,
+    Math.random() * Math.PI * 2,
+    Math.random() * Math.PI * 2,
+  );
+  (opts.parent || scene).add(mesh);
   giantShapes.push({
     mesh,
     mat,
-    mode,
+    baseOpacity: mat.opacity,
+    tintColor: opts.color ?? 0xffffff,
+    glbSwappable: (type === 'sphere'),
+    glbBaseSize: size,
     spin: {
-      x: (Math.random() * 0.5 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
-      y: (Math.random() * 0.5 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
-      z: (Math.random() * 0.5 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
+      x: (Math.random() * 0.6 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
+      y: (Math.random() * 0.6 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
+      z: (Math.random() * 0.6 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
     },
     phase: Math.random() * Math.PI * 2,
   });
 }
 
-// helper: build a glowing torus ring at a given depth
-function addTunnelRing(baseR, color, y, tube) {
-  const mat = new THREE.MeshBasicMaterial({
-    color, transparent: true, opacity: 0.90, side: THREE.DoubleSide, depthWrite: false,
-  });
-  const mesh = new THREE.Mesh(new THREE.TorusGeometry(baseR, tube, 8, 96), mat);
-  mesh.rotation.x = Math.PI / 2;
-  mesh.position.y = y;
-  scene.add(mesh);
-  tunnelRings.push({
-    mesh, baseR,
-    phase: Math.random() * Math.PI * 2,
-    spinSign: Math.random() < 0.5 ? 1 : -1,
-    spinRate: 0.18 + Math.random() * 0.22,
-  });
-}
-
-// interleaved cascade of rings, solid shapes, and wireframes descending
-// into endless space. Solid shapes are translucent so they don't block
-// the view; wireframes outline the geometry; rings punctuate the spacing.
+// Basketball cone — the void is now a single coherent structure:
+// concentric rings of basketballs descending from a narrow apex
+// near the plate down into a flaring base in deep space. Each
+// ring's radius and ball count grow with depth. The whole cone
+// lives in voidConeGroup so we can rotate the entire assembly as
+// one slow continuous motion on top of each ball's own tumble.
+const voidConeGroup = new THREE.Group();
+scene.add(voidConeGroup);
 {
-  const layout = [
-    { kind: 'ring',  r: 6.5, tube: 0.10 },
-    { kind: 'shape', type: 'cube',        size: 4.5, mode: 'solid', opacity: 0.55 },
-    { kind: 'ring',  r: 8.0, tube: 0.11 },
-    { kind: 'shape', type: 'sphere',      size: 5.0, mode: 'wire' },
-    { kind: 'shape', type: 'octahedron',  size: 5.0, mode: 'solid', opacity: 0.55 },
-    { kind: 'ring',  r: 7.2, tube: 0.11 },
-    { kind: 'shape', type: 'pyramid',     size: 5.4, mode: 'wire' },
-    { kind: 'shape', type: 'dodecahedron',size: 5.0, mode: 'solid', opacity: 0.50 },
-    { kind: 'ring',  r: 9.0, tube: 0.13 },
-    { kind: 'shape', type: 'icosahedron', size: 5.5, mode: 'wire' },
-    { kind: 'shape', type: 'cone',        size: 5.0, mode: 'solid', opacity: 0.50 },
-    { kind: 'ring',  r: 7.5, tube: 0.13 },
-    { kind: 'shape', type: 'torus',       size: 6.0, mode: 'solid', opacity: 0.45 },
-    { kind: 'shape', type: 'torusKnot',   size: 5.0, mode: 'wire' },
-    { kind: 'ring',  r: 10.0, tube: 0.15 },
-    { kind: 'shape', type: 'cube',        size: 6.0, mode: 'solid', opacity: 0.45 },
-    { kind: 'shape', type: 'sphere',      size: 6.5, mode: 'wire' },
-    { kind: 'ring',  r: 8.5, tube: 0.15 },
-    { kind: 'shape', type: 'octahedron',  size: 7.0, mode: 'wire' },
-    { kind: 'ring',  r: 11.5, tube: 0.16 },
-    { kind: 'shape', type: 'pyramid',     size: 7.0, mode: 'solid', opacity: 0.40 },
+  const layers = [
+    // [y,     ringR,  count,  ballSize,  opacity]   wide top → narrow apex
+    [-11.0,   4.6,    9,       2.5,       0.85],
+    [-14.0,   4.2,    9,       2.4,       0.75],
+    [-17.0,   3.8,    8,       2.3,       0.70],
+    [-20.0,   3.2,    7,       2.2,       0.65],
+    [-23.0,   2.6,    6,       2.1,       0.60],
+    [-26.0,   1.9,    5,       2.0,       0.55],
+    [-29.0,   1.1,    3,       1.9,       0.50],
+    [-31.5,   0.0,    1,       1.8,       0.45],  // apex
   ];
-  const ySpacing = 2.4;
-  for (let i = 0; i < layout.length; i++) {
-    const item = layout[i];
-    const y = -2.5 - i * ySpacing;
-    const color = SHAPE_COLORS[i % SHAPE_COLORS.length];
-    if (item.kind === 'ring') {
-      addTunnelRing(item.r, color, y, item.tube);
-    } else {
-      addGiantShape(item.type, item.size, color, y, { mode: item.mode, opacity: item.opacity });
+  let colorIdx = 0;
+  for (let li = 0; li < layers.length; li++) {
+    const [y, ringR, count, size, opacity] = layers[li];
+    const angOffset = li * 0.38; // stagger ring rotations so balls don't column up
+    for (let i = 0; i < count; i++) {
+      const ang = angOffset + (i / count) * Math.PI * 2;
+      const x = Math.cos(ang) * ringR;
+      const z = Math.sin(ang) * ringR;
+      const tint = SHAPE_COLORS[colorIdx % SHAPE_COLORS.length];
+      colorIdx++;
+      addGiantShape('sphere', size, y, {
+        x, z, opacity, color: tint, parent: voidConeGroup,
+      });
     }
   }
 }
@@ -1082,23 +1248,68 @@ function buildShapeMesh(defIdx, color) {
 
 function makeFigure(isPlayer, defIdx, color) {
   const g = new THREE.Group();
-  const { mesh, mat, def } = buildShapeMesh(defIdx, color);
-  // center the visual at yOffset above the plate top
-  mesh.position.y = def.yOffset;
-  // pyramid + cone come with apex up; that's the look we want
-  g.add(mesh);
+  let mainMesh, mat, def, mixer = null;
+  let collidR, yOffset;
 
-  // base shadow disc to anchor the shape on the glass
-  const discGeo = new THREE.CircleGeometry(def.collidR * 1.05, 18);
+  if (runnerLoaded) {
+    // Clone the rigged character with its own skeleton + animation.
+    const clone = THREE.SkeletonUtils.clone(runnerModel);
+    clone.scale.setScalar(runnerScale);
+    // Drop the clone so its feet sit on the plate surface (y=0 in
+    // figure-local space — the figure group itself is positioned at
+    // CFG.plateThick / 2 so feet land on the disc top).
+    clone.position.y = runnerYOffset;
+    clone.traverse((node) => {
+      if (node.isMesh) { node.castShadow = true; node.receiveShadow = false; }
+    });
+    g.add(clone);
+    mainMesh = clone;
+    // gather all materials so we can flash them red on hit
+    const mats = [];
+    clone.traverse((node) => {
+      if (node.isMesh && node.material) {
+        // material may be an array
+        if (Array.isArray(node.material)) {
+          for (const m of node.material) if (m && !mats.includes(m)) mats.push(m);
+        } else if (!mats.includes(node.material)) {
+          mats.push(node.material);
+        }
+      }
+    });
+    mat = { _list: mats };
+    def = { collidR: runnerCollidR, yOffset: runnerCenterY };
+    collidR = runnerCollidR;
+    yOffset = runnerCenterY;
+    // mixer + walk loop, random phase so every figure isn't in lockstep
+    if (runnerWalkClip) {
+      mixer = new THREE.AnimationMixer(clone);
+      const action = mixer.clipAction(runnerWalkClip);
+      action.play();
+      action.time = Math.random() * runnerWalkClip.duration;
+    }
+  } else {
+    // Fallback: keep the geometric primitive if the GLB hasn't
+    // finished loading yet.
+    const built = buildShapeMesh(defIdx, color);
+    mainMesh = built.mesh;
+    mainMesh.position.y = built.def.yOffset;
+    g.add(mainMesh);
+    mat = built.mat;
+    def = built.def;
+    collidR = def.collidR;
+    yOffset = def.yOffset;
+  }
+
+  // base shadow disc — sized to whichever footprint the figure has
+  const discGeo = new THREE.CircleGeometry(collidR * 1.05, 18);
   const discMat = new THREE.MeshBasicMaterial({ color: 0x14110d, transparent: true, opacity: 0.35 });
   const disc = new THREE.Mesh(discGeo, discMat);
   disc.rotation.x = -Math.PI / 2;
   disc.position.y = 0.001;
   g.add(disc);
 
-  // danger ring — hidden by default, becomes a blinking red glow when
-  // the figure is at hp<=3
-  const dangerGeo = new THREE.RingGeometry(def.collidR * 0.88, def.collidR * 1.18, 32);
+  // danger ring — hidden by default, blinks red at hp<=3
+  const dangerGeo = new THREE.RingGeometry(collidR * 0.88, collidR * 1.18, 32);
   const dangerMat = new THREE.MeshBasicMaterial({
     color: 0xff1c1c, transparent: true, opacity: 0.0, side: THREE.DoubleSide, depthWrite: false,
   });
@@ -1108,7 +1319,7 @@ function makeFigure(isPlayer, defIdx, color) {
   dangerRing.visible = false;
   g.add(dangerRing);
 
-  return { group: g, shapeMesh: mesh, shapeMat: mat, def, dangerRing };
+  return { group: g, shapeMesh: mainMesh, shapeMat: mat, def, dangerRing, mixer };
 }
 
 // Spinning yellow octahedron-star + a glowing ground ring under the
@@ -1179,6 +1390,7 @@ function spawnFigures() {
       shapeMat: built.shapeMat,
       def: built.def,
       dangerRing: built.dangerRing,
+      mixer: built.mixer,
       baseColor: color,
       collidR: built.def.collidR,
       yOffset: built.def.yOffset,
@@ -1330,13 +1542,23 @@ function buildClaw() {
   return root;
 }
 
+// uniform scale applied to the whole claw assembly so the prong
+// span, cable, mounting plate and pivots all enlarge together.
+// Bumping makes the claw read more dramatic over the plate.
+const CLAW_SCALE = 1.7;
+
 (function loadClaw() {
   const claw = buildClaw();
+  claw.scale.setScalar(CLAW_SCALE);
   handAnim.tilt.add(claw);
   handAnim.ready = true;
 })();
 
-handGroup.visible = false;
+// Claw is always present — it hangs idle above the plate between
+// grabs instead of disappearing. Initial position centered up at
+// idle height.
+handGroup.position.set(0, CFG.handIdleY, 0);
+handGroup.visible = true;
 
 // progress t: 0 = open, 1 = closed
 function setProng(idx, t) {
@@ -1512,20 +1734,35 @@ function updateFigures(dt) {
   // No HP pip ring on shapes; the body itself is the indicator.
   for (const f of S.figs) {
     if (f.picked || f.draining || f.dropping) continue;
+    // Set emissive on the figure body — handles both the primitive
+    // material (single mat) and the character (mat._list of materials).
+    let emColor, emIntensity;
     if (f.invulnT > 0) {
-      // i-frame pulse: brief brightening in the figure's OWN color so
-      // a clustered melee doesn't bleach every shape to white. The
-      // figure reads as "lit up" without losing its primary.
-      const phase = (CFG.iframeMs / 1000 - f.invulnT) / (CFG.iframeMs / 1000);
-      const flash = Math.sin(phase * Math.PI * 6) * 0.5 + 0.5;
-      f.shapeMat.emissive.setHex(f.baseColor);
-      f.shapeMat.emissiveIntensity = 0.30 * flash + 0.10;
+      const frac = f.invulnT / (CFG.iframeMs / 1000); // 1.0 at hit → 0 at i-frame end
+      emColor = 0xff0000;
+      emIntensity = frac * 0.85;
     } else {
       const lowness = 1 - (f.hp / CFG.hpMax);
-      // glow uses the shape's own color, ramping gently as HP drops
-      f.shapeMat.emissive.setHex(f.baseColor);
-      f.shapeMat.emissiveIntensity = lowness * 0.32;
+      emColor = f.baseColor;
+      emIntensity = lowness * 0.32;
     }
+    if (f.shapeMat) {
+      const mats = f.shapeMat._list || [f.shapeMat];
+      for (const m of mats) {
+        if (m.emissive) m.emissive.setHex(emColor);
+        if (m.emissiveIntensity !== undefined) m.emissiveIntensity = emIntensity;
+      }
+    }
+  }
+
+  // Tick each figure's animation mixer (walking loop). Step rate scales
+  // with movement speed so a fleeing figure visibly hustles.
+  for (const f of S.figs) {
+    if (!f.mixer) continue;
+    if (!f.alive && !f.picked) continue;
+    const speed = Math.hypot(f.vx, f.vz);
+    const scale = Math.max(0.4, Math.min(2.0, speed / 3));
+    f.mixer.update(dt * scale);
   }
 
   // picked figures animation
@@ -1814,7 +2051,7 @@ function startHand() {
   handGroup.position.x = worldPos.x;
   handGroup.position.z = worldPos.z;
   handGroup.position.y = CFG.handIdleY;
-  handGroup.visible = true;
+  // (claw already visible from idle hang — no need to toggle visibility)
 
   // claw cable hangs straight down; we still vary the assembly's incoming azimuth
   // so the prong-1 direction varies grab-to-grab and the wrist tilt jitters
@@ -1866,7 +2103,25 @@ function captureFiguresInZone() {
 }
 
 function updateHand(dt) {
-  if (S.hand.phase === 'idle') return;
+  if (S.hand.phase === 'idle') {
+    // Claw hangs above the plate between grabs: slow lerp toward a
+    // gently swaying center pose. After a lift, this drifts the claw
+    // back to its idle hang instead of letting it freeze mid-air.
+    const t = performance.now() / 1000;
+    const idleX = Math.sin(t * 0.30) * 0.45;
+    const idleZ = Math.cos(t * 0.27) * 0.35;
+    const idleY = CFG.handIdleY + Math.sin(t * 0.50) * 0.18;
+    const idleYaw = Math.sin(t * 0.22) * 0.12;
+    const k = 1 - Math.exp(-1.4 * dt);
+    handGroup.position.x += (idleX - handGroup.position.x) * k;
+    handGroup.position.y += (idleY - handGroup.position.y) * k;
+    handGroup.position.z += (idleZ - handGroup.position.z) * k;
+    handGroup.rotation.y += (idleYaw - handGroup.rotation.y) * k;
+    handAnim.tilt.rotation.x += (handAnim.baseTiltX - handAnim.tilt.rotation.x) * k;
+    handAnim.tilt.rotation.z += (handAnim.baseTiltZ - handAnim.tilt.rotation.z) * k;
+    setAllProngs(0);
+    return;
+  }
   S.hand.t += dt * 1000;
   const tSec = S.hand.t / 1000;
 
@@ -2072,7 +2327,8 @@ function updateHand(dt) {
     retOutline.material.opacity = fade;
     if (S.hand.t >= S.hand.liftMs) {
       S.hand.phase = 'idle';
-      handGroup.visible = false;
+      // Claw stays visible — it drifts back to its idle hang in
+      // the idle branch above.
       reticleGroup.visible = false;
       S.nextHandAt = S.t + S.hand.cooldownMs;
     }
@@ -2093,6 +2349,18 @@ function eliminate(f, reason) {
               : 'you were taken';
     showHint(msg);
   }
+  if (f.isPlayer) {
+    // Defer the end-of-game overlay so the player gets to see their
+    // figure go down (drop / drain / lift) before the screen takes
+    // over. Delay matches the longest death animation.
+    let delayMs;
+    if (reason === 'fell')         delayMs = 1700; // drop physics ~1.4s
+    else if (reason === 'drained') delayMs = 1000; // drainMs 0.55s + buffer
+    else                            delayMs = 1500; // pick / lift
+    S.deferredEndGameAt = S.t + delayMs;
+    return;
+  }
+  // Last survivor wins → end immediately when alive falls to 1.
   if (S.alive <= CFG.podiumCount) {
     endGame();
   }
@@ -2101,13 +2369,17 @@ function eliminate(f, reason) {
 function endGame() {
   if (S.phase === 'over') return;
   S.phase = 'over';
-  const podium = S.figs.filter(f => f.alive);
-  S.podium = podium.map(f => f.id);
+  const survivors = S.figs.filter(f => f.alive);
+  S.podium = survivors.map(f => f.id);
 
+  // Placement by elimination order. With 10 figures:
+  //   eliminated idx 0 → placed 10th (first out)
+  //   eliminated idx 7 → placed 3rd  (would win 2x prize)
+  //   eliminated idx 8 → placed 2nd  (3x prize)
+  //   alive at end     → placed 1st  (5x prize)
   let placement;
   if (S.player.alive) {
-    const sorted = [...podium].sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z));
-    placement = sorted.findIndex(f => f.isPlayer) + 1;
+    placement = 1;
   } else {
     const idx = S.eliminated.findIndex(e => e.isPlayer);
     placement = CFG.startCount - idx;
@@ -2172,16 +2444,13 @@ const hudTime = document.getElementById('time');
 const tiltArrow = document.getElementById('tilt-arrow');
 const hpRow = document.getElementById('hpRow');
 const hpPipsDom = [];
-// Three universally-rendered shape glyphs cycled across the 10 pips,
-// plain bright red. Avoids the spotty rendering of more exotic
-// unicode primitives on certain platforms.
-const HP_SHAPES = ['▲', '■', '●'];
+// HP pips are simple divs backgrounded with gay.png. All pips identical;
+// alive / dead / iframe states driven by class toggles in updateHud.
 for (let i = 0; i < CFG.hpMax; i++) {
-  const p = document.createElement('span');
-  p.className = 'hp-pip';
-  p.textContent = HP_SHAPES[i % HP_SHAPES.length];
-  hpRow.appendChild(p);
-  hpPipsDom.push(p);
+  const pip = document.createElement('div');
+  pip.className = 'hp-pip';
+  hpRow.appendChild(pip);
+  hpPipsDom.push(pip);
 }
 
 function updateHud() {
@@ -2222,14 +2491,19 @@ function tickAmbient(dt, tSec) {
     tr.mesh.scale.set(pulse, pulse, 1);
     tr.mesh.material.opacity = 0.78 + Math.sin(tSec * 1.8 + tr.phase * 1.3) * 0.10;
   }
-  // giant wireframe shapes tumble on all three axes, each on its own phase
+  // giant solid shapes tumble on all three axes, breathing opacity
+  // around their per-shape base value
   for (let i = 0; i < giantShapes.length; i++) {
     const g = giantShapes[i];
     g.mesh.rotation.x += dt * g.spin.x;
     g.mesh.rotation.y += dt * g.spin.y;
     g.mesh.rotation.z += dt * g.spin.z;
-    g.mat.opacity = 0.65 + Math.sin(tSec * 1.3 + g.phase) * 0.18;
+    g.mat.opacity = g.baseOpacity + Math.sin(tSec * 1.3 + g.phase) * 0.08;
   }
+  // whole basketball cone rotates as one piece — the entire void
+  // assembly drifts around its central axis on top of each ball's
+  // own tumble
+  voidConeGroup.rotation.y += dt * 0.18;
   if (discoBall) {
     // let it roll — tumble on all three axes so it never settles
     discoBall.rotation.y += dt * 1.45;
@@ -2272,6 +2546,12 @@ function loop(now) {
     maybeShrink(dt);
     tickShrinkTween(dt);
     updateHud();
+    // Deferred end-game: after the player dies, let their death
+    // animation play out before the overlay takes over.
+    if (S.deferredEndGameAt != null && S.t >= S.deferredEndGameAt) {
+      S.deferredEndGameAt = null;
+      endGame();
+    }
   } else if (S.phase === 'over') {
     updateTilt(dt);
     updateFigures(dt);
@@ -2307,10 +2587,14 @@ function reset() {
   plateCollar.scale.set(1, 1, 1);
   S.nextShrinkAt = CFG.shrinkEveryMs;
   S.nextHandAt = 4500;
+  S.deferredEndGameAt = null;
   S.firstHand = true;
   S.hand = { phase: 'idle', t: 0, x: 0, z: 0, zoneR: 0, target: null, captured: [] };
   S.tilt = { x: 0, z: 0 };
-  handGroup.visible = false;
+  // Claw stays visible across resets — idle hang above the plate.
+  handGroup.visible = true;
+  handGroup.position.set(0, CFG.handIdleY, 0);
+  handGroup.rotation.set(0, 0, 0);
   reticleGroup.visible = false;
   shrinkTween = null;
   camInitialized = false;
