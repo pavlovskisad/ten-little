@@ -365,7 +365,9 @@ const CFG = {
   figR: 0.42,
   figH: 0.85,
   startCount: 10,
-  podiumCount: 3,
+  podiumCount: 1,        // round runs until one figure remains; placement
+                         // is decided by elimination order so 3rd/2nd/1st
+                         // can be distinguished (tiered prizes)
 
   // tilt
   maxTilt: 0.50,
@@ -2131,7 +2133,10 @@ function eliminate(f, reason) {
               : 'you were taken';
     showHint(msg);
   }
-  if (S.alive <= CFG.podiumCount) {
+  // End the round when the player is out (their placement is already
+  // locked in by elimination order) or when only one figure remains
+  // (the last survivor wins).
+  if (f.isPlayer || S.alive <= CFG.podiumCount) {
     endGame();
   }
 }
@@ -2139,13 +2144,17 @@ function eliminate(f, reason) {
 function endGame() {
   if (S.phase === 'over') return;
   S.phase = 'over';
-  const podium = S.figs.filter(f => f.alive);
-  S.podium = podium.map(f => f.id);
+  const survivors = S.figs.filter(f => f.alive);
+  S.podium = survivors.map(f => f.id);
 
+  // Placement by elimination order. With 10 figures:
+  //   eliminated idx 0 → placed 10th (first out)
+  //   eliminated idx 7 → placed 3rd  (would win 2x prize)
+  //   eliminated idx 8 → placed 2nd  (3x prize)
+  //   alive at end     → placed 1st  (5x prize)
   let placement;
   if (S.player.alive) {
-    const sorted = [...podium].sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z));
-    placement = sorted.findIndex(f => f.isPlayer) + 1;
+    placement = 1;
   } else {
     const idx = S.eliminated.findIndex(e => e.isPlayer);
     placement = CFG.startCount - idx;
