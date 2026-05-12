@@ -1341,8 +1341,14 @@ function buildClaw() {
   return root;
 }
 
+// uniform scale applied to the whole claw assembly so the prong
+// span, cable, mounting plate and pivots all enlarge together.
+// Bumping makes the claw read more dramatic over the plate.
+const CLAW_SCALE = 1.7;
+
 (function loadClaw() {
   const claw = buildClaw();
+  claw.scale.setScalar(CLAW_SCALE);
   handAnim.tilt.add(claw);
   handAnim.ready = true;
 })();
