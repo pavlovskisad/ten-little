@@ -4,9 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>SHAPE STORE — feel test</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<!-- old-school internet typography: Times + Comic Sans, both system fonts -->
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
@@ -20,7 +18,7 @@
     inset: 0;
   }
   body {
-    font-family: 'Cormorant Garamond', serif;
+    font-family: 'Times New Roman', Times, serif;
     color: #f1e5cd;
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent;
@@ -42,17 +40,17 @@
     color: #f1e5cd;
   }
   .hud .label {
-    font-family: 'Cormorant Garamond', serif;
+    font-family: 'Times New Roman', Times, serif;
     font-weight: 300; font-style: italic;
     font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase;
     opacity: 0.55;
   }
   .hud .val {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
     font-weight: 700; font-size: 28px; line-height: 1; margin-top: 4px;
   }
   .hud .sub {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
     font-size: 11px; opacity: 0.6; margin-top: 2px;
   }
   #hud-tl { top: calc(env(safe-area-inset-top) + 18px); left: calc(env(safe-area-inset-left) + 22px); }
@@ -102,7 +100,7 @@
   }
   #tilt-label {
     position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%);
-    font-family: 'Cormorant Garamond', serif; font-style: italic;
+    font-family: 'Times New Roman', Times, serif; font-style: italic;
     font-size: 10px; letter-spacing: 0.25em; text-transform: uppercase;
     color: #f1e5cd; opacity: 0.4; white-space: nowrap;
   }
@@ -115,29 +113,29 @@
     transition: opacity 0.6s ease;
   }
   #title h1 {
-    font-family: 'Cormorant Garamond', serif; font-weight: 500;
-    font-size: clamp(40px, 10vw, 108px); letter-spacing: 0.2em;
-    color: #f5e6c4; text-shadow: 0 0 40px rgba(212,66,31,0.18);
-    text-align: center;
+    font-family: 'Times New Roman', Times, serif;
+    font-weight: 700; font-style: italic;
+    font-size: clamp(56px, 16vw, 168px);
+    line-height: 0.95; letter-spacing: 0.04em;
+    color: #f5e6c4; text-shadow: 0 0 40px rgba(245,201,72,0.20);
+    text-align: center; text-transform: uppercase;
   }
-  #title .brand {
-    font-family: 'JetBrains Mono', monospace; font-size: 11px;
-    letter-spacing: 0.5em; text-transform: uppercase;
-    color: #f5e6c4; opacity: 0.45; margin-top: 6px;
-  }
-  #title p {
-    font-family: 'JetBrains Mono', monospace; font-size: 11px;
-    letter-spacing: 0.4em; text-transform: uppercase;
-    color: #f1e5cd; opacity: 0.5; margin-top: 22px;
+  #title h1 .accent {
+    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+    font-style: normal; font-weight: 700;
+    color: #ff2080;
+    text-shadow: 0 0 30px rgba(255,32,128,0.35);
   }
   #title button {
-    margin-top: 50px; padding: 14px 36px;
-    background: transparent; border: 1px solid #f1e5cd;
-    color: #f1e5cd; font-family: 'Cormorant Garamond', serif;
-    font-size: 18px; letter-spacing: 0.3em; text-transform: uppercase;
-    cursor: pointer; transition: all 0.2s; pointer-events: auto;
+    margin-top: 56px; padding: 16px 44px;
+    background: #f5c948; border: 2px solid #14110d;
+    color: #14110d; font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+    font-weight: 700;
+    font-size: 22px; letter-spacing: 0.18em; text-transform: uppercase;
+    cursor: pointer; transition: all 0.15s; pointer-events: auto;
+    box-shadow: 4px 4px 0 #14110d;
   }
-  #title button:hover { background: #f1e5cd; color: #14110d; }
+  #title button:hover { background: #ff2080; color: #fff; box-shadow: 2px 2px 0 #14110d; transform: translate(2px, 2px); }
   #title.gone { opacity: 0; pointer-events: none; }
 
   /* end overlay */
@@ -148,24 +146,24 @@
   }
   #over.show { display: flex; }
   #over .place {
-    font-family: 'Cormorant Garamond', serif; font-weight: 300;
+    font-family: 'Times New Roman', Times, serif; font-weight: 300;
     font-size: 14px; letter-spacing: 0.4em; text-transform: uppercase;
     color: #f1e5cd; opacity: 0.5;
   }
   #over .ord {
-    font-family: 'Cormorant Garamond', serif; font-weight: 500;
+    font-family: 'Times New Roman', Times, serif; font-weight: 500;
     font-size: clamp(80px, 18vw, 200px); line-height: 1; margin-top: 10px;
     color: #f1e5cd;
   }
   #over .ord.win { color: #f5c948; text-shadow: 0 0 60px rgba(245,201,72,0.45); }
   #over .stat {
-    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    font-family: 'Comic Sans MS', 'Comic Sans', cursive; font-size: 12px;
     letter-spacing: 0.2em; opacity: 0.6; margin-top: 20px;
   }
   #over button {
     margin-top: 50px; padding: 14px 36px;
     background: transparent; border: 1px solid #f1e5cd;
-    color: #f1e5cd; font-family: 'Cormorant Garamond', serif;
+    color: #f1e5cd; font-family: 'Times New Roman', Times, serif;
     font-size: 18px; letter-spacing: 0.3em; text-transform: uppercase;
     cursor: pointer; transition: all 0.2s;
   }
@@ -192,7 +190,7 @@
   #hint {
     position: fixed; top: calc(env(safe-area-inset-top) + 90px); left: 50%; transform: translateX(-50%);
     z-index: 10; pointer-events: none;
-    font-family: 'Cormorant Garamond', serif; font-style: italic;
+    font-family: 'Times New Roman', Times, serif; font-style: italic;
     font-size: 16px; letter-spacing: 0.15em; opacity: 0;
     color: #d4421f; text-shadow: 0 0 20px rgba(212,66,31,0.45);
     transition: opacity 0.3s;
@@ -238,9 +236,8 @@
     #hint { top: calc(env(safe-area-inset-top) + 60px); font-size: 14px; }
 
     /* title and over screens */
-    #title h1 { font-size: clamp(40px, 14vw, 88px); }
-    #title p { font-size: 10px; padding: 0 20px; text-align: center; }
-    #title button { margin-top: 36px; padding: 16px 40px; font-size: 16px; }
+    #title h1 { font-size: clamp(48px, 18vw, 96px); line-height: 0.95; }
+    #title button { margin-top: 36px; padding: 14px 36px; font-size: 18px; }
     #over .ord { font-size: clamp(72px, 26vw, 160px); }
     #over button { margin-top: 36px; padding: 16px 40px; font-size: 16px; }
   }
@@ -280,10 +277,8 @@
 <div id="stick"><div id="stick-knob"></div></div>
 
 <div id="title">
-  <h1>SHAPE STORE</h1>
-  <div class="brand">a branded variant of plate</div>
-  <p>ten shapes · arcade claw · last three stand</p>
-  <button id="start">Begin</button>
+  <h1>The<br><span class="accent">Shape</span><br>Store</h1>
+  <button id="start">Enter</button>
 </div>
 
 <div id="over">
@@ -416,7 +411,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputEncoding = THREE.sRGBEncoding;
 // Cinematic tone mapping so the loud club lights don't wash everything out
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.82;
+renderer.toneMappingExposure = 0.74;
 
 const camTarget = { y: 14, z: 13.5, fov: 42 };
 let camInitialized = false;
@@ -492,7 +487,7 @@ rim.position.set(-5, 6, -5);
 scene.add(rim);
 
 // stage spotlight from above the plate — the dance floor / arena beam
-const stageSpot = new THREE.SpotLight(0xfff0c8, 1.85, 30, Math.PI / 4.2, 0.55, 1.05);
+const stageSpot = new THREE.SpotLight(0xfff0c8, 1.05, 30, Math.PI / 4.2, 0.55, 1.05);
 stageSpot.position.set(0, 12, 0);
 stageSpot.target.position.set(0, 0, 0);
 scene.add(stageSpot);
@@ -549,9 +544,8 @@ addLightBeam(0xff2840, -4.5,  3.5, { radius: 1.5, opacity: 0.18 });
 addLightBeam(0x2a6df4,  4.5, -3.5, { radius: 1.5, opacity: 0.18 });
 addLightBeam(0xd44dff, -5.0, -5.0, { radius: 1.3, opacity: 0.16 });
 addLightBeam(0x42e8ff,  5.0,  5.0, { radius: 1.3, opacity: 0.16 });
-// warm-gold beam through the disco ball — safe to put back now that
-// the GLB's baked lights are disabled
-addLightBeam(0xffd070,  0.0,  0.0, { radius: 0.95, opacity: 0.22, apexY: 11.5, baseY: 0.25 });
+// warm-gold beam through the disco ball — subtle, not dominant
+addLightBeam(0xffd070,  0.0,  0.0, { radius: 0.85, opacity: 0.13, apexY: 11.5, baseY: 0.25 });
 
 // ============================================================
 // PLATE — the dance floor. Disco-tile top, near-black rim, no
@@ -919,7 +913,7 @@ let discoBall = null;
   discoBall = ballRoot;
 
   // warm under-glow point light from the ball
-  const discoGlow = new THREE.PointLight(0xfff4d8, 0.65, 13, 2);
+  const discoGlow = new THREE.PointLight(0xfff4d8, 0.40, 11, 2);
   discoGlow.position.set(0, 6.0, 0);
   scene.add(discoGlow);
 
@@ -946,9 +940,9 @@ let discoBall = null;
     // exports scene lights along with the geometry, and those would
     // dump extra brightness exactly at the ball's position.
     const mirrorMat = new THREE.MeshStandardMaterial({
-      color: 0xe8e8e8,
-      emissive: 0xdcdcdc, emissiveIntensity: 0.22,
-      metalness: 1.0, roughness: 0.12,
+      color: 0xd8d8d8,
+      emissive: 0xcccccc, emissiveIntensity: 0.10,
+      metalness: 1.0, roughness: 0.14,
     });
     let foundLights = 0;
     model.traverse((node) => {
