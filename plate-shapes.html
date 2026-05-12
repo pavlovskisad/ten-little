@@ -895,14 +895,13 @@ function giantGeom(type, size) {
 
 function addGiantShape(type, size, y, opts = {}) {
   // Basketball cascade: every giant shape wears the basketball texture
-  // (orange + black seams). Geometry varies — sphere, cube, octahedron,
-  // pyramid, cone, dodecahedron, icosahedron — so the seams wrap weird
-  // on the non-spheres. Each shape gets its own material instance so
-  // opacities can differ.
+  // (black seams). Material color multiplies the texture so each shape
+  // can be tinted with a different palette primary — the orange basket-
+  // ball becomes a red / blue / green / etc basketball.
   const geom = giantGeom(type, size);
   const mat = new THREE.MeshLambertMaterial({
     map: basketballTex,
-    color: 0xffffff,
+    color: opts.color ?? 0xffffff,
     transparent: true, opacity: opts.opacity ?? 0.75,
     side: THREE.DoubleSide,
   });
@@ -929,36 +928,38 @@ function addGiantShape(type, size, y, opts = {}) {
 }
 
 // Psychedelic basketball cascade — pairs of overlapping shapes at
-// varied depths so they appear to "eat" each other. Mix of geometry
-// types all sharing the basketball texture. No more torus rings —
-// the seams + interpenetration carry the visual rhythm now.
+// varied depths so they appear to "eat" each other. Each shape is
+// tinted a different palette color so the cascade reads as a
+// rainbow of basketball forms descending into the void. Layout
+// pushed well below the plate so nothing punches up into the play
+// area.
 {
   const layout = [
-    // [type,           size, y,     x,    z,    opacity]
-    ['sphere',          4.5, -3.0,  0.0,  0.0, 0.85],
-    ['cube',            3.2, -3.5,  3.0,  2.0, 0.70],  // overlaps sphere above
-    ['octahedron',      4.0, -5.5, -2.5, -1.0, 0.75],
-    ['sphere',          3.6, -6.0,  1.2,  2.5, 0.55],
-    ['pyramid',         4.6, -8.5,  0.0,  0.0, 0.70],
-    ['sphere',          3.0, -9.0,  3.5, -1.5, 0.55],  // bites pyramid
-    ['dodecahedron',    4.2, -11.0,-2.0,  1.5, 0.75],
-    ['sphere',          5.0, -11.8, 1.8, -2.0, 0.50],  // overlaps dodec
-    ['icosahedron',     4.6, -14.0, 0.5,  0.0, 0.70],
-    ['cone',            4.4, -14.5,-3.0,  2.0, 0.55],
-    ['cube',            5.0, -17.0, 2.5,  1.0, 0.65],
-    ['sphere',          4.2, -17.5,-1.0, -2.5, 0.50],
-    ['torus',           5.2, -19.5, 0.0,  0.0, 0.55],
-    ['sphere',          6.0, -20.0, 2.0,  1.5, 0.50],  // sphere through the torus hole
-    ['octahedron',      5.8, -23.0,-2.0,  0.0, 0.65],
-    ['sphere',          5.4, -23.5, 1.5, -1.0, 0.45],
-    ['pyramid',         6.0, -26.0, 0.0,  2.0, 0.60],
-    ['sphere',          5.0, -26.5,-2.5, -1.5, 0.45],
-    ['sphere',          7.0, -29.5, 1.0,  0.5, 0.55],
-    ['cube',            6.5, -30.0,-2.0,  1.0, 0.45],
-    ['sphere',          7.5, -33.0, 0.0,  0.0, 0.45],
+    // [type,         size, y,      x,    z,    opacity, color]
+    ['sphere',        2.8, -7.5,   0.0,  0.0, 0.85, 0xff1a1a], // red
+    ['cube',          2.2, -8.0,   2.5,  1.6, 0.70, 0x00b8ff], // cyan
+    ['octahedron',    2.6, -10.0, -2.0, -0.8, 0.75, 0xffd000], // yellow
+    ['sphere',        2.4, -10.5,  1.5,  2.0, 0.55, 0x9010e0], // purple
+    ['pyramid',       2.8, -12.5,  0.0,  0.0, 0.70, 0x0fb020], // green
+    ['sphere',        2.2, -13.0,  2.8, -1.2, 0.55, 0xff7a10], // orange
+    ['dodecahedron',  2.8, -15.0, -1.8,  1.4, 0.75, 0xff2080], // hot pink
+    ['sphere',        3.0, -15.7,  1.6, -1.8, 0.50, 0xffaa00], // amber
+    ['icosahedron',   3.0, -17.5,  0.5,  0.0, 0.70, 0x70d800], // lime
+    ['cone',          2.8, -18.0, -2.6,  1.6, 0.55, 0x1a40e0], // blue
+    ['cube',          3.2, -20.5,  2.3,  0.9, 0.65, 0xff1a1a], // red
+    ['sphere',        2.8, -21.0, -0.8, -2.2, 0.50, 0x00b8ff], // cyan
+    ['torus',         3.6, -23.0,  0.0,  0.0, 0.55, 0xffd000], // yellow
+    ['sphere',        3.6, -23.6,  1.8,  1.4, 0.50, 0x9010e0], // purple — through the ring
+    ['octahedron',    3.8, -26.0, -1.8,  0.0, 0.65, 0x0fb020], // green
+    ['sphere',        3.4, -26.5,  1.4, -1.0, 0.45, 0xff7a10], // orange
+    ['pyramid',       4.0, -29.0,  0.0,  1.8, 0.60, 0xff2080], // pink
+    ['sphere',        3.2, -29.5, -2.2, -1.2, 0.45, 0xffaa00], // amber
+    ['sphere',        4.4, -32.5,  0.9,  0.4, 0.55, 0x70d800], // lime
+    ['cube',          4.0, -33.0, -1.8,  0.9, 0.45, 0x1a40e0], // blue
+    ['sphere',        4.8, -36.0,  0.0,  0.0, 0.45, 0xff1a1a], // red
   ];
-  for (const [type, size, y, x, z, opacity] of layout) {
-    addGiantShape(type, size, y, { x, z, opacity });
+  for (const [type, size, y, x, z, opacity, color] of layout) {
+    addGiantShape(type, size, y, { x, z, opacity, color });
   }
 }
 
