@@ -1263,15 +1263,27 @@ function makeFigure(isPlayer, defIdx, color) {
     });
     g.add(clone);
     mainMesh = clone;
-    // gather all materials so we can flash them red on hit
+    // Clone every material so this figure has its OWN instances —
+    // SkeletonUtils.clone reuses source materials by default, which
+    // would cause all 10 figures to share emissive state and flash
+    // red together whenever any one took a hit.
     const mats = [];
+    const matMap = new Map();
+    function dupMat(src) {
+      if (!src) return src;
+      if (matMap.has(src)) return matMap.get(src);
+      const c = src.clone();
+      matMap.set(src, c);
+      return c;
+    }
     clone.traverse((node) => {
       if (node.isMesh && node.material) {
-        // material may be an array
         if (Array.isArray(node.material)) {
+          node.material = node.material.map(dupMat);
           for (const m of node.material) if (m && !mats.includes(m)) mats.push(m);
-        } else if (!mats.includes(node.material)) {
-          mats.push(node.material);
+        } else {
+          node.material = dupMat(node.material);
+          if (!mats.includes(node.material)) mats.push(node.material);
         }
       }
     });
