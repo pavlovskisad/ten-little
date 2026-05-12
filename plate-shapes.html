@@ -36,6 +36,33 @@
   button { -webkit-tap-highlight-color: transparent; }
   canvas#c { display: block; position: fixed; inset: 0; width: 100%; height: 100dvh; }
 
+  /* SoundCloud iframe — invisible, positioned off-screen but kept
+     in the DOM so the widget API can talk to it. */
+  #sc-iframe {
+    position: fixed; left: -9999px; top: -9999px;
+    width: 1px; height: 1px; opacity: 0; pointer-events: none;
+  }
+
+  /* Mute toggle in the bottom-left corner. Stays out of the way
+     of the joystick (which sits bottom-right on mobile). */
+  #muteBtn {
+    position: fixed; z-index: 15;
+    bottom: calc(env(safe-area-inset-bottom) + 24px);
+    left: calc(env(safe-area-inset-left) + 24px);
+    width: 44px; height: 44px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.35);
+    color: #ffffff;
+    font-family: 'VT323', monospace;
+    font-size: 22px; line-height: 1;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: background 0.15s, color 0.15s, opacity 0.15s;
+    opacity: 0.65;
+  }
+  #muteBtn:hover { opacity: 1; background: rgba(255,255,255,0.10); }
+  #muteBtn.muted { opacity: 0.35; }
+
   /* grain overlay */
   body::after {
     content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 5;
@@ -312,6 +339,13 @@
 <body>
 <canvas id="c"></canvas>
 
+<!-- Hidden SoundCloud widget — invisible, controlled via JS -->
+<iframe id="sc-iframe" frameborder="0" allow="autoplay"
+        src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/&auto_play=false&hide_related=true&show_comments=false&show_user=false&show_reposts=false&visual=false"></iframe>
+
+<!-- Mute toggle, fixed bottom-left corner -->
+<button id="muteBtn" type="button">♫</button>
+
 <div id="hud" class="hud">
   <div id="hud-bar">
     <span class="stat"><span class="label">alive</span> <span class="val" id="alive">10</span><span class="dim"> / 10</span></span>
@@ -352,8 +386,92 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
+<script src="https://w.soundcloud.com/player/api.js"></script>
 <script>
 'use strict';
+
+// ============================================================
+// MUSIC — SoundCloud Widget API. Drop full mix URLs into MIXES
+// below; on Enter click one plays at random, and when it finishes
+// the next random one starts. Mute toggle in the bottom-left.
+//
+// Notes:
+//   - Tracks must allow embedding (most public mixes do).
+//   - Mobile browsers block audio autoplay without a user gesture
+//     — the Enter button click counts, so we start audio there.
+//   - To add a mix: just paste its full https://soundcloud.com/...
+//     URL into the array.
+// ============================================================
+const MIXES = [
+  // Examples (replace with your own):
+  // 'https://soundcloud.com/user/long-hiphop-mix-2025',
+  // 'https://soundcloud.com/dj-name/2hr-vinyl-set',
+  'https://soundcloud.com/discover',  // placeholder — overwrite
+];
+
+let scWidget = null;
+let scReady = false;
+let scMuted = false;
+let scStarted = false;
+
+function pickRandomMix() {
+  if (MIXES.length === 0) return null;
+  return MIXES[Math.floor(Math.random() * MIXES.length)];
+}
+
+function initSoundCloud() {
+  const iframe = document.getElementById('sc-iframe');
+  if (!iframe || typeof SC === 'undefined' || !SC.Widget) return;
+  scWidget = SC.Widget(iframe);
+  scWidget.bind(SC.Widget.Events.READY, () => {
+    scReady = true;
+  });
+  scWidget.bind(SC.Widget.Events.FINISH, () => {
+    // auto-advance to next random mix on track finish
+    playRandomMix();
+  });
+}
+
+function playRandomMix() {
+  if (!scWidget) return;
+  const url = pickRandomMix();
+  if (!url) return;
+  scWidget.load(url, {
+    auto_play: true,
+    hide_related: true,
+    show_comments: false,
+    show_user: false,
+    show_reposts: false,
+    visual: false,
+    callback: () => {
+      // load completes async; in case READY hasn't fired yet, retry
+      try { scWidget.play(); } catch (_) {}
+    },
+  });
+}
+
+function startMusicIfNeeded() {
+  if (scStarted) return;
+  scStarted = true;
+  if (!scWidget) initSoundCloud();
+  playRandomMix();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initSoundCloud();
+  const btn = document.getElementById('muteBtn');
+  if (btn) {
+    btn.addEventListener('click', () => {
+      scMuted = !scMuted;
+      btn.classList.toggle('muted', scMuted);
+      btn.textContent = scMuted ? '✕' : '♫';
+      if (scWidget) {
+        if (scMuted) scWidget.pause();
+        else if (scStarted) scWidget.play();
+      }
+    });
+  }
+});
 
 // ============================================================
 // CONFIG — tune these
@@ -2644,6 +2762,8 @@ function reset() {
 document.getElementById('start').addEventListener('click', () => {
   document.getElementById('title').classList.add('gone');
   setTimeout(() => document.getElementById('title').remove(), 700);
+  // user gesture — satisfies the autoplay requirement on mobile
+  startMusicIfNeeded();
   reset();
 });
 document.getElementById('again').addEventListener('click', () => {
