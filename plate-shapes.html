@@ -1353,7 +1353,11 @@ const CLAW_SCALE = 1.7;
   handAnim.ready = true;
 })();
 
-handGroup.visible = false;
+// Claw is always present — it hangs idle above the plate between
+// grabs instead of disappearing. Initial position centered up at
+// idle height.
+handGroup.position.set(0, CFG.handIdleY, 0);
+handGroup.visible = true;
 
 // progress t: 0 = open, 1 = closed
 function setProng(idx, t) {
@@ -1831,7 +1835,7 @@ function startHand() {
   handGroup.position.x = worldPos.x;
   handGroup.position.z = worldPos.z;
   handGroup.position.y = CFG.handIdleY;
-  handGroup.visible = true;
+  // (claw already visible from idle hang — no need to toggle visibility)
 
   // claw cable hangs straight down; we still vary the assembly's incoming azimuth
   // so the prong-1 direction varies grab-to-grab and the wrist tilt jitters
@@ -1883,7 +1887,25 @@ function captureFiguresInZone() {
 }
 
 function updateHand(dt) {
-  if (S.hand.phase === 'idle') return;
+  if (S.hand.phase === 'idle') {
+    // Claw hangs above the plate between grabs: slow lerp toward a
+    // gently swaying center pose. After a lift, this drifts the claw
+    // back to its idle hang instead of letting it freeze mid-air.
+    const t = performance.now() / 1000;
+    const idleX = Math.sin(t * 0.30) * 0.45;
+    const idleZ = Math.cos(t * 0.27) * 0.35;
+    const idleY = CFG.handIdleY + Math.sin(t * 0.50) * 0.18;
+    const idleYaw = Math.sin(t * 0.22) * 0.12;
+    const k = 1 - Math.exp(-1.4 * dt);
+    handGroup.position.x += (idleX - handGroup.position.x) * k;
+    handGroup.position.y += (idleY - handGroup.position.y) * k;
+    handGroup.position.z += (idleZ - handGroup.position.z) * k;
+    handGroup.rotation.y += (idleYaw - handGroup.rotation.y) * k;
+    handAnim.tilt.rotation.x += (handAnim.baseTiltX - handAnim.tilt.rotation.x) * k;
+    handAnim.tilt.rotation.z += (handAnim.baseTiltZ - handAnim.tilt.rotation.z) * k;
+    setAllProngs(0);
+    return;
+  }
   S.hand.t += dt * 1000;
   const tSec = S.hand.t / 1000;
 
@@ -2089,7 +2111,8 @@ function updateHand(dt) {
     retOutline.material.opacity = fade;
     if (S.hand.t >= S.hand.liftMs) {
       S.hand.phase = 'idle';
-      handGroup.visible = false;
+      // Claw stays visible — it drifts back to its idle hang in
+      // the idle branch above.
       reticleGroup.visible = false;
       S.nextHandAt = S.t + S.hand.cooldownMs;
     }
@@ -2328,7 +2351,10 @@ function reset() {
   S.firstHand = true;
   S.hand = { phase: 'idle', t: 0, x: 0, z: 0, zoneR: 0, target: null, captured: [] };
   S.tilt = { x: 0, z: 0 };
-  handGroup.visible = false;
+  // Claw stays visible across resets — idle hang above the plate.
+  handGroup.visible = true;
+  handGroup.position.set(0, CFG.handIdleY, 0);
+  handGroup.rotation.set(0, 0, 0);
   reticleGroup.visible = false;
   shrinkTween = null;
   camInitialized = false;
