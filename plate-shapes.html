@@ -45,7 +45,9 @@
     mix-blend-mode: overlay; opacity: 0.16;
   }
 
-  /* HUD — single top row, Times throughout, plain white. */
+  /* HUD — single top row, three stats only (alive / health / round).
+     Phase + pick-zone + next-claw moved out — they were over-informing
+     and made the row overflow. Plain white Times. */
   .hud {
     position: fixed; z-index: 10; pointer-events: none;
     color: #ffffff;
@@ -68,61 +70,58 @@
   #hud-bar .label {
     font-family: 'Times New Roman', Times, serif;
     font-size: 16px;
-    opacity: 0.65;
+    opacity: 0.70;
   }
   #hud-bar .val {
     font-family: 'Times New Roman', Times, serif;
     font-size: 22px;
   }
-  #hud-bar .dim { opacity: 0.45; }
-  #hud-bar .sep { opacity: 0.30; font-size: 18px; }
-  #hud-bar .phase { color: #ffffff; }
-  /* Health: a row of small red unicode shapes, plain red. Each pip
-     is one of the brand's primitives (square, circle, triangle,
-     diamond, star). When dead, the pip dims; when in i-frame, it
-     flashes white. */
+  #hud-bar .dim { opacity: 0.50; }
+  #hud-bar .sep { opacity: 0.40; font-size: 18px; }
+  /* Health: a row of small red shape glyphs — three universally
+     supported shapes (▲ ■ ●) cycled, plain bright red. Dead pips
+     dim, i-frame pips flash white. */
   .hp-row {
-    display: inline-flex; gap: 4px; align-items: center;
+    display: inline-flex; gap: 5px; align-items: center;
     font-family: 'Times New Roman', Times, serif;
     line-height: 1;
   }
   .hp-pip {
-    display: inline-block; font-size: 18px;
-    color: #e63235;
+    display: inline-block; font-size: 17px;
+    color: #ff1a1a;
     transition: color 0.15s, opacity 0.15s;
   }
-  .hp-pip.dead { color: rgba(230,50,53,0.22); }
+  .hp-pip.dead { color: rgba(255,26,26,0.22); }
   .hp-pip.iframe { color: #ffffff; }
 
   /* tilt indicator */
   #tilt {
     position: fixed; bottom: calc(env(safe-area-inset-bottom) + 22px); left: 50%; transform: translateX(-50%);
     width: 64px; height: 64px; z-index: 10; pointer-events: none;
-    border: 1px solid rgba(241,229,205,0.18); border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.18); border-radius: 50%;
   }
   #tilt::before {
     content: ''; position: absolute; inset: 0;
-    background: radial-gradient(circle, rgba(241,229,205,0.06), transparent 70%);
+    background: radial-gradient(circle, rgba(255,255,255,0.06), transparent 70%);
     border-radius: 50%;
   }
   #tilt-arrow {
     position: absolute; top: 50%; left: 50%;
-    width: 2px; height: 26px; background: #d4421f;
+    width: 2px; height: 26px; background: #ff1a1a;
     transform-origin: 50% 100%;
     transform: translate(-50%, -100%) rotate(0deg);
     transition: transform 0.05s linear;
-    box-shadow: 0 0 8px rgba(212,66,31,0.6);
   }
   #tilt-arrow::before {
     content: ''; position: absolute; top: -3px; left: 50%; transform: translateX(-50%);
     width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent;
-    border-bottom: 6px solid #d4421f;
+    border-bottom: 6px solid #ff1a1a;
   }
   #tilt-label {
     position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%);
     font-family: 'Times New Roman', Times, serif;
     font-size: 12px;
-    color: #f1e5cd; opacity: 0.50; white-space: nowrap;
+    color: #ffffff; opacity: 0.50; white-space: nowrap;
     font-style: normal;
   }
 
@@ -161,21 +160,22 @@
   #title h1 .c8  { color: #70d800; } /* lime */
   #title h1 .c9  { color: #ffaa00; } /* amber */
 
-  /* enter link: Times New Roman hyperlink, no frame */
+  /* enter button: classic web-1.0 blue underlined hyperlink */
   #title button {
     margin-top: 36px; padding: 0;
     background: transparent; border: 0;
-    color: #ffffff;
+    color: #0000ee;
     font-family: 'Times New Roman', Times, serif;
     font-weight: 400; font-style: normal;
     font-size: 22px;
     cursor: pointer;
     pointer-events: auto;
     text-decoration: underline;
-    text-underline-offset: 4px;
+    text-underline-offset: 3px;
     text-transform: lowercase;
   }
-  #title button:hover { color: #ffd000; }
+  #title button:hover { color: #551a8b; }
+  #title button:active { color: #ff0000; } /* classic active-link red on press */
   #title.gone { opacity: 0; pointer-events: none; }
 
   /* end overlay */
@@ -188,17 +188,17 @@
   #over .place {
     font-family: 'Times New Roman', Times, serif;
     font-size: 16px; opacity: 0.65;
-    color: #f1e5cd;
+    color: #ffffff;
     font-style: normal;
   }
   #over .ord {
     font-family: 'Comic Neue', 'Comic Sans MS', 'Comic Sans', cursive;
     font-weight: 400; font-style: normal;
     font-size: clamp(40px, 9vw, 72px); line-height: 1; margin-top: 8px;
-    color: #f1e5cd;
+    color: #ffffff;
     text-transform: lowercase;
   }
-  #over .ord.win { color: #f5c948; }
+  #over .ord.win { color: #ffd000; }
   #over .stat {
     font-family: 'Times New Roman', Times, serif; font-size: 14px;
     opacity: 0.65; margin-top: 18px;
@@ -207,16 +207,17 @@
   #over button {
     margin-top: 26px; padding: 0;
     background: transparent; border: 0;
-    color: #ffffff;
+    color: #0000ee;
     font-family: 'Times New Roman', Times, serif;
     font-weight: 400; font-style: normal;
     font-size: 20px;
     cursor: pointer;
     text-decoration: underline;
-    text-underline-offset: 4px;
+    text-underline-offset: 3px;
     text-transform: lowercase;
   }
-  #over button:hover { color: #ffd000; }
+  #over button:hover { color: #551a8b; }
+  #over button:active { color: #ff0000; }
 
   /* virtual joystick — desktop default left, mobile moves right */
   #stick {
@@ -224,24 +225,24 @@
     bottom: calc(env(safe-area-inset-bottom) + 30px);
     left: calc(env(safe-area-inset-left) + 30px);
     width: 130px; height: 130px; z-index: 15;
-    border: 1px solid rgba(241,229,205,0.15); border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 50%;
     display: none;
   }
   #stick.on { display: block; }
   #stick-knob {
     position: absolute; top: 50%; left: 50%;
     width: 50px; height: 50px; margin: -25px 0 0 -25px;
-    background: rgba(241,229,205,0.25); border: 1px solid rgba(241,229,205,0.4);
+    background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.4);
     border-radius: 50%;
   }
 
-  /* hint banner — Times so it reads as informative text, not a logo */
+  /* hint banner — Times, bright primary red */
   #hint {
-    position: fixed; top: calc(env(safe-area-inset-top) + 84px); left: 50%; transform: translateX(-50%);
+    position: fixed; top: calc(env(safe-area-inset-top) + 64px); left: 50%; transform: translateX(-50%);
     z-index: 10; pointer-events: none;
     font-family: 'Times New Roman', Times, serif;
-    font-size: 18px; opacity: 0;
-    color: #d4421f;
+    font-size: 22px; opacity: 0;
+    color: #ff1a1a;
     transition: opacity 0.3s;
     font-style: normal;
   }
@@ -297,12 +298,6 @@
     <span class="stat"><span class="label">health</span> <span id="hpRow" class="hp-row"></span></span>
     <span class="sep">·</span>
     <span class="stat"><span class="label">round</span> <span class="val" id="time">00:00</span></span>
-    <span class="sep sep-after-phase">·</span>
-    <span class="stat phase" id="phase">idle</span>
-    <span class="sep sep-after-zone stat-pickzone">·</span>
-    <span class="stat stat-pickzone"><span class="label">pick zone</span> <span id="zone">12%</span></span>
-    <span class="sep stat-next">·</span>
-    <span class="stat stat-next" id="next">next claw 0s</span>
   </div>
 </div>
 
@@ -1026,7 +1021,7 @@ const reticleGroup = new THREE.Group();
 plateGroup.add(reticleGroup);
 
 const retFillMat = new THREE.MeshBasicMaterial({
-  color: 0xd4421f, transparent: true, opacity: 0.0, side: THREE.DoubleSide, depthWrite: false,
+  color: 0xff1a1a, transparent: true, opacity: 0.0, side: THREE.DoubleSide, depthWrite: false,
 });
 const retFillGeo = new THREE.CircleGeometry(1, 48);
 const retFill = new THREE.Mesh(retFillGeo, retFillMat);
@@ -1035,7 +1030,7 @@ retFill.position.y = CFG.plateThick / 2 + 0.005;
 reticleGroup.add(retFill);
 
 const retOutlineMat = new THREE.MeshBasicMaterial({
-  color: 0xd4421f, transparent: true, opacity: 0.0, side: THREE.DoubleSide,
+  color: 0xff1a1a, transparent: true, opacity: 0.0, side: THREE.DoubleSide,
 });
 const retOutline = new THREE.Mesh(new THREE.RingGeometry(0.99, 1, 64), retOutlineMat);
 retOutline.rotation.x = -Math.PI / 2;
@@ -1127,8 +1122,8 @@ function buildPlayerMarker() {
   const star = new THREE.Mesh(
     new THREE.OctahedronGeometry(0.32, 0),
     new THREE.MeshStandardMaterial({
-      color: 0xf5c948,
-      emissive: 0xf5c948, emissiveIntensity: 1.20,
+      color: 0xffd000,
+      emissive: 0xffd000, emissiveIntensity: 1.20,
       roughness: 0.25, metalness: 0.15,
     }),
   );
@@ -1140,7 +1135,7 @@ function buildPlayerMarker() {
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(ringR - 0.08, ringR, 48),
     new THREE.MeshBasicMaterial({
-      color: 0xf5c948, transparent: true, opacity: 0.92, side: THREE.DoubleSide,
+      color: 0xffd000, transparent: true, opacity: 0.92, side: THREE.DoubleSide,
     }),
   );
   ring.rotation.x = -Math.PI / 2;
@@ -2174,14 +2169,13 @@ function tickShrinkTween(dt) {
 // ============================================================
 const hudAlive = document.getElementById('alive');
 const hudTime = document.getElementById('time');
-const hudPhase = document.getElementById('phase');
-const hudZone = document.getElementById('zone');
-const hudNext = document.getElementById('next');
 const tiltArrow = document.getElementById('tilt-arrow');
 const hpRow = document.getElementById('hpRow');
 const hpPipsDom = [];
-// each pip is one of the brand's shape glyphs, plain red
-const HP_SHAPES = ['■','●','▲','◆','★','◼','◉','▼','◇','⬢'];
+// Three universally-rendered shape glyphs cycled across the 10 pips,
+// plain bright red. Avoids the spotty rendering of more exotic
+// unicode primitives on certain platforms.
+const HP_SHAPES = ['▲', '■', '●'];
 for (let i = 0; i < CFG.hpMax; i++) {
   const p = document.createElement('span');
   p.className = 'hp-pip';
@@ -2196,21 +2190,6 @@ function updateHud() {
   const mm = String(Math.floor(sec / 60)).padStart(2, '0');
   const ss = String(sec % 60).padStart(2, '0');
   hudTime.textContent = `${mm}:${ss}`;
-  hudPhase.textContent = S.hand.phase === 'telegraph' ? 'claw activates'
-                       : S.hand.phase === 'approach'  ? 'descending'
-                       : S.hand.phase === 'hover'     ? 'targeting'
-                       : S.hand.phase === 'pinch'     ? 'grasping'
-                       : S.hand.phase === 'lift'      ? 'taken'
-                       : 'idle';
-  const zr = currentZoneR();
-  const pct = Math.round((zr / S.plateR) * 100);
-  hudZone.textContent = pct + '%';
-  if (S.hand.phase === 'idle') {
-    const tt = Math.max(0, S.nextHandAt - S.t);
-    hudNext.textContent = `next claw ${(tt / 1000).toFixed(1)}s`;
-  } else {
-    hudNext.textContent = '— in motion —';
-  }
   const ang = Math.atan2(S.tilt.x, -S.tilt.z) * 180 / Math.PI;
   const mag = Math.min(1, Math.hypot(S.tilt.x, S.tilt.z));
   tiltArrow.style.transform = `translate(-50%, -100%) rotate(${ang}deg) scaleY(${0.4 + mag * 0.7})`;
