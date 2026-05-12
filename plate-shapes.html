@@ -942,19 +942,29 @@ let discoBall = null;
     // Replace the GLB's bundled materials with a known-bright silver
     // mirror so the ball reads as a real disco ball rather than the
     // dark gold tint the export came with.
-    // Pure mirror, no self-emission. The ball reflects direct lights
-    // via specular; it shouldn't act as its own light source.
+    // Replace the GLB's bundled materials with a known-good mirror.
+    // Also strip any lights baked into the model — Blender often
+    // exports scene lights along with the geometry, and those would
+    // dump extra brightness exactly at the ball's position.
     const mirrorMat = new THREE.MeshStandardMaterial({
       color: 0xcfcfcf,
       emissive: 0x000000, emissiveIntensity: 0.0,
       metalness: 1.0, roughness: 0.15,
     });
+    let foundLights = 0;
     model.traverse((node) => {
       if (node.isMesh) {
         node.castShadow = false;
         node.material = mirrorMat;
       }
+      if (node.isLight) {
+        foundLights++;
+        node.intensity = 0;
+        node.visible = false;
+        if (node.parent) node.parent.remove(node);
+      }
     });
+    if (foundLights > 0) console.log('[disco.glb] stripped', foundLights, 'baked light(s)');
 
     ballRoot.add(model);
   }, undefined, (err) => {
