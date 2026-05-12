@@ -416,7 +416,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputEncoding = THREE.sRGBEncoding;
 // Cinematic tone mapping so the loud club lights don't wash everything out
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.78;
+renderer.toneMappingExposure = 0.68;
 
 const camTarget = { y: 14, z: 13.5, fov: 42 };
 let camInitialized = false;
@@ -476,9 +476,9 @@ window.addEventListener('orientationchange', () => setTimeout(fitCameraTarget, 1
 
 // lights — basement-club: dim ambient, hot stage spotlight on the plate,
 // red + blue accent point lights bleeding onto the foam walls
-const amb = new THREE.AmbientLight(0xb8a890, 0.22);
+const amb = new THREE.AmbientLight(0xb8a890, 0.18);
 scene.add(amb);
-const key = new THREE.DirectionalLight(0xffe9b8, 0.55);
+const key = new THREE.DirectionalLight(0xffe9b8, 0.42);
 key.position.set(6, 14, 4);
 key.castShadow = true;
 key.shadow.mapSize.set(1024, 1024);
@@ -487,35 +487,38 @@ key.shadow.camera.top = 10; key.shadow.camera.bottom = -10;
 key.shadow.camera.near = 1; key.shadow.camera.far = 30;
 key.shadow.bias = -0.0005;
 scene.add(key);
-const rim = new THREE.DirectionalLight(0x5a708a, 0.22);
+const rim = new THREE.DirectionalLight(0x5a708a, 0.18);
 rim.position.set(-5, 6, -5);
 scene.add(rim);
 
-// stage spotlight from above the plate — the dance floor / arena beam
-const stageSpot = new THREE.SpotLight(0xfff0c8, 2.2, 30, Math.PI / 4.2, 0.55, 1.05);
+// stage spotlight from above the plate — the dance floor / arena beam.
+// Lower intensity so cumulative diffuse on the shapes doesn't saturate
+// past ACES headroom and bleach them to white.
+const stageSpot = new THREE.SpotLight(0xfff0c8, 1.10, 30, Math.PI / 4.2, 0.55, 1.05);
 stageSpot.position.set(0, 12, 0);
 stageSpot.target.position.set(0, 0, 0);
 scene.add(stageSpot);
 scene.add(stageSpot.target);
 
-// nightclub accent lights — colored point lights bleeding onto the walls
-const accentRed = new THREE.PointLight(0xff2840, 1.05, 24, 1.8);
+// nightclub accent lights — colored point lights bleeding onto the walls.
+// Trimmed so multi-light overlap on the figures doesn't blow to white.
+const accentRed = new THREE.PointLight(0xff2840, 0.60, 22, 1.8);
 accentRed.position.set(-9, 2.5, 7);
 scene.add(accentRed);
 
-const accentBlue = new THREE.PointLight(0x2a6df4, 0.95, 24, 1.8);
+const accentBlue = new THREE.PointLight(0x2a6df4, 0.55, 22, 1.8);
 accentBlue.position.set(10, 2.5, -7);
 scene.add(accentBlue);
 
-const accentMagenta = new THREE.PointLight(0xd44dff, 0.75, 22, 1.8);
+const accentMagenta = new THREE.PointLight(0xd44dff, 0.45, 20, 1.8);
 accentMagenta.position.set(8, 3.5, 9);
 scene.add(accentMagenta);
 
-const accentCyan = new THREE.PointLight(0x42e8ff, 0.75, 22, 1.8);
+const accentCyan = new THREE.PointLight(0x42e8ff, 0.45, 20, 1.8);
 accentCyan.position.set(-8, 3.5, -9);
 scene.add(accentCyan);
 
-const accentOrange = new THREE.PointLight(0xff9a2a, 0.65, 20, 1.8);
+const accentOrange = new THREE.PointLight(0xff9a2a, 0.40, 18, 1.8);
 accentOrange.position.set(0, 5.5, 9);
 scene.add(accentOrange);
 
@@ -916,8 +919,9 @@ let discoBall = null;
   scene.add(ballRoot);
   discoBall = ballRoot;
 
-  // warm under-glow point light — pin to the ball's world position
-  const discoGlow = new THREE.PointLight(0xfff4d8, 0.95, 14, 2);
+  // warm under-glow point light — kept gentle so it doesn't double up
+  // with the stage spot directly above the plate
+  const discoGlow = new THREE.PointLight(0xfff4d8, 0.35, 11, 2);
   discoGlow.position.set(0, 6.0, 0);
   scene.add(discoGlow);
 
@@ -941,7 +945,7 @@ let discoBall = null;
     // dark gold tint the export came with.
     const mirrorMat = new THREE.MeshStandardMaterial({
       color: 0xe8e8e8,
-      emissive: 0xe8e8e8, emissiveIntensity: 0.45,
+      emissive: 0xe8e8e8, emissiveIntensity: 0.20,
       metalness: 1.0, roughness: 0.12,
     });
     model.traverse((node) => {
@@ -2199,11 +2203,11 @@ function tickAmbient(dt, tSec) {
     discoBall.rotation.z += dt * 0.83;
   }
   // accent lights slowly drift in intensity so the room breathes
-  accentRed.intensity     = 0.85 + Math.sin(tSec * 0.9)       * 0.30;
-  accentBlue.intensity    = 0.80 + Math.sin(tSec * 0.7 + 1.4) * 0.28;
-  accentMagenta.intensity = 0.60 + Math.sin(tSec * 1.1 + 2.6) * 0.22;
-  accentCyan.intensity    = 0.60 + Math.sin(tSec * 0.85 + 0.6) * 0.22;
-  accentOrange.intensity  = 0.55 + Math.sin(tSec * 1.2 + 3.8) * 0.20;
+  accentRed.intensity     = 0.55 + Math.sin(tSec * 0.9)       * 0.20;
+  accentBlue.intensity    = 0.50 + Math.sin(tSec * 0.7 + 1.4) * 0.18;
+  accentMagenta.intensity = 0.40 + Math.sin(tSec * 1.1 + 2.6) * 0.15;
+  accentCyan.intensity    = 0.40 + Math.sin(tSec * 0.85 + 0.6) * 0.15;
+  accentOrange.intensity  = 0.35 + Math.sin(tSec * 1.2 + 3.8) * 0.14;
 
   // light beams sway like an unseen lighting rig is working the room
   for (let i = 0; i < lightBeams.length; i++) {
