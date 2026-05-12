@@ -413,6 +413,9 @@ const MIXES = [
 // 50 minutes feels like a fair window for a long DJ mix.
 const MAX_RANDOM_START_MS = 50 * 60 * 1000;
 
+// Playback volume — 0..100. Mix sits in the background, not loud.
+const SC_VOLUME = 35;
+
 let scWidget = null;
 let scReady = false;
 let scMuted = false;
@@ -460,19 +463,46 @@ function initSoundCloud() {
   }
   scWidget = SC.Widget(iframe);
   scWidget.bind(SC.Widget.Events.READY, () => {
-    scReady = true;
-    console.log('[sc] widget ready');
-    maybeEnableEnter();
+    console.log('[sc] widget ready — warming sound metadata');
+    // READY only means the widget UI is up — the track itself may
+    // still be loading. Poll getCurrentSound() until it returns a
+    // real sound object, then we know play() will actually do
+    // something when the user clicks enter.
+    let polls = 0;
+    const warm = setInterval(() => {
+      polls++;
+      try {
+        scWidget.getCurrentSound((sound) => {
+          if (sound && sound.id) {
+            clearInterval(warm);
+            scReady = true;
+            console.log('[sc] sound primed:', sound.title || sound.id);
+            // Pre-set volume so the user-gesture play() lands at the
+            // right level immediately, no audible ramp.
+            try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
+            maybeEnableEnter();
+          }
+        });
+      } catch (_) {}
+      if (polls > 40) {
+        clearInterval(warm);
+        if (!scReady) {
+          console.warn('[sc] sound metadata never arrived — enabling anyway');
+          scReady = true;
+          maybeEnableEnter();
+        }
+      }
+    }, 200);
   });
-  // Fallback: if READY hasn't fired in 5s, enable the game anyway —
-  // we'd rather let the user play silently than block them entirely.
+  // Hard fallback: if READY itself never fires in 6s, let the user play
+  // without confirmed audio rather than blocking them entirely.
   setTimeout(() => {
     if (!scReady) {
-      console.warn('[sc] not ready after 5s — enabling game without confirmed audio');
+      console.warn('[sc] not ready after 6s — enabling game without confirmed audio');
       scReady = true;
       maybeEnableEnter();
     }
-  }, 5000);
+  }, 6000);
   scWidget.bind(SC.Widget.Events.FINISH, () => {
     // single mix on loop → just seek to a new random spot + replay.
     // Multiple mixes → load a different random one.
@@ -516,7 +546,7 @@ function startMusicIfNeeded() {
 
   // Synchronous play call in the user-gesture stack — primary unlock.
   try {
-    scWidget.setVolume(100);
+    scWidget.setVolume(SC_VOLUME);
     scWidget.play();
   } catch (e) { console.warn('[sc] sync play failed', e); }
 
