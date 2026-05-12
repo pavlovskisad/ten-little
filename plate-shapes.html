@@ -18,11 +18,13 @@
     inset: 0;
   }
   body {
-    font-family: 'Times New Roman', Times, serif;
+    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
     color: #f1e5cd;
+    font-size: 14px;
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent;
     touch-action: none;
+    text-transform: lowercase;
   }
   button { -webkit-tap-highlight-color: transparent; }
   canvas#c { display: block; position: fixed; inset: 0; width: 100%; height: 100dvh; }
@@ -34,44 +36,44 @@
     mix-blend-mode: overlay; opacity: 0.16;
   }
 
-  /* HUD */
+  /* HUD — plain lowercase text, no caps, no glow */
   .hud {
     position: fixed; z-index: 10; pointer-events: none;
     color: #f1e5cd;
   }
   .hud .label {
-    font-family: 'Times New Roman', Times, serif;
-    font-weight: 300; font-style: italic;
-    font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase;
+    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+    font-size: 11px;
     opacity: 0.55;
+    text-transform: lowercase;
   }
   .hud .val {
     font-family: 'Comic Sans MS', 'Comic Sans', cursive;
-    font-weight: 700; font-size: 28px; line-height: 1; margin-top: 4px;
+    font-size: 16px; line-height: 1; margin-top: 2px;
+    text-transform: lowercase;
   }
   .hud .sub {
     font-family: 'Comic Sans MS', 'Comic Sans', cursive;
     font-size: 11px; opacity: 0.6; margin-top: 2px;
+    text-transform: lowercase;
   }
   #hud-tl { top: calc(env(safe-area-inset-top) + 18px); left: calc(env(safe-area-inset-left) + 22px); }
   #hud-tr { top: calc(env(safe-area-inset-top) + 18px); right: calc(env(safe-area-inset-right) + 22px); text-align: right; }
   #hud-bl { bottom: calc(env(safe-area-inset-bottom) + 18px); left: calc(env(safe-area-inset-left) + 22px); }
   #hud-br { bottom: calc(env(safe-area-inset-bottom) + 18px); right: calc(env(safe-area-inset-right) + 22px); text-align: right; }
 
-  .hp-row { display: flex; gap: 4px; margin-top: 8px; }
+  .hp-row { display: flex; gap: 3px; margin-top: 4px; }
   .hp-pip {
-    width: 14px; height: 18px;
+    width: 10px; height: 14px;
     background: #d4421f; border: 1px solid #d4421f;
-    box-shadow: 0 0 6px rgba(212,66,31,0.55);
-    transition: background 0.15s, opacity 0.15s, box-shadow 0.15s;
+    transition: background 0.15s, opacity 0.15s;
   }
   .hp-pip.dead {
-    background: transparent; border-color: rgba(212,66,31,0.22);
-    opacity: 0.35; box-shadow: none;
+    background: transparent; border-color: rgba(212,66,31,0.30);
+    opacity: 0.45;
   }
   .hp-pip.iframe {
     background: #ffffff; border-color: #ffffff;
-    box-shadow: 0 0 12px rgba(255,255,255,0.75);
   }
 
   /* tilt indicator */
@@ -99,73 +101,76 @@
     border-bottom: 6px solid #d4421f;
   }
   #tilt-label {
-    position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%);
-    font-family: 'Times New Roman', Times, serif; font-style: italic;
-    font-size: 10px; letter-spacing: 0.25em; text-transform: uppercase;
-    color: #f1e5cd; opacity: 0.4; white-space: nowrap;
+    position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%);
+    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+    font-size: 10px;
+    color: #f1e5cd; opacity: 0.45; white-space: nowrap;
+    text-transform: lowercase;
   }
 
-  /* title at intro */
+  /* title at intro — minimal 90s lowercase plain text */
   #title {
     position: fixed; inset: 0; display: flex; flex-direction: column;
     align-items: center; justify-content: center; z-index: 20;
-    background: radial-gradient(ellipse at center, rgba(20,17,13,0.4), rgba(20,17,13,0.95));
+    background: rgba(20,17,13,0.92);
     transition: opacity 0.6s ease;
   }
   #title h1 {
-    font-family: 'Times New Roman', Times, serif;
-    font-weight: 700; font-style: italic;
-    font-size: clamp(56px, 16vw, 168px);
-    line-height: 0.95; letter-spacing: 0.04em;
-    color: #f5e6c4; text-shadow: 0 0 40px rgba(245,201,72,0.20);
-    text-align: center; text-transform: uppercase;
-  }
-  #title h1 .accent {
     font-family: 'Comic Sans MS', 'Comic Sans', cursive;
-    font-style: normal; font-weight: 700;
-    color: #ff2080;
-    text-shadow: 0 0 30px rgba(255,32,128,0.35);
+    font-weight: 400;
+    font-size: clamp(24px, 5vw, 38px);
+    color: #f1e5cd;
+    text-align: center;
+    text-transform: lowercase;
+    line-height: 1.2;
   }
   #title button {
-    margin-top: 56px; padding: 16px 44px;
-    background: #f5c948; border: 2px solid #14110d;
-    color: #14110d; font-family: 'Comic Sans MS', 'Comic Sans', cursive;
-    font-weight: 700;
-    font-size: 22px; letter-spacing: 0.18em; text-transform: uppercase;
-    cursor: pointer; transition: all 0.15s; pointer-events: auto;
-    box-shadow: 4px 4px 0 #14110d;
+    margin-top: 28px; padding: 4px 14px;
+    background: transparent; border: 1px solid #f1e5cd;
+    color: #f1e5cd;
+    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+    font-weight: 400;
+    font-size: 14px;
+    cursor: pointer; transition: background 0.15s, color 0.15s;
+    pointer-events: auto;
+    text-transform: lowercase;
   }
-  #title button:hover { background: #ff2080; color: #fff; box-shadow: 2px 2px 0 #14110d; transform: translate(2px, 2px); }
+  #title button:hover { background: #f1e5cd; color: #14110d; }
   #title.gone { opacity: 0; pointer-events: none; }
 
   /* end overlay */
   #over {
     position: fixed; inset: 0; display: none; flex-direction: column;
     align-items: center; justify-content: center; z-index: 20;
-    background: rgba(20,17,13,0.86);
+    background: rgba(20,17,13,0.92);
   }
   #over.show { display: flex; }
   #over .place {
-    font-family: 'Times New Roman', Times, serif; font-weight: 300;
-    font-size: 14px; letter-spacing: 0.4em; text-transform: uppercase;
-    color: #f1e5cd; opacity: 0.5;
+    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+    font-size: 12px; opacity: 0.55;
+    color: #f1e5cd;
+    text-transform: lowercase;
   }
   #over .ord {
-    font-family: 'Times New Roman', Times, serif; font-weight: 500;
-    font-size: clamp(80px, 18vw, 200px); line-height: 1; margin-top: 10px;
+    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+    font-size: clamp(32px, 7vw, 56px); line-height: 1; margin-top: 6px;
     color: #f1e5cd;
+    text-transform: lowercase;
   }
-  #over .ord.win { color: #f5c948; text-shadow: 0 0 60px rgba(245,201,72,0.45); }
+  #over .ord.win { color: #f5c948; }
   #over .stat {
-    font-family: 'Comic Sans MS', 'Comic Sans', cursive; font-size: 12px;
-    letter-spacing: 0.2em; opacity: 0.6; margin-top: 20px;
+    font-family: 'Comic Sans MS', 'Comic Sans', cursive; font-size: 11px;
+    opacity: 0.6; margin-top: 14px;
+    text-transform: lowercase;
   }
   #over button {
-    margin-top: 50px; padding: 14px 36px;
+    margin-top: 28px; padding: 4px 14px;
     background: transparent; border: 1px solid #f1e5cd;
-    color: #f1e5cd; font-family: 'Times New Roman', Times, serif;
-    font-size: 18px; letter-spacing: 0.3em; text-transform: uppercase;
-    cursor: pointer; transition: all 0.2s;
+    color: #f1e5cd;
+    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+    font-size: 14px;
+    cursor: pointer; transition: background 0.15s, color 0.15s;
+    text-transform: lowercase;
   }
   #over button:hover { background: #f1e5cd; color: #14110d; }
 
@@ -188,12 +193,13 @@
 
   /* hint banner */
   #hint {
-    position: fixed; top: calc(env(safe-area-inset-top) + 90px); left: 50%; transform: translateX(-50%);
+    position: fixed; top: calc(env(safe-area-inset-top) + 80px); left: 50%; transform: translateX(-50%);
     z-index: 10; pointer-events: none;
-    font-family: 'Times New Roman', Times, serif; font-style: italic;
-    font-size: 16px; letter-spacing: 0.15em; opacity: 0;
-    color: #d4421f; text-shadow: 0 0 20px rgba(212,66,31,0.45);
+    font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+    font-size: 14px; opacity: 0;
+    color: #d4421f;
     transition: opacity 0.3s;
+    text-transform: lowercase;
   }
   #hint.on { opacity: 1; }
 
@@ -201,8 +207,8 @@
      MOBILE — compact layout, joystick on right, no tilt indicator
      ============================================================ */
   @media (max-width: 720px), (pointer: coarse) {
-    .hud .label { font-size: 9px; letter-spacing: 0.25em; }
-    .hud .val { font-size: 22px; }
+    .hud .label { font-size: 10px; }
+    .hud .val { font-size: 14px; }
     .hud .sub { font-size: 10px; }
 
     #hud-tl, #hud-tr {
@@ -211,35 +217,30 @@
     #hud-tl { left: calc(env(safe-area-inset-left) + 14px); }
     #hud-tr { right: calc(env(safe-area-inset-right) + 14px); }
 
-    /* hide pick zone / next on mobile to save space */
     #hud-br { display: none; }
-
-    /* hide tilt indicator — the 3D plate already shows tilt */
     #tilt { display: none; }
 
-    /* HP at bottom-left, stick at bottom-right */
     #hud-bl {
-      bottom: calc(env(safe-area-inset-bottom) + 18px);
+      bottom: calc(env(safe-area-inset-bottom) + 16px);
       left: calc(env(safe-area-inset-left) + 14px);
     }
-    .hp-row { gap: 3px; margin-top: 5px; }
-    .hp-pip { width: 9px; height: 14px; }
+    .hp-row { gap: 2px; margin-top: 3px; }
+    .hp-pip { width: 7px; height: 11px; }
 
     #stick {
       left: auto;
       bottom: calc(env(safe-area-inset-bottom) + 24px);
       right: calc(env(safe-area-inset-right) + 24px);
-      width: 150px; height: 150px;
+      width: 130px; height: 130px;
     }
-    #stick-knob { width: 60px; height: 60px; margin: -30px 0 0 -30px; }
+    #stick-knob { width: 50px; height: 50px; margin: -25px 0 0 -25px; }
 
-    #hint { top: calc(env(safe-area-inset-top) + 60px); font-size: 14px; }
+    #hint { top: calc(env(safe-area-inset-top) + 56px); font-size: 13px; }
 
-    /* title and over screens */
-    #title h1 { font-size: clamp(48px, 18vw, 96px); line-height: 0.95; }
-    #title button { margin-top: 36px; padding: 14px 36px; font-size: 18px; }
-    #over .ord { font-size: clamp(72px, 26vw, 160px); }
-    #over button { margin-top: 36px; padding: 16px 40px; font-size: 16px; }
+    #title h1 { font-size: clamp(22px, 6.5vw, 34px); }
+    #title button { margin-top: 22px; padding: 4px 14px; font-size: 14px; }
+    #over .ord { font-size: clamp(28px, 9vw, 48px); }
+    #over button { margin-top: 22px; padding: 4px 14px; font-size: 14px; }
   }
 </style>
 </head>
@@ -248,20 +249,20 @@
 
 <div id="hud" class="hud">
   <div id="hud-tl">
-    <div class="label">Alive</div>
+    <div class="label">alive</div>
     <div class="val"><span id="alive">10</span><span style="opacity:0.3"> / 10</span></div>
   </div>
   <div id="hud-tr">
-    <div class="label">Round</div>
+    <div class="label">round</div>
     <div class="val" id="time">00:00</div>
     <div class="sub" id="phase">idle</div>
   </div>
   <div id="hud-bl">
-    <div class="label">Health</div>
+    <div class="label">health</div>
     <div id="hpRow" class="hp-row"></div>
   </div>
   <div id="hud-br">
-    <div class="label">Pick zone</div>
+    <div class="label">pick zone</div>
     <div class="val" id="zone">12%</div>
     <div class="sub" id="next">next claw 0s</div>
   </div>
@@ -277,15 +278,15 @@
 <div id="stick"><div id="stick-knob"></div></div>
 
 <div id="title">
-  <h1>The<br><span class="accent">Shape</span><br>Store</h1>
-  <button id="start">Enter</button>
+  <h1>the shape store</h1>
+  <button id="start">enter</button>
 </div>
 
 <div id="over">
-  <div class="place">You placed</div>
+  <div class="place">you placed</div>
   <div class="ord" id="ord">3rd</div>
   <div class="stat" id="overStat">survived 00:00</div>
-  <button id="again">Again</button>
+  <button id="again">again</button>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
