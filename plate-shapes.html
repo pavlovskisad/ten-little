@@ -94,19 +94,18 @@
     color: #ffffff;
     opacity: 0.70;
   }
-  /* Health: screen-wide row of large red shape glyphs cycled
-     (▲ ■ ●). Sized big enough that a player can read remaining
-     HP peripherally without taking their eye off the action.
-     Dead pips dim, i-frame pips flash white. */
+  /* Health: row of inline SVG shapes (triangle / square / circle).
+     Each pip is the same fixed size with shapes drawn around the
+     same center point and tuned to similar visual area so the row
+     reads as one even rhythm — equal size, aligned by centers. */
   .hp-row {
     display: flex; align-items: center; justify-content: center;
-    gap: 22px;
-    font-family: 'Times New Roman', Times, serif;
+    gap: 18px;
     line-height: 1;
   }
   .hp-pip {
     display: inline-block;
-    font-size: 38px;
+    width: 32px; height: 32px;
     color: #ff1a1a;
     transition: color 0.15s, opacity 0.15s;
   }
@@ -281,8 +280,8 @@
     #hud-bar .sep { font-size: 17px; }
     #hud-hp { top: calc(env(safe-area-inset-top) + 10px); gap: 10px; }
     #hud-hp .hp-label { font-size: 15px; }
-    .hp-row { gap: 14px; }
-    .hp-pip { font-size: 28px; }
+    .hp-row { gap: 12px; }
+    .hp-pip { width: 24px; height: 24px; }
 
     #tilt { display: none; }
 
@@ -2219,16 +2218,40 @@ const hudTime = document.getElementById('time');
 const tiltArrow = document.getElementById('tilt-arrow');
 const hpRow = document.getElementById('hpRow');
 const hpPipsDom = [];
-// Three universally-rendered shape glyphs cycled across the 10 pips,
-// plain bright red. Avoids the spotty rendering of more exotic
-// unicode primitives on certain platforms.
-const HP_SHAPES = ['▲', '■', '●'];
+// Inline SVG pips: triangle / square / circle drawn around the same
+// 24x24 viewBox center with similar visual areas so all ten pips are
+// equal in size and align by their centers. Color is currentColor so
+// the dead / iframe class toggles still work.
+const HP_SHAPES = ['triangle', 'square', 'circle'];
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function makeHpPipSvg(type) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'hp-pip');
+  let shape;
+  if (type === 'triangle') {
+    shape = document.createElementNS(SVG_NS, 'polygon');
+    // equilateral, centroid at (12,12), area ~100sq units
+    shape.setAttribute('points', '12,3.2 19.6,16.4 4.4,16.4');
+  } else if (type === 'square') {
+    shape = document.createElementNS(SVG_NS, 'rect');
+    // 10x10 centered at (12,12), area 100
+    shape.setAttribute('x', '7'); shape.setAttribute('y', '7');
+    shape.setAttribute('width', '10'); shape.setAttribute('height', '10');
+  } else {
+    shape = document.createElementNS(SVG_NS, 'circle');
+    // r=5.65 centered at (12,12), area ~100
+    shape.setAttribute('cx', '12'); shape.setAttribute('cy', '12');
+    shape.setAttribute('r', '5.65');
+  }
+  shape.setAttribute('fill', 'currentColor');
+  svg.appendChild(shape);
+  return svg;
+}
 for (let i = 0; i < CFG.hpMax; i++) {
-  const p = document.createElement('span');
-  p.className = 'hp-pip';
-  p.textContent = HP_SHAPES[i % HP_SHAPES.length];
-  hpRow.appendChild(p);
-  hpPipsDom.push(p);
+  const pip = makeHpPipSvg(HP_SHAPES[i % HP_SHAPES.length]);
+  hpRow.appendChild(pip);
+  hpPipsDom.push(pip);
 }
 
 function updateHud() {
