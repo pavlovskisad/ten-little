@@ -958,13 +958,15 @@ let discoBall = null;
         node.material = mirrorMat;
       }
       if (node.isLight) {
+        // Disable the light but leave it in place — some exporters
+        // nest the geometry under a light node, so detaching would
+        // take the ball with it.
         foundLights++;
         node.intensity = 0;
         node.visible = false;
-        if (node.parent) node.parent.remove(node);
       }
     });
-    if (foundLights > 0) console.log('[disco.glb] stripped', foundLights, 'baked light(s)');
+    if (foundLights > 0) console.log('[disco.glb] disabled', foundLights, 'baked light(s)');
 
     ballRoot.add(model);
   }, undefined, (err) => {
