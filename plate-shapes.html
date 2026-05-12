@@ -3,13 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>SHAPE STORE — feel test</title>
+<title>ten little</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- Comic Neue: upright Comic Sans alternative. iOS doesn't bundle Comic
-     Sans, so without this it falls back to a cursive substitute that
-     renders slanted/italic. -->
-<link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet">
+<!-- Press Start 2P: classic NES-pixel font for headlines + buttons.
+     VT323: pixel terminal monospace for HUD + body. -->
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
@@ -23,10 +22,9 @@
     inset: 0;
   }
   body {
-    /* Times for informative reading; Comic Neue for headlines and
-       buttons (loaded above as a stable upright Comic-Sans-like).
-       No italic anywhere — every block sets font-style: normal. */
-    font-family: 'Times New Roman', Times, serif;
+    /* VT323 (pixel terminal) for body / HUD informational text;
+       Press Start 2P for headlines + buttons. Both loaded above. */
+    font-family: 'VT323', monospace;
     color: #ffffff;
     font-size: 16px;
     font-style: normal;
@@ -58,26 +56,26 @@
     left: 50%;
     transform: translateX(-50%);
     display: flex; align-items: center; flex-wrap: nowrap; gap: 16px;
-    font-family: 'Times New Roman', Times, serif;
-    font-size: 20px; line-height: 1;
+    font-family: 'VT323', monospace;
+    font-size: 26px; line-height: 1;
     white-space: nowrap;
     max-width: calc(100vw - 32px);
   }
   #hud-bar .stat {
-    display: inline-flex; align-items: center; gap: 6px;
+    display: inline-flex; align-items: center; gap: 8px;
     color: #ffffff;
   }
   #hud-bar .label {
-    font-family: 'Times New Roman', Times, serif;
-    font-size: 18px;
-    opacity: 0.70;
+    font-family: 'VT323', monospace;
+    font-size: 22px;
+    opacity: 0.75;
   }
   #hud-bar .val {
-    font-family: 'Times New Roman', Times, serif;
-    font-size: 24px;
+    font-family: 'VT323', monospace;
+    font-size: 30px;
   }
-  #hud-bar .dim { opacity: 0.50; }
-  #hud-bar .sep { opacity: 0.40; font-size: 20px; }
+  #hud-bar .dim { opacity: 0.55; }
+  #hud-bar .sep { opacity: 0.45; font-size: 24px; }
 
   /* Big HP row: at the very top, screen-wide, glyphs large. */
   #hud-hp {
@@ -89,28 +87,33 @@
     pointer-events: none;
   }
   #hud-hp .hp-label {
-    font-family: 'Times New Roman', Times, serif;
-    font-size: 18px;
+    font-family: 'VT323', monospace;
+    font-size: 24px;
     color: #ffffff;
-    opacity: 0.70;
+    opacity: 0.75;
   }
-  /* Health: row of inline SVG shapes (triangle / square / circle).
-     Each pip is the same fixed size with shapes drawn around the
-     same center point and tuned to similar visual area so the row
-     reads as one even rhythm — equal size, aligned by centers. */
+  /* Health: row of pixel-heart icons (gay.png). All pips identical;
+     dead pips dim out, i-frame pips brighten. */
   .hp-row {
     display: flex; align-items: center; justify-content: center;
-    gap: 18px;
+    gap: 14px;
     line-height: 1;
   }
   .hp-pip {
     display: inline-block;
-    width: 32px; height: 32px;
-    color: #ff1a1a;
-    transition: color 0.15s, opacity 0.15s;
+    width: 36px; height: 36px;
+    background: url('./gay.png') no-repeat center / contain;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    transition: opacity 0.15s, filter 0.15s;
   }
-  .hp-pip.dead { color: rgba(255,26,26,0.18); }
-  .hp-pip.iframe { color: #ffffff; }
+  .hp-pip.dead {
+    opacity: 0.18;
+    filter: grayscale(0.7);
+  }
+  .hp-pip.iframe {
+    filter: brightness(2.0) saturate(0.5);
+  }
 
   /* tilt indicator */
   #tilt {
@@ -137,15 +140,15 @@
   }
   #tilt-label {
     position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%);
-    font-family: 'Times New Roman', Times, serif;
+    font-family: 'VT323', monospace;
     font-size: 12px;
     color: #ffffff; opacity: 0.50; white-space: nowrap;
     font-style: normal;
   }
 
-  /* title at intro — three lines stacked, each letter a different
-     primary from the palette, no italic, big plain Comic Neue sign.
-     "shape" is 5 chars; "the" and "store" letter-space to match it. */
+  /* title at intro — two lines stacked, each letter a different
+     primary from the palette, big chunky pixel signage in Press
+     Start 2P. */
   #title {
     position: fixed; inset: 0; display: flex; flex-direction: column;
     align-items: center; justify-content: center; z-index: 20;
@@ -153,19 +156,20 @@
     transition: opacity 0.6s ease;
   }
   #title h1 {
-    font-family: 'Comic Neue', 'Comic Sans MS', 'Comic Sans', cursive;
-    font-weight: 700; font-style: normal;
-    font-size: clamp(54px, 13vw, 128px);
+    font-family: 'Press Start 2P', monospace;
+    font-weight: 400; font-style: normal;
+    font-size: clamp(36px, 9vw, 96px);
     text-align: center;
     text-transform: lowercase;
-    line-height: 1.0;
+    line-height: 1.25;
     margin: 0;
+    letter-spacing: 0.04em;
   }
   #title h1 .line { display: block; }
-  /* spread letters so each line matches the visual width of "shape" */
-  #title h1 .line-the   { letter-spacing: 0.62em; padding-left: 0.62em; }
-  #title h1 .line-shape { letter-spacing: 0.02em; padding-left: 0.02em; }
-  #title h1 .line-store { letter-spacing: 0.02em; padding-left: 0.02em; }
+  /* 'ten' has 3 letters, 'little' has 6; spread 'ten' so both lines
+     read as the same visual width */
+  #title h1 .line-ten    { letter-spacing: 0.65em; padding-left: 0.65em; }
+  #title h1 .line-little { letter-spacing: 0.04em; padding-left: 0.04em; }
   /* per-letter primary palette colors */
   #title h1 .c0  { color: #ff1a1a; } /* red */
   #title h1 .c1  { color: #1a40e0; } /* blue */
@@ -183,9 +187,9 @@
     margin-top: 36px; padding: 0;
     background: transparent; border: 0;
     color: #0000ee;
-    font-family: 'Times New Roman', Times, serif;
+    font-family: 'VT323', monospace;
     font-weight: 400; font-style: normal;
-    font-size: 22px;
+    font-size: 26px;
     cursor: pointer;
     pointer-events: auto;
     text-decoration: underline;
@@ -204,13 +208,13 @@
   }
   #over.show { display: flex; }
   #over .place {
-    font-family: 'Times New Roman', Times, serif;
+    font-family: 'VT323', monospace;
     font-size: 16px; opacity: 0.65;
     color: #ffffff;
     font-style: normal;
   }
   #over .ord {
-    font-family: 'Comic Neue', 'Comic Sans MS', 'Comic Sans', cursive;
+    font-family: 'Press Start 2P', monospace;
     font-weight: 400; font-style: normal;
     font-size: clamp(40px, 9vw, 72px); line-height: 1; margin-top: 8px;
     color: #ffffff;
@@ -218,7 +222,7 @@
   }
   #over .ord.win { color: #ffd000; }
   #over .stat {
-    font-family: 'Times New Roman', Times, serif; font-size: 14px;
+    font-family: 'VT323', monospace; font-size: 14px;
     opacity: 0.65; margin-top: 18px;
     font-style: normal;
   }
@@ -226,7 +230,7 @@
     margin-top: 26px; padding: 0;
     background: transparent; border: 0;
     color: #0000ee;
-    font-family: 'Times New Roman', Times, serif;
+    font-family: 'VT323', monospace;
     font-weight: 400; font-style: normal;
     font-size: 20px;
     cursor: pointer;
@@ -258,7 +262,7 @@
   #hint {
     position: fixed; top: calc(env(safe-area-inset-top) + 122px); left: 50%; transform: translateX(-50%);
     z-index: 10; pointer-events: none;
-    font-family: 'Times New Roman', Times, serif;
+    font-family: 'VT323', monospace;
     font-size: 22px; opacity: 0;
     color: #ff1a1a;
     transition: opacity 0.3s;
@@ -330,9 +334,8 @@
 
 <div id="title">
   <h1>
-    <span class="line line-the"><span class="c0">t</span><span class="c2">h</span><span class="c1">e</span></span>
-    <span class="line line-shape"><span class="c3">s</span><span class="c4">h</span><span class="c5">a</span><span class="c6">p</span><span class="c7">e</span></span>
-    <span class="line line-store"><span class="c8">s</span><span class="c9">t</span><span class="c2">o</span><span class="c0">r</span><span class="c7">e</span></span>
+    <span class="line line-ten"><span class="c0">t</span><span class="c2">e</span><span class="c1">n</span></span>
+    <span class="line line-little"><span class="c3">l</span><span class="c4">i</span><span class="c5">t</span><span class="c6">t</span><span class="c7">l</span><span class="c8">e</span></span>
   </h1>
   <button id="start" style="pointer-events:none;opacity:0.65">loading...</button>
 </div>
@@ -724,23 +727,40 @@ plateGroup.add(ring(CFG.plateR0 * 0.25, 0.12));
 const roomGroup = new THREE.Group();
 scene.add(roomGroup);
 
-// shared materials for the foam blocks — Lambert so they hold their
-// saturated primary color under the cumulative club lighting (no
-// specular blowout to white when they tumble through the explosion).
-const ROOM_BLOCK_MATS = SHAPE_COLORS.map((c) => new THREE.MeshLambertMaterial({ color: c }));
-ROOM_BLOCK_MATS.push(new THREE.MeshLambertMaterial({ color: 0x2a2a2a }));
-ROOM_BLOCK_MATS.push(new THREE.MeshLambertMaterial({ color: 0x1a1a1a }));
-ROOM_BLOCK_MATS.push(new THREE.MeshLambertMaterial({ color: 0x3a2d22 }));
-
-function pickRoomMat() {
-  return ROOM_BLOCK_MATS[Math.floor(Math.random() * ROOM_BLOCK_MATS.length)];
+// Procedural basketball texture: classic orange base with the four
+// canonical black seam curves. Same texture shared across every ball
+// in the wall, with per-ball random rotation so seams aren't lockstep.
+function makeBasketballTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#e07020';
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.strokeStyle = '#0c0807';
+  ctx.lineWidth = 8;
+  ctx.lineCap = 'round';
+  // horizontal seam
+  ctx.beginPath(); ctx.moveTo(0, 128); ctx.lineTo(256, 128); ctx.stroke();
+  // vertical seam
+  ctx.beginPath(); ctx.moveTo(128, 0); ctx.lineTo(128, 256); ctx.stroke();
+  // two curved seams sweeping vertically — fake the equator curves
+  ctx.beginPath(); ctx.ellipse(0, 128, 96, 200, 0, -Math.PI / 2, Math.PI / 2); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(256, 128, 96, 200, 0, Math.PI / 2, 3 * Math.PI / 2); ctx.stroke();
+  const tex = new THREE.CanvasTexture(c);
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
 }
 
-// foam-block walls — bases hidden in shadow, tall stacks so tops feel
-// cavernous when the colored point lights catch them. Every cube is
-// tracked in wallCubes so the game-end explosion can launch them as
-// confetti.
+const basketballMat = new THREE.MeshLambertMaterial({
+  map: makeBasketballTexture(),
+  color: 0xffffff,
+});
+
+// Wall of basketballs — stacked in rings around the plate. Each ball
+// gets a random orientation so the seams read as varied. Tracked in
+// wallCubes so the start-of-round explosion can launch them.
 const wallCubes = [];
+const ballGeom = new THREE.SphereGeometry(0.7, 22, 14);
 {
   const blockSize = 1.4;
   const innerR = 15;
@@ -754,20 +774,21 @@ const wallCubes = [];
     const backWeight = (baseZ < 0) ? 1.0 : 0.85;
     const h = Math.floor(7 + Math.random() * 4 + backWeight * 1.8);
     for (let k = 0; k < h; k++) {
-      const cube = new THREE.Mesh(
-        new THREE.BoxGeometry(blockSize, blockSize, blockSize),
-        pickRoomMat(),
-      );
-      cube.position.set(
+      const ball = new THREE.Mesh(ballGeom, basketballMat);
+      ball.position.set(
         baseX + (Math.random() - 0.5) * 0.18,
         baseY + blockSize / 2 + k * blockSize,
         baseZ + (Math.random() - 0.5) * 0.18,
       );
-      cube.rotation.y = (Math.random() - 0.5) * 0.10;
-      cube.castShadow = true;
-      cube.receiveShadow = true;
-      roomGroup.add(cube);
-      wallCubes.push(cube);
+      ball.rotation.set(
+        Math.random() * Math.PI * 2,
+        Math.random() * Math.PI * 2,
+        Math.random() * Math.PI * 2,
+      );
+      ball.castShadow = true;
+      ball.receiveShadow = true;
+      roomGroup.add(ball);
+      wallCubes.push(ball);
     }
   }
 
@@ -779,20 +800,21 @@ const wallCubes = [];
     const z = Math.sin(ang) * r;
     const h = 5 + Math.floor(Math.random() * 4);
     for (let k = 0; k < h; k++) {
-      const cube = new THREE.Mesh(
-        new THREE.BoxGeometry(blockSize, blockSize, blockSize),
-        pickRoomMat(),
-      );
-      cube.position.set(
+      const ball = new THREE.Mesh(ballGeom, basketballMat);
+      ball.position.set(
         x + (Math.random() - 0.5) * 0.15,
         -7 + blockSize / 2 + k * blockSize,
         z + (Math.random() - 0.5) * 0.15,
       );
-      cube.rotation.y = (Math.random() - 0.5) * 0.12;
-      cube.castShadow = true;
-      cube.receiveShadow = true;
-      roomGroup.add(cube);
-      wallCubes.push(cube);
+      ball.rotation.set(
+        Math.random() * Math.PI * 2,
+        Math.random() * Math.PI * 2,
+        Math.random() * Math.PI * 2,
+      );
+      ball.castShadow = true;
+      ball.receiveShadow = true;
+      roomGroup.add(ball);
+      wallCubes.push(ball);
     }
   }
 }
@@ -2230,10 +2252,19 @@ function eliminate(f, reason) {
               : 'you were taken';
     showHint(msg);
   }
-  // End the round when the player is out (their placement is already
-  // locked in by elimination order) or when only one figure remains
-  // (the last survivor wins).
-  if (f.isPlayer || S.alive <= CFG.podiumCount) {
+  if (f.isPlayer) {
+    // Defer the end-of-game overlay so the player gets to see their
+    // figure go down (drop / drain / lift) before the screen takes
+    // over. Delay matches the longest death animation.
+    let delayMs;
+    if (reason === 'fell')         delayMs = 1700; // drop physics ~1.4s
+    else if (reason === 'drained') delayMs = 1000; // drainMs 0.55s + buffer
+    else                            delayMs = 1500; // pick / lift
+    S.deferredEndGameAt = S.t + delayMs;
+    return;
+  }
+  // Last survivor wins → end immediately when alive falls to 1.
+  if (S.alive <= CFG.podiumCount) {
     endGame();
   }
 }
@@ -2316,38 +2347,11 @@ const hudTime = document.getElementById('time');
 const tiltArrow = document.getElementById('tilt-arrow');
 const hpRow = document.getElementById('hpRow');
 const hpPipsDom = [];
-// Inline SVG pips: triangle / square / circle drawn around the same
-// 24x24 viewBox center with similar visual areas so all ten pips are
-// equal in size and align by their centers. Color is currentColor so
-// the dead / iframe class toggles still work.
-const HP_SHAPES = ['triangle', 'square', 'circle'];
-const SVG_NS = 'http://www.w3.org/2000/svg';
-function makeHpPipSvg(type) {
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('class', 'hp-pip');
-  let shape;
-  if (type === 'triangle') {
-    shape = document.createElementNS(SVG_NS, 'polygon');
-    // equilateral, centroid at (12,12), area ~100sq units
-    shape.setAttribute('points', '12,3.2 19.6,16.4 4.4,16.4');
-  } else if (type === 'square') {
-    shape = document.createElementNS(SVG_NS, 'rect');
-    // 10x10 centered at (12,12), area 100
-    shape.setAttribute('x', '7'); shape.setAttribute('y', '7');
-    shape.setAttribute('width', '10'); shape.setAttribute('height', '10');
-  } else {
-    shape = document.createElementNS(SVG_NS, 'circle');
-    // r=5.65 centered at (12,12), area ~100
-    shape.setAttribute('cx', '12'); shape.setAttribute('cy', '12');
-    shape.setAttribute('r', '5.65');
-  }
-  shape.setAttribute('fill', 'currentColor');
-  svg.appendChild(shape);
-  return svg;
-}
+// HP pips are simple divs backgrounded with gay.png. All pips identical;
+// alive / dead / iframe states driven by class toggles in updateHud.
 for (let i = 0; i < CFG.hpMax; i++) {
-  const pip = makeHpPipSvg(HP_SHAPES[i % HP_SHAPES.length]);
+  const pip = document.createElement('div');
+  pip.className = 'hp-pip';
   hpRow.appendChild(pip);
   hpPipsDom.push(pip);
 }
@@ -2441,6 +2445,12 @@ function loop(now) {
     maybeShrink(dt);
     tickShrinkTween(dt);
     updateHud();
+    // Deferred end-game: after the player dies, let their death
+    // animation play out before the overlay takes over.
+    if (S.deferredEndGameAt != null && S.t >= S.deferredEndGameAt) {
+      S.deferredEndGameAt = null;
+      endGame();
+    }
   } else if (S.phase === 'over') {
     updateTilt(dt);
     updateFigures(dt);
@@ -2476,6 +2486,7 @@ function reset() {
   plateCollar.scale.set(1, 1, 1);
   S.nextShrinkAt = CFG.shrinkEveryMs;
   S.nextHandAt = 4500;
+  S.deferredEndGameAt = null;
   S.firstHand = true;
   S.hand = { phase: 'idle', t: 0, x: 0, z: 0, zoneR: 0, target: null, captured: [] };
   S.tilt = { x: 0, z: 0 };
