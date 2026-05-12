@@ -339,9 +339,11 @@
 <body>
 <canvas id="c"></canvas>
 
-<!-- Hidden SoundCloud widget — invisible, controlled via JS -->
+<!-- Hidden SoundCloud widget — pre-loaded with the mix URL so the
+     Widget API is ready to play() the moment the user taps Enter,
+     keeping the user-gesture context intact for mobile autoplay. -->
 <iframe id="sc-iframe" frameborder="0" allow="autoplay"
-        src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/&auto_play=false&hide_related=true&show_comments=false&show_user=false&show_reposts=false&visual=false"></iframe>
+        src="https://w.soundcloud.com/player/?url=https%3A%2F%2Fon.soundcloud.com%2FfqoIPDlVWBhMhPNItM&auto_play=false&hide_related=true&show_comments=false&show_user=false&show_reposts=false&visual=false"></iframe>
 
 <!-- Mute toggle, fixed bottom-left corner -->
 <button id="muteBtn" type="button">♫</button>
@@ -421,16 +423,39 @@ function pickRandomMix() {
   return MIXES[Math.floor(Math.random() * MIXES.length)];
 }
 
+function seekToRandomStart() {
+  if (!scWidget) return;
+  try {
+    scWidget.getDuration((dur) => {
+      const cap = Math.min(dur || MAX_RANDOM_START_MS, MAX_RANDOM_START_MS);
+      if (cap > 1000) {
+        const startMs = Math.floor(Math.random() * cap);
+        scWidget.seekTo(startMs);
+      }
+    });
+  } catch (e) { console.warn('[sc] seek failed', e); }
+}
+
 function initSoundCloud() {
   const iframe = document.getElementById('sc-iframe');
   if (!iframe || typeof SC === 'undefined' || !SC.Widget) return;
   scWidget = SC.Widget(iframe);
   scWidget.bind(SC.Widget.Events.READY, () => {
     scReady = true;
+    console.log('[sc] widget ready');
   });
   scWidget.bind(SC.Widget.Events.FINISH, () => {
-    // auto-advance to next random mix on track finish
-    playRandomMix();
+    // single mix on loop → just seek to a new random spot + replay.
+    // Multiple mixes → load a different random one.
+    if (MIXES.length <= 1) {
+      seekToRandomStart();
+      try { scWidget.play(); } catch (_) {}
+    } else {
+      playRandomMix();
+    }
+  });
+  scWidget.bind(SC.Widget.Events.ERROR, (e) => {
+    console.error('[sc] error', e);
   });
 }
 
@@ -446,29 +471,31 @@ function playRandomMix() {
     show_reposts: false,
     visual: false,
     callback: () => {
-      // Start at a random spot inside the first 50 minutes (or the
-      // track's length, whichever is shorter). With one mix on
-      // rotation this gives variety on every replay instead of
-      // always picking up from minute 0.
-      try {
-        scWidget.play();
-        scWidget.getDuration((dur) => {
-          const cap = Math.min(dur || MAX_RANDOM_START_MS, MAX_RANDOM_START_MS);
-          if (cap > 1000) {
-            const startMs = Math.floor(Math.random() * cap);
-            scWidget.seekTo(startMs);
-          }
-        });
-      } catch (_) {}
+      try { scWidget.play(); } catch (_) {}
+      seekToRandomStart();
     },
   });
 }
 
+// Called from the Enter click handler — must stay synchronous so
+// the user-gesture context is preserved for mobile autoplay rules.
 function startMusicIfNeeded() {
   if (scStarted) return;
   scStarted = true;
   if (!scWidget) initSoundCloud();
-  playRandomMix();
+  // The iframe was pre-loaded with the mix URL, so the widget is
+  // (or will shortly be) ready to play immediately. Calling play
+  // synchronously inside the user gesture is what unlocks the
+  // iOS / mobile audio context.
+  try {
+    if (scWidget) {
+      scWidget.setVolume(100);
+      scWidget.play();
+    }
+  } catch (e) { console.warn('[sc] sync play failed', e); }
+  // Once playback is unlocked, seek to a random spot (deferred so
+  // duration metadata has time to resolve).
+  setTimeout(seekToRandomStart, 800);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
