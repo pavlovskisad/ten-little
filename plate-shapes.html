@@ -361,17 +361,19 @@ const SHAPE_DEFS = [
   { type: 'pyramid',    collidR: 0.42, yOffset: 0.50 },
 ];
 
+// Pure saturated primaries — match the Crayola / foam-pit look of the
+// Shape Store footage. No dusty/pastel hues; everything pops.
 const SHAPE_COLORS = [
-  0xe63946, // red
-  0x2a6df4, // blue
-  0xf6c700, // yellow
-  0x3aaa35, // green
-  0xf28d2c, // orange
-  0x8b5cf6, // purple
-  0xe87da7, // pink
-  0x4fc3f7, // light blue
-  0x9ee04d, // lime
-  0xf5d33a, // warm yellow
+  0xff1a1a, // red
+  0x1a40e0, // royal blue
+  0xffd000, // yellow
+  0x0fb020, // grass green
+  0xff7a10, // orange
+  0x9010e0, // purple
+  0xff2080, // hot pink / magenta
+  0x00b8ff, // cyan
+  0x70d800, // lime
+  0xffaa00, // amber
 ];
 
 // ============================================================
@@ -413,7 +415,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputEncoding = THREE.sRGBEncoding;
 // Cinematic tone mapping so the loud club lights don't wash everything out
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.88;
+renderer.toneMappingExposure = 0.78;
 
 const camTarget = { y: 14, z: 13.5, fov: 42 };
 let camInitialized = false;
@@ -559,13 +561,20 @@ scene.add(plateGroup);
 const plateSideMat = new THREE.MeshStandardMaterial({
   color: 0x0e0a06, roughness: 0.55, metalness: 0.30,
 });
-// Plain glass dance floor — dark warm tone, very low roughness, high
-// metalness so it acts as a polished mirror surface catching the light
-// beams and the disco ball overhead.
-const plateTopMat = new THREE.MeshStandardMaterial({
-  color: 0x1a130a,
-  emissive: 0x0c0805, emissiveIntensity: 0.06,
-  roughness: 0.08, metalness: 0.85,
+// Neutral glass: physically transparent dance floor that catches the
+// light beams and the disco ball overhead but lets you sense the
+// psychedelic void underneath. Lower opacity so it reads as glass.
+const plateTopMat = new THREE.MeshPhysicalMaterial({
+  color: 0x9c9c9c,
+  roughness: 0.06,
+  metalness: 0.0,
+  transmission: 0.70,
+  thickness: 0.5,
+  ior: 1.45,
+  transparent: true,
+  opacity: 0.55,
+  side: THREE.DoubleSide,
+  emissive: 0x0c0c0c, emissiveIntensity: 0.08,
 });
 const plateBottomMat = new THREE.MeshStandardMaterial({
   color: 0x0a0805, roughness: 0.95, metalness: 0.05,
@@ -629,12 +638,15 @@ function pickRoomMat() {
 }
 
 // foam-block walls — bases hidden in shadow, tall stacks so tops feel
-// cavernous when the colored point lights catch them
+// cavernous when the colored point lights catch them. Every cube is
+// tracked in wallCubes so the game-end explosion can launch them as
+// confetti.
+const wallCubes = [];
 {
   const blockSize = 1.4;
   const innerR = 15;
   const stacks = 64;
-  const baseY = -7;  // dropped well below frame; only upper portion is visible
+  const baseY = -7;
   for (let i = 0; i < stacks; i++) {
     const ang = (i / stacks) * Math.PI * 2;
     const r = innerR + (Math.random() - 0.5) * 0.6;
@@ -656,10 +668,10 @@ function pickRoomMat() {
       cube.castShadow = true;
       cube.receiveShadow = true;
       roomGroup.add(cube);
+      wallCubes.push(cube);
     }
   }
 
-  // outer ring further back, slightly lower stacks, thickens the wall
   const outerR = innerR + 1.7;
   for (let i = 0; i < stacks * 0.7; i++) {
     const ang = (i / (stacks * 0.7)) * Math.PI * 2 + 0.05;
@@ -681,7 +693,50 @@ function pickRoomMat() {
       cube.castShadow = true;
       cube.receiveShadow = true;
       roomGroup.add(cube);
+      wallCubes.push(cube);
     }
+  }
+}
+
+// ============================================================
+// CONFETTI EXPLOSION — when the round ends, every wall cube
+// launches outward with a tumble and falls into the void.
+// ============================================================
+const confetti = { active: false, t: 0, cubes: [] };
+function explodeRoom() {
+  if (confetti.active) return;
+  confetti.active = true;
+  confetti.t = 0;
+  for (const cube of wallCubes) {
+    const dx = cube.position.x;
+    const dz = cube.position.z;
+    const d = Math.max(0.01, Math.hypot(dx, dz));
+    // outward + upward velocity, plus randomization so it scatters
+    const outSpeed = 7 + Math.random() * 9;
+    const upSpeed  = 4 + Math.random() * 10;
+    confetti.cubes.push({
+      mesh: cube,
+      vx: (dx / d) * outSpeed + (Math.random() - 0.5) * 5,
+      vy: upSpeed,
+      vz: (dz / d) * outSpeed + (Math.random() - 0.5) * 5,
+      rx: (Math.random() - 0.5) * 7,
+      ry: (Math.random() - 0.5) * 7,
+      rz: (Math.random() - 0.5) * 7,
+    });
+  }
+}
+function tickConfetti(dt) {
+  if (!confetti.active) return;
+  confetti.t += dt;
+  const g = 14; // gravity
+  for (const c of confetti.cubes) {
+    c.vy -= g * dt;
+    c.mesh.position.x += c.vx * dt;
+    c.mesh.position.y += c.vy * dt;
+    c.mesh.position.z += c.vz * dt;
+    c.mesh.rotation.x += c.rx * dt;
+    c.mesh.rotation.y += c.ry * dt;
+    c.mesh.rotation.z += c.rz * dt;
   }
 }
 
@@ -693,29 +748,48 @@ function pickRoomMat() {
 const tunnelRings = [];
 const giantShapes = [];
 
-// helper: build a giant wireframe primitive at a given depth
-function addGiantShape(type, size, color, y) {
-  let geom;
+// helper: build a giant primitive (wireframe OR solid filled) at a given depth
+function giantGeom(type, size) {
   switch (type) {
-    case 'cube':        geom = new THREE.BoxGeometry(size, size, size); break;
-    case 'sphere':      geom = new THREE.SphereGeometry(size, 18, 12); break;
-    case 'cone':        geom = new THREE.ConeGeometry(size, size * 1.7, 18); break;
-    case 'octahedron':  geom = new THREE.OctahedronGeometry(size, 0); break;
-    case 'pyramid':     geom = new THREE.ConeGeometry(size, size * 1.4, 4); break;
-    case 'icosahedron': geom = new THREE.IcosahedronGeometry(size, 0); break;
-    case 'torusKnot':   geom = new THREE.TorusKnotGeometry(size * 0.7, size * 0.18, 64, 8); break;
-    default:            geom = new THREE.BoxGeometry(size, size, size);
+    case 'cube':        return new THREE.BoxGeometry(size, size, size);
+    case 'sphere':      return new THREE.SphereGeometry(size, 22, 14);
+    case 'cone':        return new THREE.ConeGeometry(size, size * 1.7, 22);
+    case 'octahedron':  return new THREE.OctahedronGeometry(size, 0);
+    case 'pyramid':     return new THREE.ConeGeometry(size, size * 1.4, 4);
+    case 'icosahedron': return new THREE.IcosahedronGeometry(size, 0);
+    case 'torusKnot':   return new THREE.TorusKnotGeometry(size * 0.7, size * 0.18, 64, 10);
+    case 'dodecahedron':return new THREE.DodecahedronGeometry(size, 0);
+    case 'torus':       return new THREE.TorusGeometry(size, size * 0.30, 14, 36);
+    default:            return new THREE.BoxGeometry(size, size, size);
   }
-  const wireGeom = new THREE.WireframeGeometry(geom);
-  const mat = new THREE.LineBasicMaterial({
-    color, transparent: true, opacity: 0.85,
-  });
-  const lines = new THREE.LineSegments(wireGeom, mat);
-  lines.position.y = y;
-  scene.add(lines);
+}
+
+function addGiantShape(type, size, color, y, opts = {}) {
+  const mode = opts.mode || 'wire'; // 'wire' or 'solid'
+  const geom = giantGeom(type, size);
+  let mesh, mat;
+  if (mode === 'solid') {
+    mat = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.75, metalness: 0.05,
+      transparent: true, opacity: opts.opacity ?? 0.55,
+      side: THREE.DoubleSide,
+      emissive: color, emissiveIntensity: 0.12,
+    });
+    mesh = new THREE.Mesh(geom, mat);
+  } else {
+    const wireGeom = new THREE.WireframeGeometry(geom);
+    mat = new THREE.LineBasicMaterial({
+      color, transparent: true, opacity: opts.opacity ?? 0.85,
+    });
+    mesh = new THREE.LineSegments(wireGeom, mat);
+  }
+  mesh.position.y = y;
+  scene.add(mesh);
   giantShapes.push({
-    mesh: lines,
+    mesh,
     mat,
+    mode,
     spin: {
       x: (Math.random() * 0.5 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
       y: (Math.random() * 0.5 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
@@ -742,27 +816,34 @@ function addTunnelRing(baseR, color, y, tube) {
   });
 }
 
-// interleaved cascade — rings and giant shapes at descending Y positions
+// interleaved cascade of rings, solid shapes, and wireframes descending
+// into endless space. Solid shapes are translucent so they don't block
+// the view; wireframes outline the geometry; rings punctuate the spacing.
 {
   const layout = [
     { kind: 'ring',  r: 6.5, tube: 0.10 },
-    { kind: 'shape', type: 'cube',        size: 5.0 },
+    { kind: 'shape', type: 'cube',        size: 4.5, mode: 'solid', opacity: 0.55 },
     { kind: 'ring',  r: 8.0, tube: 0.11 },
-    { kind: 'shape', type: 'sphere',      size: 5.2 },
+    { kind: 'shape', type: 'sphere',      size: 5.0, mode: 'wire' },
+    { kind: 'shape', type: 'octahedron',  size: 5.0, mode: 'solid', opacity: 0.55 },
     { kind: 'ring',  r: 7.2, tube: 0.11 },
-    { kind: 'shape', type: 'octahedron',  size: 5.5 },
+    { kind: 'shape', type: 'pyramid',     size: 5.4, mode: 'wire' },
+    { kind: 'shape', type: 'dodecahedron',size: 5.0, mode: 'solid', opacity: 0.50 },
     { kind: 'ring',  r: 9.0, tube: 0.13 },
-    { kind: 'shape', type: 'pyramid',     size: 5.8 },
+    { kind: 'shape', type: 'icosahedron', size: 5.5, mode: 'wire' },
+    { kind: 'shape', type: 'cone',        size: 5.0, mode: 'solid', opacity: 0.50 },
     { kind: 'ring',  r: 7.5, tube: 0.13 },
-    { kind: 'shape', type: 'icosahedron', size: 5.5 },
+    { kind: 'shape', type: 'torus',       size: 6.0, mode: 'solid', opacity: 0.45 },
+    { kind: 'shape', type: 'torusKnot',   size: 5.0, mode: 'wire' },
     { kind: 'ring',  r: 10.0, tube: 0.15 },
-    { kind: 'shape', type: 'cone',        size: 5.5 },
+    { kind: 'shape', type: 'cube',        size: 6.0, mode: 'solid', opacity: 0.45 },
+    { kind: 'shape', type: 'sphere',      size: 6.5, mode: 'wire' },
     { kind: 'ring',  r: 8.5, tube: 0.15 },
-    { kind: 'shape', type: 'torusKnot',   size: 5.5 },
-    { kind: 'ring',  r: 11.0, tube: 0.16 },
-    { kind: 'shape', type: 'cube',        size: 6.5 },
+    { kind: 'shape', type: 'octahedron',  size: 7.0, mode: 'wire' },
+    { kind: 'ring',  r: 11.5, tube: 0.16 },
+    { kind: 'shape', type: 'pyramid',     size: 7.0, mode: 'solid', opacity: 0.40 },
   ];
-  const ySpacing = 2.5;
+  const ySpacing = 2.4;
   for (let i = 0; i < layout.length; i++) {
     const item = layout[i];
     const y = -2.5 - i * ySpacing;
@@ -770,7 +851,7 @@ function addTunnelRing(baseR, color, y, tube) {
     if (item.kind === 'ring') {
       addTunnelRing(item.r, color, y, item.tube);
     } else {
-      addGiantShape(item.type, item.size, color, y);
+      addGiantShape(item.type, item.size, color, y, { mode: item.mode, opacity: item.opacity });
     }
   }
 }
@@ -883,11 +964,11 @@ reticleGroup.visible = false;
 // ============================================================
 function buildShapeMesh(defIdx, color) {
   const def = SHAPE_DEFS[defIdx];
-  // More matte than before: high roughness, near-zero metalness so the
-  // shapes hold their primary colors instead of catching tinted highlights
-  // from every accent light in the room and going pastel.
-  const mat = new THREE.MeshStandardMaterial({
-    color, roughness: 0.88, metalness: 0.02,
+  // Lambert: pure diffuse, no specular highlights at all. Even with the
+  // stage spotlight blasting from overhead the shapes can't blow out to
+  // white anymore; they hold their saturated primary color.
+  const mat = new THREE.MeshLambertMaterial({
+    color,
     emissive: 0x000000, emissiveIntensity: 0,
   });
   let geom;
@@ -925,7 +1006,7 @@ function makeFigure(isPlayer, defIdx, color) {
   // pyramid + cone come with apex up; that's the look we want
   g.add(mesh);
 
-  // subtle base shadow disc to anchor the shape on the wood
+  // base shadow disc to anchor the shape on the glass
   const discGeo = new THREE.CircleGeometry(def.collidR * 1.05, 18);
   const discMat = new THREE.MeshBasicMaterial({ color: 0x14110d, transparent: true, opacity: 0.35 });
   const disc = new THREE.Mesh(discGeo, discMat);
@@ -933,22 +1014,54 @@ function makeFigure(isPlayer, defIdx, color) {
   disc.position.y = 0.001;
   g.add(disc);
 
-  return { group: g, shapeMesh: mesh, shapeMat: mat, def };
+  // danger ring — hidden by default, becomes a blinking red glow when
+  // the figure is at hp<=3
+  const dangerGeo = new THREE.RingGeometry(def.collidR * 0.88, def.collidR * 1.18, 32);
+  const dangerMat = new THREE.MeshBasicMaterial({
+    color: 0xff1c1c, transparent: true, opacity: 0.0, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const dangerRing = new THREE.Mesh(dangerGeo, dangerMat);
+  dangerRing.rotation.x = -Math.PI / 2;
+  dangerRing.position.y = 0.004;
+  dangerRing.visible = false;
+  g.add(dangerRing);
+
+  return { group: g, shapeMesh: mesh, shapeMat: mat, def, dangerRing };
 }
 
-// Spinning yellow octahedron-star added to the plate group (NOT the figure)
-// so the figure can freely rotate to face movement without spinning the marker.
+// Spinning yellow octahedron-star + a glowing ground ring under the
+// player. Both live in plateGroup so the figure can rotate to face
+// movement without spinning the marker.
 let playerMarker = null;
 function buildPlayerMarker() {
-  const geo = new THREE.OctahedronGeometry(0.18, 0);
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0xf5c948,
-    emissive: 0xf5c948, emissiveIntensity: 0.95,
-    roughness: 0.30, metalness: 0.10,
-  });
-  const m = new THREE.Mesh(geo, mat);
-  m.castShadow = false;
-  return m;
+  const group = new THREE.Group();
+
+  // floating star above the player's shape
+  const star = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.32, 0),
+    new THREE.MeshStandardMaterial({
+      color: 0xf5c948,
+      emissive: 0xf5c948, emissiveIntensity: 1.20,
+      roughness: 0.25, metalness: 0.15,
+    }),
+  );
+  star.castShadow = false;
+  group.add(star);
+
+  // glowing ground ring at the player's feet — visible from any angle
+  const ringR = 0.62;
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(ringR - 0.08, ringR, 48),
+    new THREE.MeshBasicMaterial({
+      color: 0xf5c948, transparent: true, opacity: 0.92, side: THREE.DoubleSide,
+    }),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  group.add(ring);
+
+  group.userData.star = star;
+  group.userData.ring = ring;
+  return group;
 }
 
 function spawnFigures() {
@@ -983,6 +1096,7 @@ function spawnFigures() {
       shapeMesh: built.shapeMesh,
       shapeMat: built.shapeMat,
       def: built.def,
+      dangerRing: built.dangerRing,
       baseColor: color,
       collidR: built.def.collidR,
       yOffset: built.def.yOffset,
@@ -1352,18 +1466,41 @@ function updateFigures(dt) {
     }
   }
 
-  // player marker: spinning yellow octahedron-star hovering above the player's shape
+  // player marker: spinning yellow octahedron-star above + a glowing
+  // ground ring at the player's feet. Star tumbles on its own axes;
+  // ring slowly spins underneath.
   if (playerMarker && S.player && S.player.alive && !S.player.picked && !S.player.dropping && !S.player.draining) {
     playerMarker.visible = true;
     playerMarker.position.set(
       S.player.x,
-      CFG.plateThick / 2 + S.player.yOffset * 2 + 0.25,
+      CFG.plateThick / 2 + 0.01,
       S.player.z,
     );
-    playerMarker.rotation.y += dt * 2.8;
-    playerMarker.rotation.x += dt * 1.7;
+    const star = playerMarker.userData.star;
+    const ring = playerMarker.userData.ring;
+    // star floats above the player's shape, tumbling
+    star.position.y = S.player.yOffset * 2 + 0.30;
+    star.rotation.y += dt * 2.8;
+    star.rotation.x += dt * 1.7;
+    // ground ring sits just above the plate top, slow counter-spin
+    ring.position.y = 0.005;
+    ring.rotation.z += dt * 1.1;
   } else if (playerMarker) {
     playerMarker.visible = false;
+  }
+
+  // low-HP danger ring — visible under any figure (player or bot) at hp<=3,
+  // pulses red so they read as bleeding out before they crack
+  const dangerOn = (Math.sin(performance.now() / 1000 * 7) * 0.5 + 0.5);
+  for (const f of S.figs) {
+    if (!f.dangerRing) continue;
+    const dying = f.alive && f.hp <= 3 && !f.picked && !f.dropping && !f.draining;
+    if (dying) {
+      f.dangerRing.visible = true;
+      f.dangerRing.material.opacity = 0.45 + dangerOn * 0.50;
+    } else {
+      f.dangerRing.visible = false;
+    }
   }
 }
 
@@ -1879,6 +2016,7 @@ function eliminate(f, reason) {
 function endGame() {
   if (S.phase === 'over') return;
   S.phase = 'over';
+  explodeRoom();
   const podium = S.figs.filter(f => f.alive);
   S.podium = podium.map(f => f.id);
 
@@ -2070,6 +2208,7 @@ function loop(now) {
   }
 
   tickAmbient(dt, tSec);
+  tickConfetti(dt);
   fitCameraTarget();
   tickCamera(dt);
   renderer.render(scene, camera);
