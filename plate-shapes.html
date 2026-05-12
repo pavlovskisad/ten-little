@@ -635,14 +635,13 @@ plateGroup.add(ring(CFG.plateR0 * 0.25, 0.12));
 const roomGroup = new THREE.Group();
 scene.add(roomGroup);
 
-// shared materials for the foam blocks — keeps draw calls low.
-// A handful of grimy grey/dark mats mixed in for basement-club texture.
-const ROOM_BLOCK_MATS = SHAPE_COLORS.map((c) => new THREE.MeshStandardMaterial({
-  color: c, roughness: 0.62, metalness: 0.04,
-}));
-ROOM_BLOCK_MATS.push(new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.88, metalness: 0.05 }));
-ROOM_BLOCK_MATS.push(new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.88, metalness: 0.05 }));
-ROOM_BLOCK_MATS.push(new THREE.MeshStandardMaterial({ color: 0x3a2d22, roughness: 0.88, metalness: 0.05 }));
+// shared materials for the foam blocks — Lambert so they hold their
+// saturated primary color under the cumulative club lighting (no
+// specular blowout to white when they tumble through the explosion).
+const ROOM_BLOCK_MATS = SHAPE_COLORS.map((c) => new THREE.MeshLambertMaterial({ color: c }));
+ROOM_BLOCK_MATS.push(new THREE.MeshLambertMaterial({ color: 0x2a2a2a }));
+ROOM_BLOCK_MATS.push(new THREE.MeshLambertMaterial({ color: 0x1a1a1a }));
+ROOM_BLOCK_MATS.push(new THREE.MeshLambertMaterial({ color: 0x3a2d22 }));
 
 function pickRoomMat() {
   return ROOM_BLOCK_MATS[Math.floor(Math.random() * ROOM_BLOCK_MATS.length)];
@@ -722,17 +721,18 @@ function explodeRoom() {
     const dx = cube.position.x;
     const dz = cube.position.z;
     const d = Math.max(0.01, Math.hypot(dx, dz));
-    // outward + upward velocity, plus randomization so it scatters
-    const outSpeed = 7 + Math.random() * 9;
-    const upSpeed  = 4 + Math.random() * 10;
+    // outward + mild upward velocity, randomized. Outward-dominant so
+    // cubes clear the play area fast and don't crowd the camera.
+    const outSpeed = 6 + Math.random() * 6;
+    const upSpeed  = 1.5 + Math.random() * 4;
     confetti.cubes.push({
       mesh: cube,
-      vx: (dx / d) * outSpeed + (Math.random() - 0.5) * 5,
+      vx: (dx / d) * outSpeed + (Math.random() - 0.5) * 3,
       vy: upSpeed,
-      vz: (dz / d) * outSpeed + (Math.random() - 0.5) * 5,
-      rx: (Math.random() - 0.5) * 7,
-      ry: (Math.random() - 0.5) * 7,
-      rz: (Math.random() - 0.5) * 7,
+      vz: (dz / d) * outSpeed + (Math.random() - 0.5) * 3,
+      rx: (Math.random() - 0.5) * 6,
+      ry: (Math.random() - 0.5) * 6,
+      rz: (Math.random() - 0.5) * 6,
     });
   }
 }
@@ -936,16 +936,18 @@ let discoBall = null;
     const center = bbox.getCenter(new THREE.Vector3());
     model.position.sub(center);
 
-    // boost mirror feel: max metalness, clamp roughness low, mild emissive
+    // Replace the GLB's bundled materials with a known-bright silver
+    // mirror so the ball reads as a real disco ball rather than the
+    // dark gold tint the export came with.
+    const mirrorMat = new THREE.MeshStandardMaterial({
+      color: 0xe8e8e8,
+      emissive: 0xe8e8e8, emissiveIntensity: 0.45,
+      metalness: 1.0, roughness: 0.12,
+    });
     model.traverse((node) => {
-      if (node.isMesh && node.material) {
+      if (node.isMesh) {
         node.castShadow = false;
-        const mat = node.material;
-        mat.metalness = 1.0;
-        if (mat.roughness !== undefined) mat.roughness = Math.min(mat.roughness, 0.10);
-        if (mat.emissive) mat.emissive.setHex(0x202020);
-        if (mat.emissiveIntensity !== undefined) mat.emissiveIntensity = 0.25;
-        mat.needsUpdate = true;
+        node.material = mirrorMat;
       }
     });
 
