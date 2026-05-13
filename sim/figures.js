@@ -249,7 +249,38 @@
     return S.plateR * frac;
   }
 
-  const api = { botIntent, tickTilt, tickCollisions, maybeShrink, currentZoneR, tickMovement, tickEdgeFall };
+  // Spawn `count` bot figures on a jittered ring inside the plate. Pure;
+  // returns nothing, mutates S.figs and S.alive. The client wraps this
+  // to also build meshes for each spawned figure.
+  function spawnBots(S, count, rand) {
+    if (!rand) rand = Math.random;
+    const r0 = S.plateR * 0.55;
+    for (let i = 0; i < count; i++) {
+      const ang = (i / count) * Math.PI * 2 + (rand() - 0.5) * 0.18;
+      const rr = r0 + (rand() - 0.5) * 0.6;
+      const x = Math.cos(ang) * rr;
+      const z = Math.sin(ang) * rr;
+      S.figs.push({
+        id: i,
+        x, z, vx: 0, vz: 0,
+        hp: CFG.hpMax,
+        collidR: 0.42,
+        yOffset: 0.42,
+        alive: true,
+        picked: false,
+        dropping: false,
+        draining: false,
+        invulnT: 0,
+        isPlayer: false,
+        boldness: rand(),
+        wanderTimer: rand() * 2,
+        wanderAng: rand() * Math.PI * 2,
+      });
+    }
+    S.alive = S.figs.length;
+  }
+
+  const api = { botIntent, tickTilt, tickCollisions, maybeShrink, currentZoneR, tickMovement, tickEdgeFall, spawnBots };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {
