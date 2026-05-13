@@ -36,11 +36,15 @@
   button { -webkit-tap-highlight-color: transparent; }
   canvas#c { display: block; position: fixed; inset: 0; width: 100%; height: 100dvh; }
 
-  /* SoundCloud iframe — invisible, positioned off-screen but kept
-     in the DOM so the widget API can talk to it. */
+  /* SoundCloud iframe — kept on-screen (top-left corner) but visually
+     invisible. WebKit / iOS Safari refuses to play audio from iframes
+     it considers "off-screen / hidden", so we sit it at 0,0 with
+     opacity 0.01 (not 0) and 1x1 size. That's enough to count as
+     "visible" to the media policy without showing the SC widget. */
   #sc-iframe {
-    position: fixed; left: -9999px; top: -9999px;
-    width: 1px; height: 1px; opacity: 0; pointer-events: none;
+    position: fixed; left: 0; top: 0;
+    width: 1px; height: 1px;
+    opacity: 0.01; pointer-events: none; z-index: -1;
   }
 
   /* Boombox + tape mini-scene, fixed in the bottom-left corner.
@@ -610,46 +614,64 @@ document.addEventListener('DOMContentLoaded', () => {
 // boombox module just signals "play" / "pause" / "is-playing?".
 function bbStartMusic() {
   console.log('[bb] startMusic, scWidget=', !!scWidget, 'scStarted=', scStarted);
-  if (!scWidget) {
-    initSoundCloud();
-    if (!scWidget) {
-      console.warn('[bb] no scWidget — SoundCloud API blocked?');
-      return;
-    }
-  }
-  // Pre-set volume so audio comes in at the target level immediately.
-  try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
 
   if (!scStarted) {
     scStarted = true;
-    // First insert ever: re-load the mix with auto_play: true.
-    // This is SoundCloud's documented entry point for starting
-    // audio inside a user gesture, and it's the call pattern that
-    // most reliably unlocks playback on mobile Safari / Chrome.
-    // We run it synchronously in the pointerup handler so it rides
-    // the user-activation event.
-    try {
-      scWidget.load(MIXES[0], {
-        auto_play: true,
-        hide_related: true,
-        show_comments: false,
-        show_user: false,
-        show_reposts: false,
-        visual: false,
-        callback: () => {
-          console.log('[bb] load callback fired, calling play+seek');
-          try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
-          try { scWidget.play(); } catch (_) {}
-          setTimeout(seekToRandomStart, 200);
-        },
-      });
-    } catch (e) {
-      console.warn('[bb] load() failed', e);
+    // iOS Safari trick: scWidget.play() / scWidget.load() via
+    // postMessage don't reliably unlock cross-origin iframe audio
+    // even with allow="autoplay". What DOES work is creating a
+    // fresh iframe load inside the user gesture, with auto_play=true
+    // baked into the URL. The iframe navigation happens during the
+    // gesture activation window, and the autoplay attempt that
+    // fires when the new content loads inherits that activation.
+    const oldIframe = document.getElementById('sc-iframe');
+    const newIframe = document.createElement('iframe');
+    newIframe.id = 'sc-iframe';
+    newIframe.setAttribute('frameborder', '0');
+    newIframe.setAttribute('allow', 'autoplay');
+    newIframe.src = 'https://w.soundcloud.com/player/?url=' +
+      encodeURIComponent(MIXES[0]) +
+      '&auto_play=true&hide_related=true&show_comments=false' +
+      '&show_user=false&show_reposts=false&visual=false';
+
+    if (oldIframe && oldIframe.parentNode) {
+      oldIframe.parentNode.replaceChild(newIframe, oldIframe);
+    } else {
+      document.body.appendChild(newIframe);
     }
+    console.log('[bb] fresh iframe inserted with auto_play=true');
+
+    // Once the new iframe loads, re-bind the SC.Widget API to it
+    // and wire FINISH / PLAY_PROGRESS for the rest of the session.
+    newIframe.addEventListener('load', () => {
+      console.log('[bb] new iframe loaded');
+      try {
+        scWidget = SC.Widget(newIframe);
+        scWidget.bind(SC.Widget.Events.READY, () => {
+          console.log('[bb] widget ready, setting volume + seeking');
+          try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
+          setTimeout(seekToRandomStart, 400);
+        });
+        scWidget.bind(SC.Widget.Events.PLAY_PROGRESS, function once() {
+          console.log('[bb] PLAY_PROGRESS — audio is playing!');
+          try { scWidget.unbind(SC.Widget.Events.PLAY_PROGRESS); } catch (_) {}
+        });
+        scWidget.bind(SC.Widget.Events.FINISH, () => {
+          seekToRandomStart();
+          try { scWidget.play(); } catch (_) {}
+        });
+        scWidget.bind(SC.Widget.Events.ERROR, (err) => {
+          console.warn('[bb] sc error', err);
+        });
+      } catch (e) { console.warn('[bb] widget re-bind failed', e); }
+    }, { once: true });
+
     return;
   }
-  // Subsequent inserts: audio is already unlocked, just resume +
-  // pick a fresh random spot.
+
+  // Subsequent inserts: audio is already unlocked, just resume.
+  if (!scWidget) return;
+  try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
   try { scWidget.play(); } catch (_) {}
   setTimeout(seekToRandomStart, 200);
 }
