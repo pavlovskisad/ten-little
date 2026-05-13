@@ -383,6 +383,11 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
+<!-- Shared simulation modules. Authored to also work in Node so the
+     forthcoming Colyseus server can require() the same files. -->
+<script src="./sim/cfg.js"></script>
+<script src="./sim/shapes.js"></script>
+<script src="./sim/rng.js"></script>
 <script>
 // Mobile dev console: append #debug to the URL to load eruda, which
 // gives a floating console UI on the page so we can read logs and
@@ -1009,55 +1014,9 @@ function updateBoomboxScene(dt) {
 // ============================================================
 // CONFIG — tune these
 // ============================================================
-const CFG = {
-  // plate
-  plateR0: 7.5,
-  plateThick: 0.25,
-  shrinkEveryMs: 14000,
-  shrinkFactor: 0.93,
-  shrinkMin: 3.5,
-
-  // figures (base unit, individual shapes carry their own collidR)
-  figR: 0.42,
-  figH: 0.85,
-  startCount: 10,
-  podiumCount: 1,        // round runs until one figure remains; placement
-                         // is decided by elimination order so 3rd/2nd/1st
-                         // can be distinguished (tiered prizes)
-
-  // tilt
-  maxTilt: 0.50,
-  slideForce: 34,
-  friction: 3.2,
-  tiltEase: 9,
-  edgePadFall: 0.05,
-
-  // movement
-  playerSpeed: 4.5,
-  botSpeed: 3.6,
-  fleeSpeed: 6.2,
-  botAccel: 6.0,
-  playerAccel: 14.0,
-
-  // claw
-  handIdleY: 9.5,
-  handGrabY: 0.55,
-  handCooldownMs: 2600,
-  handTelegraphMs: 1500,
-  handApproachMs: 700,
-  handHoverMs: 180,
-  handPinchMs: 220,
-  handLiftMs: 850,
-  zoneMinFrac: 0.11,
-  zoneMaxFrac: 0.55,
-
-  // contact damage
-  hpMax: 10,
-  contactDmg: 1,
-  iframeMs: 600,
-  drainMs: 550,
-  bumpForce: 11.0,        // knockback velocity added on damage
-};
+// CFG, SHAPE_DEFS, SHAPE_COLORS live in sim/ so the server can share them.
+// See sim/cfg.js for tuning, sim/shapes.js for the catalog.
+const { CFG, SHAPE_DEFS, SHAPE_COLORS } = window.SIM;
 
 // ============================================================
 // BASKETBALL GLB — supplied model used for the wall + the void
@@ -1168,34 +1127,6 @@ const runnerCenterY = 0.85;  // approx half-height for marker placement
     console.error('[runner.glb] failed', err);
   });
 })();
-
-// ============================================================
-// SHAPE CATALOG — colored geometric primitives for figures
-// ============================================================
-const SHAPE_DEFS = [
-  // type, visual size factor, collidR (separation half-radius), yOffset (vertical center above plate top)
-  { type: 'cube',       collidR: 0.42, yOffset: 0.42 },
-  { type: 'sphere',     collidR: 0.45, yOffset: 0.45 },
-  { type: 'cone',       collidR: 0.40, yOffset: 0.50 },
-  { type: 'cylinder',   collidR: 0.40, yOffset: 0.45 },
-  { type: 'octahedron', collidR: 0.45, yOffset: 0.55 },
-  { type: 'pyramid',    collidR: 0.42, yOffset: 0.50 },
-];
-
-// Pure saturated primaries — match the Crayola / foam-pit look of the
-// Shape Store footage. No dusty/pastel hues; everything pops.
-const SHAPE_COLORS = [
-  0xff1a1a, // red
-  0x1a40e0, // royal blue
-  0xffd000, // yellow
-  0x0fb020, // grass green
-  0xff7a10, // orange
-  0x9010e0, // purple
-  0xff2080, // hot pink / magenta
-  0x00b8ff, // cyan
-  0x70d800, // lime
-  0xffaa00, // amber
-];
 
 // ============================================================
 // STATE
