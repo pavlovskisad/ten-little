@@ -514,6 +514,13 @@ function preflightAudio() {
   audioPreflighted = true;
   try {
     scWidget.setVolume(0);     // silent so user doesn't hear anything
+    // Two play+pause cycles inside the gesture: the SC widget on iOS
+    // tends to need multiple play attempts before audio becomes
+    // audible (the "eject and re-insert" pattern the user found
+    // manually). Burning through that here lets the user's actual
+    // tape-drop be the call that produces sound.
+    scWidget.play();
+    scWidget.pause();
     scWidget.play();
     scWidget.pause();
     scWidget.setVolume(SC_VOLUME);
@@ -865,12 +872,8 @@ function ejectTape() {
   BB.tape.position.copy(liftPos);
   startTween(BB.tape.position, BB.tapeHome, 0.45, () => {
     BB.state = 'idle';
-    // Pre-seek for the next insert so the user's next-tap play()
-    // gesture stays clean (no setters before play). Picks a fresh
-    // random spot too, which the user asked for.
-    if (audioElement && isFinite(audioElement.duration)) {
-      seekToRandomStart();
-    }
+    // Pre-seek to a fresh random spot for the next insert.
+    if (scWidget) seekToRandomStart();
   });
   bbStopMusic();
 }
