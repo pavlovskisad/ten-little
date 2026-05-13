@@ -96,7 +96,26 @@
     return target;
   }
 
-  const api = { startHand };
+  // Identify all alive figures whose horizontal position falls inside
+  // the current capture zone, flip their picked state, and stamp pickT=0
+  // so the lift animation can begin. Returns the captured list so the
+  // caller can run mesh-detach and call eliminate() per figure.
+  function captureInZone(S) {
+    const captured = [];
+    for (const f of S.figs) {
+      if (!f.alive || f.picked || f.dropping || f.draining) continue;
+      const d = Math.hypot(f.x - S.hand.x, f.z - S.hand.z);
+      if (d < S.hand.zoneR) captured.push(f);
+    }
+    for (const f of captured) {
+      f.picked = true;
+      f.pickT = 0;
+    }
+    S.hand.captured = captured;
+    return captured;
+  }
+
+  const api = { startHand, captureInZone };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {
