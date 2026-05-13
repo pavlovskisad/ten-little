@@ -388,6 +388,7 @@
 <script src="./sim/cfg.js"></script>
 <script src="./sim/shapes.js"></script>
 <script src="./sim/rng.js"></script>
+<script src="./sim/util.js"></script>
 <script src="./sim/state.js"></script>
 <script>
 // Mobile dev console: append #debug to the URL to load eruda, which
@@ -1017,7 +1018,7 @@ function updateBoomboxScene(dt) {
 // ============================================================
 // CFG, SHAPE_DEFS, SHAPE_COLORS live in sim/ so the server can share them.
 // See sim/cfg.js for tuning, sim/shapes.js for the catalog.
-const { CFG, SHAPE_DEFS, SHAPE_COLORS } = window.SIM;
+const { CFG, SHAPE_DEFS, SHAPE_COLORS, lerp, clamp, clamp01 } = window.SIM;
 
 // ============================================================
 // BASKETBALL GLB — supplied model used for the wall + the void
@@ -2409,7 +2410,8 @@ function updateFigures(dt) {
   }
 }
 
-function lerp(a, b, t) { return a + (b - a) * t; }
+// lerp / clamp now live in sim/util.js — destructured at the top of this
+// script so they're available everywhere below.
 
 // ============================================================
 // PLAYER INPUT
