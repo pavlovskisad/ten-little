@@ -388,6 +388,7 @@
 <script src="./sim/cfg.js"></script>
 <script src="./sim/shapes.js"></script>
 <script src="./sim/rng.js"></script>
+<script src="./sim/state.js"></script>
 <script>
 // Mobile dev console: append #debug to the URL to load eruda, which
 // gives a floating console UI on the page so we can read logs and
@@ -1129,29 +1130,9 @@ const runnerCenterY = 0.85;  // approx half-height for marker placement
 })();
 
 // ============================================================
-// STATE
+// STATE — shape lives in sim/state.js so the server can mirror it.
 // ============================================================
-const S = {
-  phase: 'idle',
-  t: 0,
-  plateR: CFG.plateR0,
-  nextShrinkAt: CFG.shrinkEveryMs,
-  figs: [],
-  player: null,
-  alive: 0,
-  eliminated: [],
-  podium: [],
-  hand: { phase: 'idle', t: 0, x: 0, z: 0, zoneR: 0, target: null, captured: [] },
-  nextHandAt: 4500,
-  firstHand: true,
-  tilt: { x: 0, z: 0 },
-  input: { dx: 0, dy: 0 },
-  startedAt: 0,
-  // Demo mode: game loop runs on the title screen with all 10
-  // figures as bots (no player). On endGame in demo, we loop back
-  // to a fresh demo round instead of showing the placement overlay.
-  demo: false,
-};
+const S = window.SIM.createState();
 
 // ============================================================
 // THREE setup
@@ -3204,30 +3185,20 @@ function loop(now) {
 // START / RESET
 // ============================================================
 function reset(demoMode = false) {
-  S.demo = !!demoMode;
+  // Tear down render-side objects tied to the old round before we wipe
+  // the figure list off the state.
   for (const f of S.figs) {
     if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
   }
-  S.figs = [];
-  S.player = null;
   // Remove any leftover player marker from a previous round — in
   // demo mode no new marker is created.
   if (playerMarker && playerMarker.parent) playerMarker.parent.remove(playerMarker);
   playerMarker = null;
-  S.alive = 0;
-  S.eliminated = [];
-  S.podium = [];
-  S.t = 0;
-  S.startedAt = performance.now();
-  S.plateR = CFG.plateR0;
+
+  window.SIM.resetState(S, { demo: demoMode });
+
   plateMesh.scale.set(1, 1, 1);
   plateCollar.scale.set(1, 1, 1);
-  S.nextShrinkAt = CFG.shrinkEveryMs;
-  S.nextHandAt = 4500;
-  S.deferredEndGameAt = null;
-  S.firstHand = true;
-  S.hand = { phase: 'idle', t: 0, x: 0, z: 0, zoneR: 0, target: null, captured: [] };
-  S.tilt = { x: 0, z: 0 };
   // Claw stays visible across resets — idle hang above the plate.
   handGroup.visible = true;
   handGroup.position.set(0, CFG.handIdleY, 0);
