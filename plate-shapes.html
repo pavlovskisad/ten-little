@@ -447,6 +447,11 @@ function initAudio() {
   audioElement.loop = false;
   audioElement.addEventListener('loadedmetadata', () => {
     console.log('[audio] metadata loaded, duration:', audioElement.duration);
+    // Pre-seek to a random spot here, BEFORE any user gesture. That
+    // way bbStartMusic() can just call play() with no setters in the
+    // same gesture frame — iOS will reject play() if currentTime or
+    // volume was set immediately before it.
+    seekToRandomStart();
   });
   audioElement.addEventListener('playing', () => {
     console.log('[audio] playing');
@@ -457,8 +462,10 @@ function initAudio() {
   audioElement.addEventListener('ended', () => {
     // Loop with a new random mix and a fresh random start point.
     audioElement.src = pickRandomMix() || '';
-    audioElement.addEventListener('loadedmetadata', seekToRandomStart, { once: true });
-    audioElement.play().catch((err) => console.warn('[audio] replay failed', err));
+    audioElement.addEventListener('loadedmetadata', () => {
+      seekToRandomStart();
+      audioElement.play().catch((err) => console.warn('[audio] replay failed', err));
+    }, { once: true });
   });
 }
 
@@ -473,22 +480,19 @@ function bbStartMusic() {
   console.log('[bb] startMusic, audioStarted=', audioStarted);
   if (!audioElement) initAudio();
   if (!audioElement) return;
-  audioElement.volume = AUDIO_VOLUME;
-  if (!audioStarted) {
-    audioStarted = true;
-    // Seek to a random spot on first start. If metadata isn't loaded
-    // yet, defer the seek until it is.
-    if (isFinite(audioElement.duration)) {
-      seekToRandomStart();
-    } else {
-      audioElement.addEventListener('loadedmetadata', seekToRandomStart, { once: true });
-    }
-  }
-  // play() returns a Promise — important to log rejection on iOS.
+  // CRITICAL: play() must be the only media-state call in this
+  // gesture frame. iOS rejects audio.play() if volume / currentTime
+  // setters precede it inside the same user-gesture window. Volume
+  // is pre-set in initAudio(); currentTime is pre-set in
+  // ejectTape()'s onDone and in initAudio()'s loadedmetadata.
   const p = audioElement.play();
   if (p && p.then) {
-    p.then(() => console.log('[bb] audio play() succeeded'))
-     .catch((err) => console.warn('[bb] audio play() rejected:', err.message || err));
+    p.then(() => {
+      console.log('[bb] audio play() succeeded');
+      audioStarted = true;
+    }).catch((err) => {
+      console.warn('[bb] audio play() rejected:', err.message || err);
+    });
   }
 }
 function bbStopMusic() {
@@ -642,15 +646,15 @@ function arrangeBoomboxScene(boomboxGLB, tapeGLB) {
   BB.boombox = normalizeModel(boomboxGLB, 1.6);
   BB.tape = normalizeModel(tapeGLB, 0.95);
 
-  // Position: boombox slightly left of center; tape floating to the
-  // right of it, a bit elevated so it reads like it's hovering.
-  BB.boombox.position.set(-0.55, -0.05, 0);
+  // Position: both objects shifted left so the tape never hovers
+  // over the joystick area / right-side controls.
+  BB.boombox.position.set(-1.10, -0.05, 0);
   // Subtle 3/4 angle on the boombox so the deck face is visible.
   BB.boombox.rotation.y = 0.28;
 
-  BB.tapeHome.set(0.95, 0.05, 0.25);
+  BB.tapeHome.set(0.35, 0.05, 0.25);
   // "Docked" pose: tucked into the deck, slightly behind boombox front.
-  BB.tapeDocked.set(-0.55, -0.05, -0.15);
+  BB.tapeDocked.set(-1.10, -0.05, -0.15);
 
   BB.tape.position.copy(BB.tapeHome);
   BB.tape.rotation.y = -0.18;
@@ -658,12 +662,13 @@ function arrangeBoomboxScene(boomboxGLB, tapeGLB) {
   // Glow halos. tapeGlow pulses while the tape is idle (signaling
   // "grab me"). boomboxGlow pulses while music is playing (signaling
   // "tap me to pause/eject"). Both ride additive blending behind the
-  // model so the textures don't get washed out.
-  BB.tapeGlow = makeGlowSprite(2.0);
+  // model. Sized small + low opacity so the glow reads as a soft
+  // shimmer, not a blob of light.
+  BB.tapeGlow = makeGlowSprite(1.0);
   BB.tape.add(BB.tapeGlow);
   BB.tapeGlow.position.set(0, 0, -0.05);
 
-  BB.boomboxGlow = makeGlowSprite(2.6);
+  BB.boomboxGlow = makeGlowSprite(1.6);
   BB.boombox.add(BB.boomboxGlow);
   BB.boomboxGlow.position.set(0, 0.05, -0.1);
 
@@ -802,6 +807,12 @@ function ejectTape() {
   BB.tape.position.copy(liftPos);
   startTween(BB.tape.position, BB.tapeHome, 0.45, () => {
     BB.state = 'idle';
+    // Pre-seek for the next insert so the user's next-tap play()
+    // gesture stays clean (no setters before play). Picks a fresh
+    // random spot too, which the user asked for.
+    if (audioElement && isFinite(audioElement.duration)) {
+      seekToRandomStart();
+    }
   });
   bbStopMusic();
 }
@@ -854,9 +865,10 @@ function updateBoomboxScene(dt) {
   }
   // Glow pulse: shows which thing is interactive right now. Tape
   // glows while it's draggable (idle); boombox glows while music
-  // is playing (tappable to eject).
+  // is playing (tappable to eject). Range tuned low so it reads as
+  // a soft shimmer, not a flashlight beam.
   if (BB.tapeGlow && BB.boomboxGlow) {
-    const pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(BB.bobPhase * 1.6));
+    const pulse = 0.15 + 0.18 * (0.5 + 0.5 * Math.sin(BB.bobPhase * 1.6));
     const tapeOn = (BB.state === 'idle' || BB.state === 'dragging');
     const boxOn  = (BB.state === 'playing');
     BB.tapeGlow.material.opacity    = tapeOn ? pulse : 0;
