@@ -101,7 +101,27 @@
     return [dx, dz];
   }
 
-  const api = { botIntent };
+  // Recompute the plate tilt from the centroid of alive figures. Pure — the
+  // caller is responsible for translating S.tilt into a mesh rotation.
+  function tickTilt(S, dt) {
+    let cx = 0, cz = 0, n = 0;
+    for (const f of S.figs) {
+      if (!f.alive || f.picked || f.dropping) continue;
+      cx += f.x; cz += f.z; n++;
+    }
+    if (n === 0) {
+      S.tilt.x = 0; S.tilt.z = 0;
+      return;
+    }
+    cx /= n; cz /= n;
+    const tx = Math.max(-1, Math.min(1, cx / S.plateR));
+    const tz = Math.max(-1, Math.min(1, cz / S.plateR));
+    const k = 1 - Math.exp(-CFG.tiltEase * dt);
+    S.tilt.x += (tx - S.tilt.x) * k;
+    S.tilt.z += (tz - S.tilt.z) * k;
+  }
+
+  const api = { botIntent, tickTilt };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

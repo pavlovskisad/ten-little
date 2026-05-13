@@ -2158,24 +2158,11 @@ function setAllProngs(t) {
 }
 
 // ============================================================
-// TILT MATH — recompute from CoM each frame
+// TILT MATH — pure sim runs in sim/figures.js; here we only sync the
+// plate mesh to the resulting tilt vector.
 // ============================================================
 function updateTilt(dt) {
-  let cx = 0, cz = 0, n = 0;
-  for (const f of S.figs) {
-    if (!f.alive || f.picked || f.dropping) continue;
-    cx += f.x; cz += f.z; n++;
-  }
-  if (n === 0) {
-    S.tilt.x = 0; S.tilt.z = 0;
-  } else {
-    cx /= n; cz /= n;
-    const tx = Math.max(-1, Math.min(1, cx / S.plateR));
-    const tz = Math.max(-1, Math.min(1, cz / S.plateR));
-    const k = 1 - Math.exp(-CFG.tiltEase * dt);
-    S.tilt.x += (tx - S.tilt.x) * k;
-    S.tilt.z += (tz - S.tilt.z) * k;
-  }
+  window.SIM.tickTilt(S, dt);
   plateGroup.rotation.x = S.tilt.z * CFG.maxTilt;
   plateGroup.rotation.z = -S.tilt.x * CFG.maxTilt;
 }
