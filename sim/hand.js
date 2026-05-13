@@ -96,6 +96,80 @@
     return target;
   }
 
+  // Predator auto-aim drift. Active during telegraph + approach: scores every
+  // alive figure on closeness to the original telegraph spot, current speed,
+  // and whether the figure is running INTO the origin (approach trajectory).
+  // The hand position smoothly chases the highest-scoring figure, capped at
+  // a fraction of plate radius so the reticle can't teleport across the plate.
+  //
+  // Returns silently; mutates S.hand.x and S.hand.z. The caller is
+  // responsible for syncing the reticle mesh to the new position.
+  function tickPredatorAim(S, dt) {
+    if (S.hand.phase !== 'telegraph' && S.hand.phase !== 'approach') return;
+
+    let progress;
+    if (S.hand.phase === 'telegraph') {
+      const tp = Math.min(1, S.hand.t / S.hand.telegraphMs);
+      progress = tp * 0.40;
+    } else {
+      const ap = Math.min(1, S.hand.t / S.hand.approachMs);
+      progress = 0.40 + ap * 0.60;
+    }
+
+    const driftProgress = Math.pow(progress, 1.8);
+    const respProgress  = Math.pow(progress, 1.5);
+
+    const scanR = Math.max(S.plateR * 0.55, S.hand.zoneR * 3.0);
+    const maxDrift = S.plateR * 0.07 + (S.plateR * 0.26 - S.plateR * 0.07) * driftProgress;
+
+    const moveBias   = 0.4 + (1.5 - 0.4) * driftProgress;
+    const closenessW = 1.0 + (0.5 - 1.0) * driftProgress;
+
+    let bestScore = -Infinity, bestX = S.hand.origX, bestZ = S.hand.origZ;
+    for (const f of S.figs) {
+      if (!f.alive || f.picked || f.dropping || f.draining) continue;
+      const dx = f.x - S.hand.origX;
+      const dz = f.z - S.hand.origZ;
+      const d = Math.hypot(dx, dz);
+      if (d > scanR) continue;
+
+      const speed = Math.hypot(f.vx, f.vz);
+      const closeness = 1 - d / scanR;
+
+      let approachDot = 0;
+      if (d > 0.1 && speed > 0.3) {
+        approachDot = -(f.vx * dx + f.vz * dz) / (speed * d);
+        approachDot = Math.max(0, approachDot);
+      }
+
+      const score = closeness * closenessW
+                  + (speed * 0.28) * moveBias
+                  + (approachDot * speed * 0.15) * moveBias;
+      if (score > bestScore) {
+        bestScore = score;
+        bestX = f.x;
+        bestZ = f.z;
+      }
+    }
+
+    let desX = S.hand.origX, desZ = S.hand.origZ;
+    if (bestScore > -Infinity) {
+      const dx = bestX - S.hand.origX;
+      const dz = bestZ - S.hand.origZ;
+      const d = Math.hypot(dx, dz);
+      if (d > 0.001) {
+        const driftMag = Math.min(d, maxDrift);
+        desX = S.hand.origX + (dx / d) * driftMag;
+        desZ = S.hand.origZ + (dz / d) * driftMag;
+      }
+    }
+
+    const respRate = 1.3 + (6.0 - 1.3) * respProgress;
+    const respK = 1 - Math.exp(-respRate * dt);
+    S.hand.x += (desX - S.hand.x) * respK;
+    S.hand.z += (desZ - S.hand.z) * respK;
+  }
+
   // Identify all alive figures whose horizontal position falls inside
   // the current capture zone, flip their picked state, and stamp pickT=0
   // so the lift animation can begin. Returns the captured list so the
@@ -115,7 +189,7 @@
     return captured;
   }
 
-  const api = { startHand, captureInZone };
+  const api = { startHand, tickPredatorAim, captureInZone };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {
