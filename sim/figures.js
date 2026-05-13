@@ -121,7 +121,61 @@
     S.tilt.z += (tz - S.tilt.z) * k;
   }
 
-  const api = { botIntent, tickTilt };
+  // Figure-figure collision, separation, and contact damage exchange.
+  //
+  // Returns a list of newly-eliminated figures so the caller can run its
+  // render side effects (hint text, end-game overlay). The sim itself
+  // handles every state mutation that affects future ticks: positions,
+  // velocities, hp, invuln timers, draining flag and drainT.
+  function tickCollisions(S) {
+    const elim = [];
+    const figs = S.figs;
+    for (let i = 0; i < figs.length; i++) {
+      const a = figs[i];
+      if (!a.alive || a.picked || a.dropping || a.draining) continue;
+      for (let j = i + 1; j < figs.length; j++) {
+        const b = figs[j];
+        if (!b.alive || b.picked || b.dropping || b.draining) continue;
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const d2 = dx * dx + dz * dz;
+        const min = a.collidR + b.collidR;
+        if (d2 >= min * min || d2 <= 0.0001) continue;
+        const d = Math.sqrt(d2);
+        const overlap = (min - d) * 0.5;
+        const nx = dx / d, nz = dz / d;
+        // separate
+        a.x -= nx * overlap; a.z -= nz * overlap;
+        b.x += nx * overlap; b.z += nz * overlap;
+        // exchange a fraction of normal velocity component
+        const va = a.vx * nx + a.vz * nz;
+        const vb = b.vx * nx + b.vz * nz;
+        const exch = (vb - va) * 0.3;
+        a.vx += nx * exch; a.vz += nz * exch;
+        b.vx -= nx * exch; b.vz -= nz * exch;
+
+        if (a.invulnT <= 0 && b.invulnT <= 0) {
+          a.hp -= CFG.contactDmg;
+          b.hp -= CFG.contactDmg;
+          a.invulnT = CFG.iframeMs / 1000;
+          b.invulnT = CFG.iframeMs / 1000;
+          // mutual knockback so figures pop apart instead of grinding
+          a.vx -= nx * CFG.bumpForce; a.vz -= nz * CFG.bumpForce;
+          b.vx += nx * CFG.bumpForce; b.vz += nz * CFG.bumpForce;
+          if (a.hp <= 0 && !a.draining) {
+            a.draining = true; a.drainT = 0;
+            elim.push({ figure: a, reason: 'drained' });
+          }
+          if (b.hp <= 0 && !b.draining) {
+            b.draining = true; b.drainT = 0;
+            elim.push({ figure: b, reason: 'drained' });
+          }
+        }
+      }
+    }
+    return elim;
+  }
+
+  const api = { botIntent, tickTilt, tickCollisions };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

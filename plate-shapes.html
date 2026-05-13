@@ -2233,48 +2233,12 @@ function updateFigures(dt) {
     f.z += f.vz * dt;
   }
 
-  // figure-figure collision + contact damage — per-figure radii
-  for (let i = 0; i < S.figs.length; i++) {
-    const a = S.figs[i];
-    if (!a.alive || a.picked || a.dropping || a.draining) continue;
-    for (let j = i + 1; j < S.figs.length; j++) {
-      const b = S.figs[j];
-      if (!b.alive || b.picked || b.dropping || b.draining) continue;
-      const dx = b.x - a.x, dz = b.z - a.z;
-      const d2 = dx * dx + dz * dz;
-      const min = a.collidR + b.collidR;
-      if (d2 < min * min && d2 > 0.0001) {
-        const d = Math.sqrt(d2);
-        const overlap = (min - d) * 0.5;
-        const nx = dx / d, nz = dz / d;
-        a.x -= nx * overlap; a.z -= nz * overlap;
-        b.x += nx * overlap; b.z += nz * overlap;
-        const va = a.vx * nx + a.vz * nz;
-        const vb = b.vx * nx + b.vz * nz;
-        const exch = (vb - va) * 0.3;
-        a.vx += nx * exch; a.vz += nz * exch;
-        b.vx -= nx * exch; b.vz -= nz * exch;
-
-        if (a.invulnT <= 0 && b.invulnT <= 0) {
-          a.hp -= CFG.contactDmg;
-          b.hp -= CFG.contactDmg;
-          a.invulnT = CFG.iframeMs / 1000;
-          b.invulnT = CFG.iframeMs / 1000;
-          a.vx -= nx * CFG.bumpForce;
-          a.vz -= nz * CFG.bumpForce;
-          b.vx += nx * CFG.bumpForce;
-          b.vz += nz * CFG.bumpForce;
-          if (a.hp <= 0 && !a.draining) {
-            a.draining = true; a.drainT = 0;
-            eliminate(a, 'drained');
-          }
-          if (b.hp <= 0 && !b.draining) {
-            b.draining = true; b.drainT = 0;
-            eliminate(b, 'drained');
-          }
-        }
-      }
-    }
+  // figure-figure collision + contact damage runs in sim/figures.js. The
+  // returned list lets us run the render-coupled eliminate() (hint text,
+  // end-game overlay) without coupling that logic to the simulation.
+  const newlyDrained = window.SIM.tickCollisions(S);
+  for (const { figure, reason } of newlyDrained) {
+    eliminate(figure, reason);
   }
 
   // edge check + mesh transforms
