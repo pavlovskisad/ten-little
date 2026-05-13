@@ -387,6 +387,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
 <script src="https://w.soundcloud.com/player/api.js"></script>
 <script>
@@ -671,8 +672,13 @@ function initBoombox() {
 
   BB.raycaster = new THREE.Raycaster();
 
-  // Load both models, then arrange + show.
+  // Load both models, then arrange + show. Both GLBs are Draco-
+  // compressed, so the loader needs DRACOLoader wired up — the
+  // decoder JS/WASM is fetched on demand from jsdelivr.
   const loader = new THREE.GLTFLoader();
+  const draco = new THREE.DRACOLoader();
+  draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/gltf/');
+  loader.setDRACOLoader(draco);
   let loadedBoom = null, loadedTape = null;
   const tryArrange = () => {
     if (!loadedBoom || !loadedTape) return;
