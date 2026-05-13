@@ -1,0 +1,13 @@
+{
+  "name": "ten-little-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Game server for ten-little. Hosts rooms, ticks the shared sim modules, broadcasts state to connected clients.",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node src/smoke.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
