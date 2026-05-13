@@ -629,9 +629,15 @@ function bbStartMusic() {
     newIframe.id = 'sc-iframe';
     newIframe.setAttribute('frameborder', '0');
     newIframe.setAttribute('allow', 'autoplay');
+    // auto_play=false on purpose: previous attempts with auto_play=true
+    // triggered iOS Safari's "muted autoplay" state — PLAY_PROGRESS fired
+    // but no actual sound came out. With auto_play=false we keep the iOS
+    // audio path clean and instead call scWidget.play() explicitly inside
+    // the READY callback. That play() rides the original tap's transient-
+    // activation window and iOS treats it as a real user-initiated start.
     newIframe.src = 'https://w.soundcloud.com/player/?url=' +
       encodeURIComponent(MIXES[0]) +
-      '&auto_play=true&hide_related=true&show_comments=false' +
+      '&auto_play=false&hide_related=true&show_comments=false' +
       '&show_user=false&show_reposts=false&visual=false';
 
     if (oldIframe && oldIframe.parentNode) {
@@ -639,7 +645,7 @@ function bbStartMusic() {
     } else {
       document.body.appendChild(newIframe);
     }
-    console.log('[bb] fresh iframe inserted with auto_play=true');
+    console.log('[bb] fresh iframe inserted (auto_play=false, will play() in READY)');
 
     // Once the new iframe loads, re-bind the SC.Widget API to it
     // and wire FINISH / PLAY_PROGRESS for the rest of the session.
@@ -648,26 +654,18 @@ function bbStartMusic() {
       try {
         scWidget = SC.Widget(newIframe);
         scWidget.bind(SC.Widget.Events.READY, () => {
-          console.log('[bb] widget ready, attempting play sequence');
-          // auto_play=true in the URL was supposed to start audio
-          // but iOS Safari blocks it silently. What the user found
-          // manually is: insert → eject → insert again WORKS. That
-          // sequence is play → pause → play, each in its own gesture.
-          // Simulate the same call pattern automatically here while
-          // we're still within the original tap's transient-
-          // activation window (~5s on iOS).
+          console.log('[bb] widget ready, calling explicit play()');
+          // Explicit play() inside transient-activation window of the
+          // original tap. iOS treats this as a user-initiated start
+          // rather than autoplay, so audio plays AUDIBLE (not muted).
           try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
           try { scWidget.play(); } catch (_) {}
-          // Pause-then-play burst: mimics the user's manual eject+
-          // reinsert sequence. Spread across a couple of frames so
-          // the widget can process each message in order.
+          setTimeout(seekToRandomStart, 200);
+          // Belt-and-braces: a second play() shortly after, in case
+          // the first didn't take.
           setTimeout(() => {
-            try { scWidget.pause(); } catch (_) {}
-            setTimeout(() => {
-              try { scWidget.play(); } catch (_) {}
-              setTimeout(seekToRandomStart, 200);
-            }, 80);
-          }, 80);
+            try { scWidget.play(); } catch (_) {}
+          }, 150);
         });
         scWidget.bind(SC.Widget.Events.PLAY_PROGRESS, function once() {
           console.log('[bb] PLAY_PROGRESS — audio is playing!');
