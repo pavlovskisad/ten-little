@@ -176,7 +176,7 @@
   #title {
     position: fixed; inset: 0; display: flex; flex-direction: column;
     align-items: center; justify-content: center; z-index: 20;
-    background: rgba(20,17,13,0.95);
+    background: rgba(20,17,13,0.55);
     transition: opacity 0.6s ease;
   }
   #title h1 {
@@ -564,13 +564,17 @@ const BB = {
   tapeDocked: new THREE.Vector3(),
   // State: 'idle' (tape at home, no music) | 'dragging' (user holds tape)
   //      | 'playing' (tape docked, music plays) | 'returning' (tape tweens home)
-  //      | 'docking' (tape tweens into deck)
+  //      | 'docking' (tape tweens into deck) | 'rotatingBox' (user dragging
+  //      boombox to rotate it)
   state: 'idle',
   dragPointerId: null,
   dragStartXY: { x: 0, y: 0 },
   dragMoved: false,
   dragPlane: new THREE.Plane(),
   dragGrabOffset: new THREE.Vector3(),
+  // Starting rotation captured at the moment a boombox-rotate drag
+  // begins, so movement deltas apply on top of the user's current pose.
+  boxStartRot: { x: 0, y: 0 },
   tween: null,               // { from, to, t, dur, onDone }
   bobPhase: 0,
   needsRender: true,
@@ -783,26 +787,63 @@ function bindBoomboxPointerEvents() {
         BB.dragMoved = false;
         e.preventDefault();
         e.stopPropagation();
+        return;
+      }
+    }
+
+    // Third check: drag-to-rotate the boombox while idle. Lets the
+    // user spin the deck around like a 3D model viewer for fun.
+    if (BB.state === 'idle') {
+      const hit = raycastHit(BB.boombox);
+      if (hit) {
+        BB.state = 'rotatingBox';
+        BB.dragPointerId = e.pointerId;
+        BB.dragStartXY = { x: e.clientX, y: e.clientY };
+        BB.dragMoved = false;
+        BB.boxStartRot.x = BB.boombox.rotation.x;
+        BB.boxStartRot.y = BB.boombox.rotation.y;
+        document.body.classList.add('bb-grabbing');
+        e.preventDefault();
+        e.stopPropagation();
       }
     }
   }, { capture: true });
 
   document.addEventListener('pointermove', (e) => {
-    if (BB.state !== 'dragging' || e.pointerId !== BB.dragPointerId) return;
-    pointerToNDC(e.clientX, e.clientY);
-    BB.raycaster.setFromCamera(BB.pointerNDC, BB.camera);
-    const hitPoint = new THREE.Vector3();
-    if (BB.raycaster.ray.intersectPlane(BB.dragPlane, hitPoint)) {
-      hitPoint.add(BB.dragGrabOffset);
-      BB.tape.position.copy(hitPoint);
+    if (e.pointerId !== BB.dragPointerId) return;
+
+    if (BB.state === 'dragging') {
+      pointerToNDC(e.clientX, e.clientY);
+      BB.raycaster.setFromCamera(BB.pointerNDC, BB.camera);
+      const hitPoint = new THREE.Vector3();
+      if (BB.raycaster.ray.intersectPlane(BB.dragPlane, hitPoint)) {
+        hitPoint.add(BB.dragGrabOffset);
+        BB.tape.position.copy(hitPoint);
+        BB.needsRender = true;
+      }
+      if (Math.abs(e.clientX - BB.dragStartXY.x) > 4 ||
+          Math.abs(e.clientY - BB.dragStartXY.y) > 4) {
+        BB.dragMoved = true;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
+    if (BB.state === 'rotatingBox') {
+      const dx = e.clientX - BB.dragStartXY.x;
+      const dy = e.clientY - BB.dragStartXY.y;
+      // 0.01 rad/px feels right for a phone-sized canvas — drag
+      // across the canvas ≈ full rotation. Clamp X so the boombox
+      // doesn't flip upside down (looks weird with the bottom face
+      // facing the camera).
+      BB.boombox.rotation.y = BB.boxStartRot.y + dx * 0.01;
+      BB.boombox.rotation.x = Math.max(-0.5, Math.min(0.5, BB.boxStartRot.x + dy * 0.01));
       BB.needsRender = true;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) BB.dragMoved = true;
+      e.preventDefault();
+      e.stopPropagation();
     }
-    if (Math.abs(e.clientX - BB.dragStartXY.x) > 4 ||
-        Math.abs(e.clientY - BB.dragStartXY.y) > 4) {
-      BB.dragMoved = true;
-    }
-    e.preventDefault();
-    e.stopPropagation();
   }, { capture: true });
 
   const finishPointer = (e) => {
@@ -817,6 +858,8 @@ function bindBoomboxPointerEvents() {
         }
       } else if (BB.state === 'dragging') {
         BB.state = 'idle';
+      } else if (BB.state === 'rotatingBox') {
+        BB.state = 'idle';
       }
       BB.dragPointerId = null;
       return;
@@ -830,6 +873,8 @@ function bindBoomboxPointerEvents() {
       } else {
         returnTapeHome();
       }
+    } else if (BB.state === 'rotatingBox') {
+      BB.state = 'idle';
     }
     BB.dragPointerId = null;
   };
@@ -904,20 +949,40 @@ function updateBoomboxScene(dt) {
   // Always advance the phase so glow pulses stay alive even when
   // the tape isn't bobbing.
   BB.bobPhase += dt * 1.6;
-  // Idle bob on the tape when it's resting in its home spot.
+
+  // Tape on idle: gentle bob + slow continuous Y-axis spin + slight
+  // Z-tilt wobble.
   if (BB.tape && BB.tape.visible && BB.state === 'idle') {
     BB.tape.position.y = BB.tapeHome.y + Math.sin(BB.bobPhase) * 0.04;
+    BB.tape.rotation.y += dt * 0.6;
     BB.tape.rotation.z = Math.sin(BB.bobPhase * 0.7) * 0.05;
     BB.needsRender = true;
   }
+
+  // Boombox on playing: subtle boom-bamp scale pulse at ~96 BPM.
+  // Downbeat hits harder than the offbeat — a soft kick-snare feel.
+  if (BB.boombox) {
+    if (BB.state === 'playing') {
+      const beat = (performance.now() / 1000) * 1.6;     // 96 BPM
+      const phase = beat - Math.floor(beat);
+      const downbeat = Math.max(0, Math.cos(phase * Math.PI * 2)) ** 4;
+      const offbeat  = Math.max(0, Math.cos((phase - 0.5) * Math.PI * 2)) ** 4;
+      const pulse = 1 + 0.04 * downbeat + 0.02 * offbeat;
+      BB.boombox.scale.setScalar(pulse);
+      BB.needsRender = true;
+    } else if (BB.boombox.scale.x !== 1) {
+      BB.boombox.scale.setScalar(1);
+      BB.needsRender = true;
+    }
+  }
+
   // Glow pulse: shows which thing is interactive right now. Tape
-  // glows while it's draggable (idle); boombox glows while music
-  // is playing (tappable to eject). Visible shimmer, not a
-  // flashlight — opacity range [0.30, 0.65].
+  // glows while it's grabbable (idle/dragging); boombox glows while
+  // music plays (tap to pause) OR while user is rotating it.
   if (BB.tapeGlow && BB.boomboxGlow) {
     const pulse = 0.30 + 0.35 * (0.5 + 0.5 * Math.sin(BB.bobPhase * 1.6));
     const tapeOn = (BB.state === 'idle' || BB.state === 'dragging');
-    const boxOn  = (BB.state === 'playing');
+    const boxOn  = (BB.state === 'playing' || BB.state === 'rotatingBox');
     BB.tapeGlow.material.opacity    = tapeOn ? pulse : 0;
     BB.boomboxGlow.material.opacity = boxOn  ? pulse : 0;
     BB.needsRender = true;
