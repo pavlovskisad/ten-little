@@ -659,34 +659,40 @@ function normalizeModel(modelRoot, targetH) {
   return wrap;
 }
 
-// Procedural radial-gradient texture for the glow sprites — soft
-// amber halo, transparent edges. Used to telegraph "this is the
-// thing you can touch right now".
-function makeGlowTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const ctx = c.getContext('2d');
-  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  g.addColorStop(0,    'rgba(255, 220, 120, 1.0)');
-  g.addColorStop(0.35, 'rgba(255, 200,  90, 0.45)');
-  g.addColorStop(1,    'rgba(255, 180,  60, 0.0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 128, 128);
-  const tex = new THREE.CanvasTexture(c);
-  return tex;
+// Build an outline-style glow that follows the object's silhouette:
+// clone the normalized model, override every mesh's material to a
+// transparent additive BackSide material, scale up slightly. When
+// rendered with the original on top, only the outline rim is visible
+// past the original's edges — gives the impression of a halo that
+// hugs the model shape, instead of a circular sprite blob.
+function buildOutline(wrapper, color, scaleFactor) {
+  // wrapper.children[0] is the normalized modelRoot from normalizeModel.
+  const outline = wrapper.children[0].clone(true);
+  const materials = [];
+  outline.traverse((child) => {
+    if (child.isMesh) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: color,
+        side: THREE.BackSide,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      child.material = mat;
+      materials.push(mat);
+    }
+  });
+  outline.scale.multiplyScalar(scaleFactor);
+  outline.userData.outlineMaterials = materials;
+  return outline;
 }
 
-function makeGlowSprite(scale) {
-  const mat = new THREE.SpriteMaterial({
-    map: makeGlowTexture(),
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    opacity: 0,
-  });
-  const s = new THREE.Sprite(mat);
-  s.scale.set(scale, scale, 1);
-  return s;
+function setOutlineOpacity(outline, opacity) {
+  if (!outline) return;
+  for (const mat of outline.userData.outlineMaterials) {
+    mat.opacity = opacity;
+  }
 }
 
 function arrangeBoomboxScene(boomboxGLB, tapeGLB) {
@@ -708,18 +714,14 @@ function arrangeBoomboxScene(boomboxGLB, tapeGLB) {
   BB.tape.position.copy(BB.tapeHome);
   BB.tape.rotation.y = -0.18;
 
-  // Glow halos. tapeGlow pulses while the tape is idle (signaling
-  // "grab me"). boomboxGlow pulses while music is playing (signaling
-  // "tap me to pause/eject"). Both ride additive blending behind the
-  // model. Sized small + low opacity so the glow reads as a soft
-  // shimmer, not a blob of light.
-  BB.tapeGlow = makeGlowSprite(1.0);
-  BB.tape.add(BB.tapeGlow);
-  BB.tapeGlow.position.set(0, 0, -0.05);
+  // Outline glows: follow the actual model silhouette. tapeGlow is
+  // visible while idle/dragging (telegraphs "grab me"); boomboxGlow
+  // while playing or rotating (telegraphs interactivity).
+  BB.tapeOutline = buildOutline(BB.tape, 0xffcc60, 1.05);
+  BB.tape.add(BB.tapeOutline);
 
-  BB.boomboxGlow = makeGlowSprite(1.6);
-  BB.boombox.add(BB.boomboxGlow);
-  BB.boomboxGlow.position.set(0, 0.05, -0.1);
+  BB.boomboxOutline = buildOutline(BB.boombox, 0xffcc60, 1.04);
+  BB.boombox.add(BB.boomboxOutline);
 
   BB.scene.add(BB.boombox);
   BB.scene.add(BB.tape);
@@ -949,6 +951,7 @@ function updateBoomboxScene(dt) {
   // Always advance the phase so glow pulses stay alive even when
   // the tape isn't bobbing.
   BB.bobPhase += dt * 1.6;
+  const tSec = performance.now() / 1000;
 
   // Tape on idle: gentle bob + slow continuous Y-axis spin + slight
   // Z-tilt wobble.
@@ -959,11 +962,21 @@ function updateBoomboxScene(dt) {
     BB.needsRender = true;
   }
 
+  // Boombox: slow left-right oscillation around Y, ±45° at 0.4 rad/s
+  // (period ~15.7s, max angular velocity ~18°/s — slower than tape's
+  // 35°/s spin). Skipped while the user is drag-rotating it. X-tilt
+  // smoothly decays back to 0 so a leftover user tilt doesn't linger.
+  if (BB.boombox && BB.state !== 'rotatingBox') {
+    BB.boombox.rotation.y = Math.sin(tSec * 0.4) * (Math.PI / 4);
+    BB.boombox.rotation.x *= Math.pow(0.5, dt * 2);   // half-life ≈ 0.35s
+    BB.needsRender = true;
+  }
+
   // Boombox on playing: subtle boom-bamp scale pulse at ~96 BPM.
   // Downbeat hits harder than the offbeat — a soft kick-snare feel.
   if (BB.boombox) {
     if (BB.state === 'playing') {
-      const beat = (performance.now() / 1000) * 1.6;     // 96 BPM
+      const beat = tSec * 1.6;     // 96 BPM
       const phase = beat - Math.floor(beat);
       const downbeat = Math.max(0, Math.cos(phase * Math.PI * 2)) ** 4;
       const offbeat  = Math.max(0, Math.cos((phase - 0.5) * Math.PI * 2)) ** 4;
@@ -979,12 +992,12 @@ function updateBoomboxScene(dt) {
   // Glow pulse: shows which thing is interactive right now. Tape
   // glows while it's grabbable (idle/dragging); boombox glows while
   // music plays (tap to pause) OR while user is rotating it.
-  if (BB.tapeGlow && BB.boomboxGlow) {
+  if (BB.tapeOutline && BB.boomboxOutline) {
     const pulse = 0.30 + 0.35 * (0.5 + 0.5 * Math.sin(BB.bobPhase * 1.6));
     const tapeOn = (BB.state === 'idle' || BB.state === 'dragging');
     const boxOn  = (BB.state === 'playing' || BB.state === 'rotatingBox');
-    BB.tapeGlow.material.opacity    = tapeOn ? pulse : 0;
-    BB.boomboxGlow.material.opacity = boxOn  ? pulse : 0;
+    setOutlineOpacity(BB.tapeOutline,    tapeOn ? pulse : 0);
+    setOutlineOpacity(BB.boomboxOutline, boxOn  ? pulse : 0);
     BB.needsRender = true;
   }
   if (BB.needsRender) {
