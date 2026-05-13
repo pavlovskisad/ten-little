@@ -186,7 +186,16 @@
     return { fromR, toR: S.plateR };
   }
 
-  const api = { botIntent, tickTilt, tickCollisions, maybeShrink };
+  // Claw capture-zone radius. Scales from CFG.zoneMinFrac at 10 alive to
+  // CFG.zoneMaxFrac at podium count, so the late game is more lethal.
+  function currentZoneR(S) {
+    const a = S.alive;
+    const tt = (CFG.startCount - a) / (CFG.startCount - CFG.podiumCount);
+    const frac = CFG.zoneMinFrac + (CFG.zoneMaxFrac - CFG.zoneMinFrac) * Math.max(0, Math.min(1, tt));
+    return S.plateR * frac;
+  }
+
+  const api = { botIntent, tickTilt, tickCollisions, maybeShrink, currentZoneR };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

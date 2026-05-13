@@ -2533,11 +2533,10 @@ function startHand() {
   reticleGroup.position.set(target.x, 0, target.z);
 }
 
+// currentZoneR lives in sim/figures.js. Thin wrapper here so existing
+// call sites don't need to thread S through.
 function currentZoneR() {
-  const a = S.alive;
-  const tt = (CFG.startCount - a) / (CFG.startCount - CFG.podiumCount);
-  const frac = lerp(CFG.zoneMinFrac, CFG.zoneMaxFrac, Math.max(0, Math.min(1, tt)));
-  return S.plateR * frac;
+  return window.SIM.currentZoneR(S);
 }
 
 function captureFiguresInZone() {
