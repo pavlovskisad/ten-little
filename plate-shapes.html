@@ -48,7 +48,7 @@
      and taps the boombox to pause + eject the tape. Stays out of
      the joystick's way (joystick sits bottom-right on mobile). */
   #bb-canvas {
-    position: fixed; z-index: 16;
+    position: fixed; z-index: 30;
     bottom: calc(env(safe-area-inset-bottom) + 8px);
     left: calc(env(safe-area-inset-left) + 8px);
     width: 260px; height: 190px;
@@ -860,11 +860,14 @@ function bindBoomboxPointerEvents() {
 }
 
 function dockTape() {
-  BB.state = 'docking';
+  // Fire the play() call synchronously, while we're still inside
+  // the pointerup gesture stack — mobile browsers only unlock audio
+  // for play() calls that happen inside the same gesture frame as
+  // the user's touch. The visual tween runs in parallel.
+  BB.state = 'playing';
+  bbStartMusic();
   startTween(BB.tape.position, BB.tapeDocked, 0.35, () => {
     BB.tape.visible = false;
-    BB.state = 'playing';
-    bbStartMusic();
   });
 }
 
