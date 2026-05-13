@@ -516,13 +516,21 @@ function bbStartMusic() {
   // CRITICAL: play() must be the only media-state call in this
   // gesture frame. iOS rejects audio.play() if volume / currentTime
   // setters precede it inside the same user-gesture window. Volume
-  // is pre-set in initAudio(); currentTime is pre-set in
-  // ejectTape()'s onDone and in initAudio()'s loadedmetadata.
+  // is pre-set in initAudio(); seeks happen AFTER play resolves.
   const p = audioElement.play();
   if (p && p.then) {
     p.then(() => {
       console.log('[bb] audio play() succeeded');
       audioStarted = true;
+      // Now that we're outside the gesture, seek to a random spot.
+      // The user hears a fraction of a second from the previous
+      // position before the jump — acceptable trade-off. This catches
+      // the case where iOS reset currentTime to 0 during preflight.
+      if (isFinite(audioElement.duration)) {
+        seekToRandomStart();
+      } else {
+        audioElement.addEventListener('loadedmetadata', seekToRandomStart, { once: true });
+      }
     }).catch((err) => {
       console.warn('[bb] audio play() rejected:', err.message || err);
     });
@@ -898,10 +906,10 @@ function updateBoomboxScene(dt) {
   }
   // Glow pulse: shows which thing is interactive right now. Tape
   // glows while it's draggable (idle); boombox glows while music
-  // is playing (tappable to eject). Range tuned low so it reads as
-  // a soft shimmer, not a flashlight beam.
+  // is playing (tappable to eject). Visible shimmer, not a
+  // flashlight — opacity range [0.30, 0.65].
   if (BB.tapeGlow && BB.boomboxGlow) {
-    const pulse = 0.15 + 0.18 * (0.5 + 0.5 * Math.sin(BB.bobPhase * 1.6));
+    const pulse = 0.30 + 0.35 * (0.5 + 0.5 * Math.sin(BB.bobPhase * 1.6));
     const tapeOn = (BB.state === 'idle' || BB.state === 'dragging');
     const boxOn  = (BB.state === 'playing');
     BB.tapeGlow.material.opacity    = tapeOn ? pulse : 0;
