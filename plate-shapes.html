@@ -1023,6 +1023,29 @@ function updateBoomboxScene(dt) {
 const { CFG, SHAPE_DEFS, SHAPE_COLORS, lerp, clamp, clamp01 } = window.SIM;
 
 // ============================================================
+// NETWORK — multiplayer mode is opt-in via #net or ?net=1. When off,
+// the client runs its own simulation as before (single-player + demo).
+// When on, the client connects to the game server, renders snapshots,
+// and forwards joystick input.
+// ============================================================
+const NET = (function () {
+  const params = new URLSearchParams(location.search);
+  const enabled = location.hash.includes('net') || params.has('net');
+  // Default to same-host:2570; override with ?ws=ws://example.com:2570.
+  const url = params.get('ws') || `ws://${location.hostname || 'localhost'}:2570`;
+  return {
+    enabled,
+    url,
+    ws: null,
+    playerId: null,
+    code: null,
+    myFigureId: null,
+    inputTimer: null,
+    spawned: false,
+  };
+})();
+
+// ============================================================
 // BASKETBALL GLB — supplied model used for the wall + the void
 // sphere shapes. Loaded async; until it resolves, the wall renders
 // with a procedural canvas-texture sphere (basketballMat below).
@@ -2007,6 +2030,163 @@ function spawnFigures(demoMode) {
 }
 
 // ============================================================
+// NETWORK — connection lifecycle, snapshot reconcile, input forward.
+// Only active when NET.enabled is true.
+// ============================================================
+
+// Spawn a single figure-with-mesh on demand. Used by netReconcile when
+// the server reports a figure id we haven't seen yet. Server tells us
+// position; everything visual is the client's choice.
+function spawnNetFigure(snap) {
+  const defIdx = snap.id % SHAPE_DEFS.length;
+  const color = SHAPE_COLORS[snap.id % SHAPE_COLORS.length];
+  const isPlayer = (snap.id === NET.myFigureId);
+  const built = makeFigure(isPlayer, defIdx, color);
+  const mesh = built.group;
+  mesh.position.set(snap.x, CFG.plateThick / 2, snap.z);
+  mesh.rotation.y = Math.atan2(-snap.x, -snap.z);
+  plateGroup.add(mesh);
+  const f = {
+    id: snap.id,
+    x: snap.x, z: snap.z, vx: 0, vz: 0,
+    alive: true, isPlayer, mesh,
+    shapeMesh: built.shapeMesh, shapeMat: built.shapeMat,
+    def: built.def, dangerRing: built.dangerRing, mixer: built.mixer,
+    baseColor: color, collidR: built.def.collidR, yOffset: built.def.yOffset,
+    hp: snap.hp, invulnT: 0,
+    draining: false, drainT: 0,
+    dropping: false, dropT: 0, dropY: 0, dropVy: 0,
+    picked: false, pickT: 0, pickStartX: 0, pickStartY: 0, pickStartZ: 0,
+    scale: 1,
+    wanderAng: 0, wanderTimer: 0, boldness: 0,
+    bobPhase: Math.random() * Math.PI * 2,
+    spinAxis: Math.random() * Math.PI * 2,
+  };
+  S.figs.push(f);
+  if (isPlayer) {
+    S.player = f;
+    if (playerMarker && playerMarker.parent) playerMarker.parent.remove(playerMarker);
+    playerMarker = buildPlayerMarker();
+    plateGroup.add(playerMarker);
+  }
+  return f;
+}
+
+// Merge a server state snapshot into S. Lazily spawns meshes for any
+// figure id we haven't seen yet. Detects local transitions on the
+// picked / dropping / draining flags so we can reset client-side
+// animation timers and detach freshly-picked meshes from plateGroup.
+function netReconcile(snap) {
+  S.plateR = snap.plateR;
+  S.tilt.x = snap.tilt.x;
+  S.tilt.z = snap.tilt.z;
+  S.hand.phase = snap.hand.phase;
+  S.hand.x = snap.hand.x;
+  S.hand.z = snap.hand.z;
+  S.hand.zoneR = snap.hand.zoneR;
+  S.hand.t = snap.hand.t;
+  S.alive = snap.alive;
+  S.t = snap.t;
+
+  const byId = new Map(S.figs.map(f => [f.id, f]));
+  for (const sf of snap.figs) {
+    let f = byId.get(sf.id);
+    if (!f) f = spawnNetFigure(sf);
+    const wasPicked = f.picked, wasDropping = f.dropping, wasDraining = f.draining;
+    f.x = sf.x;
+    f.z = sf.z;
+    f.hp = sf.hp;
+    f.alive = sf.alive;
+    f.picked = !!sf.picked;
+    f.dropping = !!sf.dropping;
+    f.draining = !!sf.draining;
+    // Kick local death-animation timers on transitions so the existing
+    // render code (drain shrink, drop tumble, picked lift) animates
+    // smoothly without server having to send timer values.
+    if (!wasDraining && f.draining) f.drainT = 0;
+    if (!wasDropping && f.dropping) { f.dropT = 0; f.dropY = 0; f.dropVy = 0; }
+    if (!wasPicked && f.picked) {
+      f.pickT = 0;
+      // Detach from plateGroup so the lift animation can ride the claw
+      // in world space (same trick captureFiguresInZone uses locally).
+      const wp = new THREE.Vector3();
+      const wq = new THREE.Quaternion();
+      f.mesh.getWorldPosition(wp);
+      f.mesh.getWorldQuaternion(wq);
+      f.pickStartX = wp.x; f.pickStartY = wp.y; f.pickStartZ = wp.z;
+      if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
+      scene.add(f.mesh);
+      f.mesh.position.copy(wp);
+      f.mesh.quaternion.copy(wq);
+    }
+  }
+}
+
+function netSendInput() {
+  if (!NET.ws || NET.ws.readyState !== WebSocket.OPEN) return;
+  NET.ws.send(JSON.stringify({ type: 'input', dx: S.input.dx || 0, dy: S.input.dy || 0 }));
+}
+
+function netConnect() {
+  if (NET.ws && NET.ws.readyState <= 1 /* CONNECTING || OPEN */) {
+    try { NET.ws.close(); } catch (e) {}
+  }
+  NET.spawned = false;
+  const ws = new WebSocket(NET.url);
+  NET.ws = ws;
+  ws.addEventListener('open', () => {
+    console.log('[net] open', NET.url);
+    ws.send(JSON.stringify({ type: 'create' }));
+  });
+  ws.addEventListener('message', (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (e) { return; }
+    if (msg.type === 'joined') {
+      NET.playerId = msg.playerId;
+      NET.code = msg.code;
+      // Solo MVP: the only human in the room is us, so figure 0 belongs
+      // to us once the server binds figures to players in join order.
+      // When the lobby UI lands we'll receive the actual binding from
+      // the server's start message instead of guessing.
+      NET.myFigureId = 0;
+      console.log('[net] joined', msg.code, 'as', msg.playerId);
+      ws.send(JSON.stringify({ type: 'start' }));
+    } else if (msg.type === 'start') {
+      console.log('[net] start humans=' + msg.humans + ' bots=' + msg.bots);
+      S.phase = 'play';
+      S.startedAt = performance.now();
+      explodeRoom();
+      document.getElementById('over').classList.remove('show');
+      // Begin forwarding joystick input.
+      if (NET.inputTimer) clearInterval(NET.inputTimer);
+      NET.inputTimer = setInterval(netSendInput, 50);
+    } else if (msg.type === 'state') {
+      netReconcile(msg.state);
+      NET.spawned = true;
+    } else if (msg.type === 'end') {
+      console.log('[net] end', msg);
+      if (NET.inputTimer) { clearInterval(NET.inputTimer); NET.inputTimer = null; }
+      S.phase = 'over';
+      // Server reports authoritative elimination order; figure out our
+      // placement from it.
+      S.eliminated = msg.eliminated || [];
+      const idx = S.eliminated.findIndex(e => e.id === NET.myFigureId);
+      let placement;
+      if (idx === -1) placement = 1;  // we survived
+      else placement = CFG.startCount - idx;
+      showOverlay(placement);
+    } else if (msg.type === 'error') {
+      console.error('[net] error', msg.message);
+    }
+  });
+  ws.addEventListener('close', () => {
+    console.log('[net] closed');
+    if (NET.inputTimer) { clearInterval(NET.inputTimer); NET.inputTimer = null; }
+  });
+  ws.addEventListener('error', (e) => console.error('[net] ws error', e));
+}
+
+// ============================================================
 // CLAW — procedural three-prong arcade mechanism with cable.
 // Sits inside handAnim.tilt so existing wobble/sway code applies.
 // ============================================================
@@ -2163,7 +2343,8 @@ function setAllProngs(t) {
 // plate mesh to the resulting tilt vector.
 // ============================================================
 function updateTilt(dt) {
-  window.SIM.tickTilt(S, dt);
+  if (!NET.enabled) window.SIM.tickTilt(S, dt);
+  // S.tilt is server-authoritative in network mode; apply to plate mesh.
   plateGroup.rotation.x = S.tilt.z * CFG.maxTilt;
   plateGroup.rotation.z = -S.tilt.x * CFG.maxTilt;
 }
@@ -2172,10 +2353,11 @@ function updateTilt(dt) {
 // FIGURE PHYSICS — slide on tilt, friction, collision, edges
 // ============================================================
 function updateFigures(dt) {
-  // Per-figure intent + movement integration lives in sim/figures.js.
-  // The client provides the intent callback so playerIntent (DOM-coupled)
-  // stays here while bots delegate to the sim.
-  window.SIM.tickMovement(S, dt, (f) => f.isPlayer ? playerIntent(f) : botIntent(f, dt));
+  // Local sim: per-figure intent + movement integration. Skipped in
+  // network mode (server owns positions and we read them from snapshots).
+  if (!NET.enabled) {
+    window.SIM.tickMovement(S, dt, (f) => f.isPlayer ? playerIntent(f) : botIntent(f, dt));
+  }
 
   // Death animations (drain / drop / picked) stay on the client — they're
   // visual flourishes coupled to mesh transforms, not gameplay.
@@ -2219,16 +2401,21 @@ function updateFigures(dt) {
   // figure-figure collision + contact damage runs in sim/figures.js. The
   // returned list lets us run the render-coupled eliminate() (hint text,
   // end-game overlay) without coupling that logic to the simulation.
-  const newlyDrained = window.SIM.tickCollisions(S);
-  for (const { figure, reason } of newlyDrained) {
-    eliminate(figure, reason);
+  // Skipped in network mode (server owns collision authority).
+  if (!NET.enabled) {
+    const newlyDrained = window.SIM.tickCollisions(S);
+    for (const { figure, reason } of newlyDrained) {
+      eliminate(figure, reason);
+    }
   }
 
   // Edge-fall detection runs in sim/figures.js; eliminate side effects
-  // (HUD hint, end-game overlay) fire here.
-  const newlyFell = window.SIM.tickEdgeFall(S);
-  for (const { figure, reason } of newlyFell) {
-    eliminate(figure, reason);
+  // (HUD hint, end-game overlay) fire here. Skipped in network mode.
+  if (!NET.enabled) {
+    const newlyFell = window.SIM.tickEdgeFall(S);
+    for (const { figure, reason } of newlyFell) {
+      eliminate(figure, reason);
+    }
   }
 
   // Mesh transform sync for still-alive figures.
@@ -2489,12 +2676,15 @@ function updateHand(dt) {
     setAllProngs(0);
     return;
   }
-  S.hand.t += dt * 1000;
+  // Time advance: local sim advances S.hand.t; in network mode the server
+  // already wrote it in the snapshot, leave it alone.
+  if (!NET.enabled) S.hand.t += dt * 1000;
   const tSec = S.hand.t / 1000;
 
   // Predator auto-aim drift lives in sim/hand.js. Side effect here is just
-  // syncing the reticle mesh to whatever position the sim picked.
-  window.SIM.tickPredatorAim(S, dt);
+  // syncing the reticle mesh to whatever position the sim picked. In
+  // network mode the server has already drifted S.hand.x/z for us.
+  if (!NET.enabled) window.SIM.tickPredatorAim(S, dt);
   if (S.hand.phase === 'telegraph' || S.hand.phase === 'approach') {
     reticleGroup.position.set(S.hand.x, 0, S.hand.z);
   }
@@ -2647,10 +2837,21 @@ function updateHand(dt) {
   // effects for each transition: captureFiguresInZone at approach→hover,
   // reticle hide at lift→idle. (Claw mesh stays visible — it drifts back
   // to its idle hang in the idle branch above.)
-  const events = window.SIM.advanceHandPhase(S);
-  for (const ev of events) {
-    if (ev.from === 'approach' && ev.to === 'hover') captureFiguresInZone();
-    if (ev.from === 'lift' && ev.to === 'idle') reticleGroup.visible = false;
+  // In network mode the server runs advanceHandPhase; netReconcile
+  // detects the same transitions from snapshot diffs and runs the
+  // freshly-picked mesh detach there.
+  if (!NET.enabled) {
+    const events = window.SIM.advanceHandPhase(S);
+    for (const ev of events) {
+      if (ev.from === 'approach' && ev.to === 'hover') captureFiguresInZone();
+      if (ev.from === 'lift' && ev.to === 'idle') reticleGroup.visible = false;
+    }
+  } else {
+    // Server-driven reticle hide on lift→idle. netReconcile updates
+    // S.hand.phase before we run, so detect the transition by checking
+    // whether reticle should be visible based on current phase.
+    if (S.hand.phase === 'idle') reticleGroup.visible = false;
+    else reticleGroup.visible = true;
   }
 }
 
@@ -2739,6 +2940,16 @@ function showOverlay(placement) {
 // SHRINK
 // ============================================================
 function maybeShrink(dt) {
+  // In network mode the server owns S.plateR; the client just animates
+  // its mesh toward whatever radius it sees in each snapshot.
+  if (NET.enabled) {
+    const targetScale = S.plateR / CFG.plateR0;
+    if (!shrinkTween && Math.abs(plateMesh.scale.x - targetScale) > 1e-3) {
+      shrinkTween = { from: plateMesh.scale.x, to: targetScale, t: 0, dur: 0.6 };
+      showHint('the shape shrinks');
+    }
+    return;
+  }
   const ev = window.SIM.maybeShrink(S);
   if (!ev) return;
   shrinkTween = { from: plateMesh.scale.x, to: ev.toR / CFG.plateR0, t: 0, dur: 0.6 };
@@ -2858,10 +3069,14 @@ function loop(now) {
   const tSec = now / 1000;
 
   if (S.phase === 'play') {
-    S.t = now - S.startedAt;
+    // S.t is owned by the server in network mode; local mode derives it
+    // from wall clock.
+    if (!NET.enabled) S.t = now - S.startedAt;
     updateTilt(dt);
     updateFigures(dt);
-    if (S.hand.phase === 'idle' && S.t >= S.nextHandAt && S.alive > CFG.podiumCount) {
+    // Claw cycle scheduling — only the local sim arms the next cycle.
+    if (!NET.enabled &&
+        S.hand.phase === 'idle' && S.t >= S.nextHandAt && S.alive > CFG.podiumCount) {
       startHand();
     }
     updateHand(dt);
@@ -2869,8 +3084,9 @@ function loop(now) {
     tickShrinkTween(dt);
     updateHud();
     // Deferred end-game: after the player dies, let their death
-    // animation play out before the overlay takes over.
-    if (S.deferredEndGameAt != null && S.t >= S.deferredEndGameAt) {
+    // animation play out before the overlay takes over. The server
+    // sends an explicit `end` message in network mode, so skip locally.
+    if (!NET.enabled && S.deferredEndGameAt != null && S.t >= S.deferredEndGameAt) {
       S.deferredEndGameAt = null;
       endGame();
     }
@@ -2916,6 +3132,16 @@ function reset(demoMode = false) {
   reticleGroup.visible = false;
   shrinkTween = null;
   camInitialized = false;
+
+  // Network mode: skip local spawn; the server will tell us about
+  // figures via snapshots. Demo rounds still use the local sim — they
+  // run on the title screen with no server connection.
+  if (NET.enabled && !demoMode) {
+    netConnect();
+    document.getElementById('over').classList.remove('show');
+    return;
+  }
+
   spawnFigures(demoMode);
   S.phase = 'play';
   // Wall explosion only fires on the REAL game start — gives the
