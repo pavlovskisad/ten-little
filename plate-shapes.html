@@ -445,6 +445,9 @@ function initAudio() {
   audioElement.preload = 'auto';
   audioElement.volume = AUDIO_VOLUME;
   audioElement.loop = false;
+  // iOS playsinline hints — needed for some embedded contexts.
+  audioElement.setAttribute('playsinline', '');
+  audioElement.setAttribute('webkit-playsinline', '');
   audioElement.addEventListener('loadedmetadata', () => {
     console.log('[audio] metadata loaded, duration:', audioElement.duration);
     // Pre-seek to a random spot here, BEFORE any user gesture. That
@@ -469,9 +472,39 @@ function initAudio() {
   });
 }
 
+// iOS audio preflight. On a fresh page load, iOS's media-engagement
+// heuristic rejects the very first audio.play() — even inside a user
+// gesture — but it marks the element as "attempted" so the SECOND
+// play() call goes through. Run a silent preflight (muted play +
+// immediate pause) on the user's first interaction anywhere on the
+// page so the user's actual tape-drop is already the second call.
+let audioPreflighted = false;
+function preflightAudio() {
+  if (audioPreflighted || !audioElement) return;
+  audioPreflighted = true;
+  audioElement.muted = true;
+  const p = audioElement.play();
+  if (p && p.then) {
+    p.then(() => {
+      audioElement.pause();
+      audioElement.muted = false;
+      console.log('[audio] preflight succeeded');
+    }).catch((err) => {
+      audioElement.muted = false;
+      console.log('[audio] preflight rejected (expected on iOS):', err.message);
+    });
+  } else {
+    audioElement.muted = false;
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initAudio();
   initBoombox();
+  // First pointerdown anywhere — Enter button, joystick, tape, doesn't
+  // matter — runs the preflight once. Capture phase so it always fires
+  // before the target element's own handlers.
+  document.addEventListener('pointerdown', preflightAudio, { once: true, capture: true });
 });
 
 // Public hooks the boombox scene calls when the tape lands or the
