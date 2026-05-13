@@ -1146,6 +1146,11 @@ const runnerCenterY = 0.85;  // approx half-height for marker placement
     runnerLoaded = true;
     maybeEnableEnter();
     console.log('[runner.glb] loaded; clips:', gltf.animations && gltf.animations.length);
+    // Kick off the demo loop so the title screen has a live game
+    // running behind it. reset(true) skips the wall explosion and
+    // doesn't assign a player; endGame loops back into a fresh
+    // demo round automatically.
+    if (S.phase === 'idle') reset(true);
   }, undefined, (err) => {
     console.error('[runner.glb] failed', err);
   });
@@ -1198,6 +1203,10 @@ const S = {
   tilt: { x: 0, z: 0 },
   input: { dx: 0, dy: 0 },
   startedAt: 0,
+  // Demo mode: game loop runs on the title screen with all 10
+  // figures as bots (no player). On endGame in demo, we loop back
+  // to a fresh demo round instead of showing the placement overlay.
+  demo: false,
 };
 
 // ============================================================
@@ -2005,7 +2014,7 @@ function buildPlayerMarker() {
   return group;
 }
 
-function spawnFigures() {
+function spawnFigures(demoMode) {
   for (const f of S.figs) plateGroup.remove(f.mesh);
   S.figs = [];
 
@@ -2014,7 +2023,8 @@ function spawnFigures() {
   // shape rotation: cycle through SHAPE_DEFS so we get a mix
   const shapeBase = Math.floor(Math.random() * SHAPE_DEFS.length);
 
-  const playerSlot = Math.floor(Math.random() * CFG.startCount);
+  // -1 means no player at all (demo on the title screen).
+  const playerSlot = demoMode ? -1 : Math.floor(Math.random() * CFG.startCount);
   for (let i = 0; i < CFG.startCount; i++) {
     const ang = (i / CFG.startCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.15;
     const r = CFG.plateR0 * (0.45 + Math.random() * 0.15);
@@ -3039,6 +3049,12 @@ function eliminate(f, reason) {
 
 function endGame() {
   if (S.phase === 'over') return;
+  // In demo mode (title screen), don't show the placement overlay —
+  // just loop back into a fresh demo round so the menu stays alive.
+  if (S.demo) {
+    reset(true);
+    return;
+  }
   S.phase = 'over';
   const survivors = S.figs.filter(f => f.alive);
   S.podium = survivors.map(f => f.id);
@@ -3243,12 +3259,17 @@ function loop(now) {
 // ============================================================
 // START / RESET
 // ============================================================
-function reset() {
+function reset(demoMode = false) {
+  S.demo = !!demoMode;
   for (const f of S.figs) {
     if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
   }
   S.figs = [];
   S.player = null;
+  // Remove any leftover player marker from a previous round — in
+  // demo mode no new marker is created.
+  if (playerMarker && playerMarker.parent) playerMarker.parent.remove(playerMarker);
+  playerMarker = null;
   S.alive = 0;
   S.eliminated = [];
   S.podium = [];
@@ -3270,12 +3291,12 @@ function reset() {
   reticleGroup.visible = false;
   shrinkTween = null;
   camInitialized = false;
-  spawnFigures();
+  spawnFigures(demoMode);
   S.phase = 'play';
-  // blow the walls outward as the round begins — the room scatters,
-  // gameplay happens in the cleared void above. Idempotent: once the
-  // wall has exploded, subsequent rounds skip silently.
-  explodeRoom();
+  // Wall explosion only fires on the REAL game start — gives the
+  // user a satisfying transition from demo (walls intact) to game
+  // (walls scatter). Idempotent: only runs once per page load.
+  if (!demoMode) explodeRoom();
   document.getElementById('over').classList.remove('show');
 }
 
