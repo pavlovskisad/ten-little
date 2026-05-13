@@ -175,7 +175,18 @@
     return elim;
   }
 
-  const api = { botIntent, tickTilt, tickCollisions };
+  // Shrink the plate once per CFG.shrinkEveryMs. Returns null on no-op,
+  // or { fromR, toR } so the client can drive its mesh scale tween. The
+  // sim only owns the radius; the visual scale is the client's problem.
+  function maybeShrink(S) {
+    if (S.t < S.nextShrinkAt) return null;
+    const fromR = S.plateR;
+    S.plateR = Math.max(CFG.shrinkMin, S.plateR * CFG.shrinkFactor);
+    S.nextShrinkAt = S.t + CFG.shrinkEveryMs;
+    return { fromR, toR: S.plateR };
+  }
+
+  const api = { botIntent, tickTilt, tickCollisions, maybeShrink };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

@@ -2909,12 +2909,9 @@ function showOverlay(placement) {
 // SHRINK
 // ============================================================
 function maybeShrink(dt) {
-  if (S.t < S.nextShrinkAt) return;
-  const newR = Math.max(CFG.shrinkMin, S.plateR * CFG.shrinkFactor);
-  S.plateR = newR;
-  const targetScale = newR / CFG.plateR0;
-  shrinkTween = { from: plateMesh.scale.x, to: targetScale, t: 0, dur: 0.6 };
-  S.nextShrinkAt = S.t + CFG.shrinkEveryMs;
+  const ev = window.SIM.maybeShrink(S);
+  if (!ev) return;
+  shrinkTween = { from: plateMesh.scale.x, to: ev.toR / CFG.plateR0, t: 0, dur: 0.6 };
   showHint('the shape shrinks');
 }
 
