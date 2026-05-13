@@ -225,6 +225,67 @@
   #title button:active { color: #ff0000; } /* classic active-link red on press */
   #title.gone { opacity: 0; pointer-events: none; }
 
+  /* lobby overlay — sits between title and game. Only visible in
+     network mode. Two states share the same wrapper:
+       1) `pre`: create-or-join chooser
+       2) `inRoom`: roster + countdown + start (host only) */
+  #lobby {
+    position: fixed; inset: 0; display: none; flex-direction: column;
+    align-items: center; justify-content: center; z-index: 20;
+    background: rgba(20,17,13,0.78);
+    font-family: 'VT323', monospace; color: #f1e5cd;
+  }
+  #lobby.show { display: flex; }
+  #lobby h2 {
+    font-family: 'Press Start 2P', monospace;
+    font-size: clamp(20px, 4vw, 32px);
+    text-transform: lowercase;
+    letter-spacing: 0.12em;
+    margin: 0 0 24px 0;
+    color: #ffd000;
+  }
+  #lobby .panel {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 18px; max-width: 480px; padding: 0 24px;
+  }
+  #lobby input[type=text] {
+    background: transparent; border: 0; border-bottom: 2px solid #f1e5cd;
+    color: #f1e5cd; font-family: 'VT323', monospace; font-size: 28px;
+    text-align: center; letter-spacing: 0.25em; text-transform: uppercase;
+    width: 180px; padding: 4px 0;
+  }
+  #lobby input[type=text]:focus { outline: 0; border-bottom-color: #ffd000; }
+  #lobby button {
+    background: transparent; border: 0;
+    color: #0000ee; font-family: 'VT323', monospace;
+    font-size: 28px; cursor: pointer;
+    text-decoration: underline; text-underline-offset: 6px;
+    text-transform: lowercase;
+  }
+  #lobby button:hover { color: #551a8b; }
+  #lobby button:active { color: #ff0000; }
+  #lobby button:disabled {
+    color: #6b6b6b; cursor: not-allowed; text-decoration: none;
+  }
+  #lobby .row { display: flex; gap: 20px; align-items: center; }
+  #lobby .code {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 36px; letter-spacing: 0.25em;
+    color: #ffd000;
+  }
+  #lobby .meta {
+    font-size: 20px; opacity: 0.85;
+  }
+  #lobby .roster {
+    font-size: 22px;
+    color: #f1e5cd;
+  }
+  #lobby .countdown { color: #ff7a10; }
+  #lobby .err {
+    font-size: 18px; color: #ff1a1a;
+    min-height: 22px;
+  }
+
   /* end overlay */
   #over {
     position: fixed; inset: 0; display: none; flex-direction: column;
@@ -370,6 +431,26 @@
     <span class="line line-nigas"><span class="c9">n</span><span class="c0">i</span><span class="c3">g</span><span class="c6">a</span><span class="c7">s</span></span>
   </h1>
   <button id="start" style="pointer-events:none;opacity:0.65">loading...</button>
+</div>
+
+<div id="lobby">
+  <div class="panel" id="lobby-pre">
+    <h2>multiplayer</h2>
+    <button id="lobby-create">create room</button>
+    <div class="row">
+      <input id="lobby-code" type="text" maxlength="6" placeholder="code" autocomplete="off" />
+      <button id="lobby-join">join</button>
+    </div>
+    <div class="err" id="lobby-err"></div>
+  </div>
+  <div class="panel" id="lobby-in" style="display:none;">
+    <h2>lobby</h2>
+    <div class="code" id="lobby-code-show">----</div>
+    <div class="roster" id="lobby-roster">1 / 10 players</div>
+    <div class="meta countdown" id="lobby-countdown">starts in 60s</div>
+    <button id="lobby-start" style="display:none;">start now</button>
+    <div class="meta" id="lobby-status">waiting for host...</div>
+  </div>
 </div>
 
 <div id="over">
@@ -2136,7 +2217,12 @@ function netConnect() {
   NET.ws = ws;
   ws.addEventListener('open', () => {
     console.log('[net] open', NET.url);
-    ws.send(JSON.stringify({ type: 'create' }));
+    const mode = NET.joinMode || 'create';
+    if (mode === 'join' && NET.joinCode) {
+      ws.send(JSON.stringify({ type: 'join', code: NET.joinCode }));
+    } else {
+      ws.send(JSON.stringify({ type: 'create' }));
+    }
   });
   ws.addEventListener('message', (ev) => {
     let msg;
@@ -2144,15 +2230,18 @@ function netConnect() {
     if (msg.type === 'joined') {
       NET.playerId = msg.playerId;
       NET.code = msg.code;
-      // Solo MVP: the only human in the room is us, so figure 0 belongs
-      // to us once the server binds figures to players in join order.
-      // When the lobby UI lands we'll receive the actual binding from
-      // the server's start message instead of guessing.
-      NET.myFigureId = 0;
       console.log('[net] joined', msg.code, 'as', msg.playerId);
-      ws.send(JSON.stringify({ type: 'start' }));
+      if (NET.onJoined) NET.onJoined(msg);
+    } else if (msg.type === 'roster') {
+      if (NET.onRoster) NET.onRoster(msg);
     } else if (msg.type === 'start') {
-      console.log('[net] start humans=' + msg.humans + ' bots=' + msg.bots);
+      console.log('[net] start humans=' + msg.humans + ' bots=' + msg.bots + ' reason=' + msg.reason);
+      // Server tells us which figure belongs to us.
+      if (msg.bindings && msg.bindings[NET.playerId] != null) {
+        NET.myFigureId = msg.bindings[NET.playerId];
+      } else {
+        NET.myFigureId = 0;
+      }
       S.phase = 'play';
       S.startedAt = performance.now();
       explodeRoom();
@@ -2160,6 +2249,7 @@ function netConnect() {
       // Begin forwarding joystick input.
       if (NET.inputTimer) clearInterval(NET.inputTimer);
       NET.inputTimer = setInterval(netSendInput, 50);
+      if (NET.onStart) NET.onStart(msg);
     } else if (msg.type === 'state') {
       netReconcile(msg.state);
       NET.spawned = true;
@@ -2167,16 +2257,15 @@ function netConnect() {
       console.log('[net] end', msg);
       if (NET.inputTimer) { clearInterval(NET.inputTimer); NET.inputTimer = null; }
       S.phase = 'over';
-      // Server reports authoritative elimination order; figure out our
-      // placement from it.
       S.eliminated = msg.eliminated || [];
       const idx = S.eliminated.findIndex(e => e.id === NET.myFigureId);
       let placement;
-      if (idx === -1) placement = 1;  // we survived
+      if (idx === -1) placement = 1;
       else placement = CFG.startCount - idx;
       showOverlay(placement);
     } else if (msg.type === 'error') {
       console.error('[net] error', msg.message);
+      if (NET.onError) NET.onError(msg);
     }
   });
   ws.addEventListener('close', () => {
@@ -3133,11 +3222,11 @@ function reset(demoMode = false) {
   shrinkTween = null;
   camInitialized = false;
 
-  // Network mode: skip local spawn; the server will tell us about
-  // figures via snapshots. Demo rounds still use the local sim — they
-  // run on the title screen with no server connection.
+  // Network mode: skip local spawn; the lobby UI owns the connection
+  // lifecycle and the server tells us about figures via snapshots.
+  // Demo rounds still use the local sim — they run on the title screen
+  // with no server connection.
   if (NET.enabled && !demoMode) {
-    netConnect();
     document.getElementById('over').classList.remove('show');
     return;
   }
@@ -3153,12 +3242,94 @@ function reset(demoMode = false) {
 
 document.getElementById('start').addEventListener('click', () => {
   document.getElementById('title').classList.add('gone');
-  setTimeout(() => document.getElementById('title').remove(), 700);
-  reset();
+  if (NET.enabled) {
+    // Show the lobby chooser instead of starting a local round.
+    setTimeout(() => document.getElementById('title').remove(), 700);
+    document.getElementById('lobby').classList.add('show');
+  } else {
+    setTimeout(() => document.getElementById('title').remove(), 700);
+    reset();
+  }
 });
 document.getElementById('again').addEventListener('click', () => {
+  if (NET.enabled) {
+    // Cleanest reset path for v0 multiplayer: reload so we land on
+    // the lobby chooser with a fresh WS and a fresh client state.
+    location.reload();
+    return;
+  }
   reset();
 });
+
+// ============================================================
+// LOBBY UI — only shown in network mode. Drives the create/join flow
+// and the in-room roster + countdown view.
+// ============================================================
+(function wireLobby() {
+  const lobby = document.getElementById('lobby');
+  const pre = document.getElementById('lobby-pre');
+  const inRoom = document.getElementById('lobby-in');
+  const codeShow = document.getElementById('lobby-code-show');
+  const rosterEl = document.getElementById('lobby-roster');
+  const countdownEl = document.getElementById('lobby-countdown');
+  const startBtn = document.getElementById('lobby-start');
+  const statusEl = document.getElementById('lobby-status');
+  const errEl = document.getElementById('lobby-err');
+
+  // Local countdown tick: server tells us countdownMs in each roster
+  // update, we lerp it down from receipt time so the timer reads live.
+  let countdownDeadline = 0;
+  const tickCountdown = setInterval(() => {
+    if (!lobby.classList.contains('show') || inRoom.style.display === 'none') return;
+    const ms = Math.max(0, countdownDeadline - Date.now());
+    countdownEl.textContent = `starts in ${Math.ceil(ms / 1000)}s`;
+  }, 250);
+
+  // Plug into the existing NET message stream by wrapping its onmessage
+  // setup. The simplest hook: expose handlers on NET that netConnect's
+  // own listener fans out to.
+  NET.onJoined = (msg) => {
+    pre.style.display = 'none';
+    inRoom.style.display = 'flex';
+    codeShow.textContent = msg.code;
+    statusEl.textContent = msg.host === NET.playerId ? 'you are the host' : 'waiting for host...';
+  };
+  NET.onRoster = (msg) => {
+    rosterEl.textContent = `${msg.count} / ${msg.max} players`;
+    countdownDeadline = Date.now() + (msg.countdownMs || 0);
+    startBtn.style.display = (msg.host === NET.playerId) ? 'inline' : 'none';
+    statusEl.textContent = (msg.host === NET.playerId) ? 'you are the host' : 'waiting for host...';
+  };
+  NET.onStart = () => {
+    lobby.classList.remove('show');
+  };
+  NET.onError = (msg) => {
+    errEl.textContent = msg.message || 'unknown error';
+    // Drop back to chooser if we never got into a room.
+    if (inRoom.style.display !== 'flex') {
+      pre.style.display = 'flex';
+    }
+  };
+
+  document.getElementById('lobby-create').addEventListener('click', () => {
+    errEl.textContent = '';
+    NET.joinMode = 'create';
+    netConnect();
+  });
+  document.getElementById('lobby-join').addEventListener('click', () => {
+    const code = (document.getElementById('lobby-code').value || '').trim().toUpperCase();
+    if (!code) { errEl.textContent = 'enter a code'; return; }
+    errEl.textContent = '';
+    NET.joinMode = 'join';
+    NET.joinCode = code;
+    netConnect();
+  });
+  startBtn.addEventListener('click', () => {
+    if (NET.ws && NET.ws.readyState === WebSocket.OPEN) {
+      NET.ws.send(JSON.stringify({ type: 'start' }));
+    }
+  });
+})();
 
 requestAnimationFrame(loop);
 

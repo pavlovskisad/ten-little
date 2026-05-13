@@ -86,7 +86,11 @@ wss.on('connection', (ws) => {
     if (msg.type === 'start') {
       const room = rooms.get(roomCode);
       if (!room) return;
-      room.start();
+      if (!room.isHost(playerId)) {
+        send(ws, { type: 'error', message: 'only the host can start the round' });
+        return;
+      }
+      room.start('host');
       return;
     }
   });

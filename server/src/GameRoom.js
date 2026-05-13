@@ -30,15 +30,37 @@ class GameRoom {
     this.tickHandle = null;
     this.lobbyDeadline = Date.now() + COUNTDOWN_MS;
     this.startedAt = 0;
+    this.host = null;            // playerId of the room's creator
+    // Auto-start: if the host doesn't start early, kick off the round
+    // when the lobby countdown expires. Bots fill remaining seats.
+    this.autoStartHandle = setTimeout(() => this.start('auto'), COUNTDOWN_MS);
   }
 
   // Returns true if added, false if room is full or already started.
   addPlayer(playerId, ws) {
     if (this.state.phase !== 'lobby') return false;
     if (this.players.size >= MAX_PLAYERS) return false;
+    if (this.host === null) this.host = playerId;
     this.players.set(playerId, { ws, input: { dx: 0, dy: 0 }, figureId: null });
-    this.broadcast({ type: 'roster', count: this.players.size, max: MAX_PLAYERS });
+    this.broadcastRoster();
     return true;
+  }
+
+  // Roster broadcast carries countdown so clients can render a live timer
+  // without polling.
+  broadcastRoster() {
+    this.broadcast({
+      type: 'roster',
+      code: this.code,
+      count: this.players.size,
+      max: MAX_PLAYERS,
+      host: this.host,
+      countdownMs: Math.max(0, this.lobbyDeadline - Date.now()),
+    });
+  }
+
+  isHost(playerId) {
+    return this.host === playerId;
   }
 
   removePlayer(playerId) {
@@ -52,6 +74,13 @@ class GameRoom {
       const f = this.state.figs.find(x => x.id === p.figureId);
       if (f) f.isPlayer = false;
     }
+    // Host left → hand off to whoever's next in join order so the
+    // lobby can still be started by a remaining player.
+    if (this.host === playerId) {
+      const next = this.players.keys().next().value;
+      this.host = next || null;
+    }
+    if (this.state.phase === 'lobby') this.broadcastRoster();
   }
 
   setInput(playerId, dx, dy) {
@@ -62,19 +91,25 @@ class GameRoom {
   }
 
   // Start the round: fill remaining seats with bots, spawn figures,
-  // begin the tick loop.
-  start() {
+  // begin the tick loop. `reason` is 'host' when a host clicks start
+  // early, 'auto' when the countdown expires.
+  start(reason = 'host') {
     if (this.state.phase !== 'lobby') return;
+    if (this.autoStartHandle) { clearTimeout(this.autoStartHandle); this.autoStartHandle = null; }
     const humans = this.players.size;
     const bots = MAX_PLAYERS - humans;
 
     SIM.spawnBots(this.state, MAX_PLAYERS, this.rand);
     // Bind the first `humans` figures to connected players in join order.
+    // The player gets their figureId so the client can render the marker
+    // on the right body without guessing.
     let idx = 0;
-    for (const [, p] of this.players) {
+    const bindings = {};
+    for (const [pid, p] of this.players) {
       const fig = this.state.figs[idx++];
       fig.isPlayer = true;
       p.figureId = fig.id;
+      bindings[pid] = fig.id;
     }
     this.humansAtStart = humans;
     this.botsAtStart = bots;
@@ -82,13 +117,15 @@ class GameRoom {
     this.startedAt = Date.now();
     this.state.startedAt = this.startedAt;
 
-    this.broadcast({ type: 'start', humans, bots, seed: this.seed });
+    this.broadcast({ type: 'start', humans, bots, seed: this.seed, reason, bindings });
     this.tickHandle = setInterval(() => this.tick(), TICK_MS);
   }
 
   stop() {
     if (this.tickHandle) clearInterval(this.tickHandle);
+    if (this.autoStartHandle) clearTimeout(this.autoStartHandle);
     this.tickHandle = null;
+    this.autoStartHandle = null;
   }
 
   tick() {
