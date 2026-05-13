@@ -28,17 +28,13 @@
       input: { dx: 0, dy: 0 },
       startedAt: 0,
       deferredEndGameAt: null,
-      // Demo mode: title-screen background round with all bots. endGame
-      // loops back into a fresh demo instead of showing placement.
-      demo: false,
     };
   }
 
   // Reset the simulation portion of state in place. Caller is responsible
   // for tearing down any render-side resources (meshes, tweens) tied to
   // the old figures before calling this.
-  function resetState(S, opts = {}) {
-    S.demo = !!opts.demo;
+  function resetState(S) {
     S.figs = [];
     S.player = null;
     S.alive = 0;
