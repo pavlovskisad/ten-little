@@ -391,6 +391,7 @@
 <script src="./sim/util.js"></script>
 <script src="./sim/state.js"></script>
 <script src="./sim/figures.js"></script>
+<script src="./sim/hand.js"></script>
 <script>
 // Mobile dev console: append #debug to the URL to load eruda, which
 // gives a floating console UI on the page so we can read logs and
@@ -2445,90 +2446,18 @@ function botIntent(f, dt) {
 // CLAW state machine — same phases as the original hand
 // ============================================================
 function startHand() {
+  // Gate on the claw mesh being ready — the sim itself doesn't care, but
+  // without the rig loaded we'd skip rendering the descent.
   if (!handAnim.ready) {
     S.nextHandAt = S.t + 500;
     return;
   }
-  const aliveFigs = S.figs.filter(f => f.alive && !f.picked && !f.dropping);
-  if (aliveFigs.length === 0) return;
-  const zoneR = currentZoneR();
-  S.hand.zoneR = zoneR;
-
-  let target;
-  if (S.firstHand) {
-    let best = null, bestN = -1;
-    for (const a of aliveFigs) {
-      let n = 0;
-      for (const b of aliveFigs) {
-        if (a === b) continue;
-        const d = Math.hypot(a.x - b.x, a.z - b.z);
-        if (d < zoneR * 2.2) n++;
-      }
-      if (n > bestN) { bestN = n; best = a; }
-    }
-    target = best;
-    S.firstHand = false;
-  } else {
-    const weights = aliveFigs.map(a => {
-      let n = 0;
-      for (const b of aliveFigs) {
-        if (a === b) continue;
-        const d = Math.hypot(a.x - b.x, a.z - b.z);
-        if (d < zoneR * 2) n++;
-      }
-      return 1 + n * 1.5;
-    });
-    const total = weights.reduce((s, w) => s + w, 0);
-    let r = Math.random() * total;
-    target = aliveFigs[aliveFigs.length - 1];
-    for (let i = 0; i < aliveFigs.length; i++) {
-      r -= weights[i];
-      if (r <= 0) { target = aliveFigs[i]; break; }
-    }
-  }
-
-  S.hand.target = target;
-  S.hand.x = target.x;
-  S.hand.z = target.z;
-  S.hand.origX = target.x;
-  S.hand.origZ = target.z;
-  S.hand.aimTarget = null;
-  S.hand.phase = 'telegraph';
-  S.hand.t = 0;
-
-  S.hand.telegraphMs = lerp(700, 3300, Math.random());
-  S.hand.cooldownMs  = CFG.handCooldownMs * (0.70 + Math.random() * 0.60);
-  S.hand.approachMs = CFG.handApproachMs * (0.80 + Math.random() * 0.45);
-  S.hand.hoverMs    = CFG.handHoverMs    * (0.55 + Math.random() * 0.90);
-  S.hand.pinchMs    = CFG.handPinchMs    * (0.85 + Math.random() * 0.40);
-  S.hand.liftMs     = CFG.handLiftMs     * (0.90 + Math.random() * 0.25);
-  S.hand.approachArc = 1.0 + Math.random() * 0.8;
-  S.hand.liftArc     = 0.8 + Math.random() * 0.7;
-  S.hand.approachEaseMix = Math.random();
-  S.hand.hoverDriftAmp = Math.random() * 0.06;
-  S.hand.hoverDriftPhase = Math.random() * Math.PI * 2;
-  // claw test-grip plateau parameters (still applies — the claw hesitates briefly)
-  S.hand.holdStart = 0.36 + Math.random() * 0.10;
-  S.hand.holdEnd   = S.hand.holdStart + 0.10 + Math.random() * 0.10;
-  S.hand.holdLevel = 0.62 + Math.random() * 0.16;
-
-  // No position teleport — the claw was hanging at its idle pose
-  // and the telegraph branch in updateHand will lerp it toward the
-  // new target spot. Leaving its current position untouched here.
-
-  // claw cable hangs straight down; we still vary the assembly's incoming azimuth
-  // so the prong-1 direction varies grab-to-grab and the wrist tilt jitters
-  const azimuth = Math.random() * Math.PI * 2;
-  S.hand.azimuth = azimuth;
-  // (rotation also drifts smoothly via the telegraph aim wobble math,
-  // not snapped here)
-
+  const target = window.SIM.startHand(S);
+  if (!target) return;
+  // Render-side setup: wrist tilt jitter, prong open, reticle visibility.
   handAnim.tilt.rotation.x = handAnim.baseTiltX + (Math.random() - 0.5) * 0.08;
   handAnim.tilt.rotation.z = handAnim.baseTiltZ + (Math.random() - 0.5) * 0.08;
-
-  // open all prongs
   setAllProngs(0);
-
   reticleGroup.visible = true;
   reticleGroup.position.set(target.x, 0, target.z);
 }
