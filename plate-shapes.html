@@ -2618,10 +2618,6 @@ function updateHand(dt) {
     // ease tilt back toward base before approach takes over
     handAnim.tilt.rotation.x += (handAnim.baseTiltX - handAnim.tilt.rotation.x) * kr;
     handAnim.tilt.rotation.z += (handAnim.baseTiltZ - handAnim.tilt.rotation.z) * kr;
-    if (S.hand.t >= S.hand.telegraphMs) {
-      S.hand.phase = 'approach';
-      S.hand.t = 0;
-    }
   } else if (S.hand.phase === 'approach') {
     const k = Math.min(1, S.hand.t / S.hand.approachMs);
     const wob = Math.sin(tSec * 7.3) * 0.04 * (1 - k);
@@ -2631,20 +2627,11 @@ function updateHand(dt) {
     handGroup.rotation.y = S.hand.azimuth + aim;
     // hold prongs open during descent
     setAllProngs(0);
-    if (S.hand.t >= S.hand.approachMs) {
-      S.hand.phase = 'hover';
-      S.hand.t = 0;
-      captureFiguresInZone();
-    }
   } else if (S.hand.phase === 'hover') {
     // micro mechanical "breath" — prongs twitch slightly inward as the claw decides
     const k = Math.min(1, S.hand.t / S.hand.hoverMs);
     const breath = Math.sin(k * Math.PI) * 0.18;
     setAllProngs(breath);
-    if (S.hand.t >= S.hand.hoverMs) {
-      S.hand.phase = 'pinch';
-      S.hand.t = 0;
-    }
   } else if (S.hand.phase === 'pinch') {
     // Two-stage pinch with test-grip plateau, applied to all three prongs
     // with tiny per-prong delays so it reads as mechanical, not robotic.
@@ -2664,10 +2651,6 @@ function updateHand(dt) {
       const localT = Math.max(0, Math.min(1, (k - delays[i]) / (1 - delays[i])));
       setProng(i, pinchCurve(localT));
     }
-    if (S.hand.t >= S.hand.pinchMs) {
-      S.hand.phase = 'lift';
-      S.hand.t = 0;
-    }
   } else if (S.hand.phase === 'lift') {
     const k = Math.min(1, S.hand.t / S.hand.liftMs);
     // slight twist on the cable assembly as it draws up
@@ -2678,13 +2661,16 @@ function updateHand(dt) {
     const fade = 1 - k;
     retFill.material.opacity = 0.38 * fade;
     retOutline.material.opacity = fade;
-    if (S.hand.t >= S.hand.liftMs) {
-      S.hand.phase = 'idle';
-      // Claw stays visible — it drifts back to its idle hang in
-      // the idle branch above.
-      reticleGroup.visible = false;
-      S.nextHandAt = S.t + S.hand.cooldownMs;
-    }
+  }
+
+  // Phase transitions live in sim/hand.js. The client only owns the side
+  // effects for each transition: captureFiguresInZone at approach→hover,
+  // reticle hide at lift→idle. (Claw mesh stays visible — it drifts back
+  // to its idle hang in the idle branch above.)
+  const events = window.SIM.advanceHandPhase(S);
+  for (const ev of events) {
+    if (ev.from === 'approach' && ev.to === 'hover') captureFiguresInZone();
+    if (ev.from === 'lift' && ev.to === 'idle') reticleGroup.visible = false;
   }
 }
 

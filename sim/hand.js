@@ -189,7 +189,36 @@
     return captured;
   }
 
-  const api = { startHand, tickPredatorAim, captureInZone };
+  // Walk the claw state machine forward when its current phase's timer has
+  // run out. Returns the list of transitions that fired this tick so the
+  // client can run their side effects (capture, reticle visibility, etc.).
+  // Time advancement (S.hand.t += dt * 1000) is the caller's job; this
+  // function only reads S.hand.t.
+  function advanceHandPhase(S) {
+    if (S.hand.phase === 'idle') return [];
+    const transitions = [];
+    const phase = S.hand.phase;
+    if (phase === 'telegraph' && S.hand.t >= S.hand.telegraphMs) {
+      S.hand.phase = 'approach'; S.hand.t = 0;
+      transitions.push({ from: 'telegraph', to: 'approach' });
+    } else if (phase === 'approach' && S.hand.t >= S.hand.approachMs) {
+      S.hand.phase = 'hover'; S.hand.t = 0;
+      transitions.push({ from: 'approach', to: 'hover' });
+    } else if (phase === 'hover' && S.hand.t >= S.hand.hoverMs) {
+      S.hand.phase = 'pinch'; S.hand.t = 0;
+      transitions.push({ from: 'hover', to: 'pinch' });
+    } else if (phase === 'pinch' && S.hand.t >= S.hand.pinchMs) {
+      S.hand.phase = 'lift'; S.hand.t = 0;
+      transitions.push({ from: 'pinch', to: 'lift' });
+    } else if (phase === 'lift' && S.hand.t >= S.hand.liftMs) {
+      S.hand.phase = 'idle';
+      S.nextHandAt = S.t + S.hand.cooldownMs;
+      transitions.push({ from: 'lift', to: 'idle' });
+    }
+    return transitions;
+  }
+
+  const api = { startHand, tickPredatorAim, captureInZone, advanceHandPhase };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {
