@@ -43,25 +43,24 @@
     width: 1px; height: 1px; opacity: 0; pointer-events: none;
   }
 
-  /* Mute toggle in the bottom-left corner. Stays out of the way
-     of the joystick (which sits bottom-right on mobile). */
-  #muteBtn {
-    position: fixed; z-index: 15;
-    bottom: calc(env(safe-area-inset-bottom) + 24px);
-    left: calc(env(safe-area-inset-left) + 24px);
-    width: 44px; height: 44px;
-    background: transparent;
-    border: 1px solid rgba(255,255,255,0.35);
-    color: #ffffff;
-    font-family: 'VT323', monospace;
-    font-size: 22px; line-height: 1;
-    cursor: pointer;
+  /* Boombox + tape mini-scene, fixed in the bottom-left corner.
+     The user drags the tape onto the boombox to start the music
+     and taps the boombox to pause + eject the tape. Stays out of
+     the joystick's way (joystick sits bottom-right on mobile). */
+  #bb-canvas {
+    position: fixed; z-index: 16;
+    bottom: calc(env(safe-area-inset-bottom) + 8px);
+    left: calc(env(safe-area-inset-left) + 8px);
+    width: 260px; height: 190px;
     pointer-events: auto;
-    transition: background 0.15s, color 0.15s, opacity 0.15s;
-    opacity: 0.65;
+    touch-action: none;
+    cursor: default;
   }
-  #muteBtn:hover { opacity: 1; background: rgba(255,255,255,0.10); }
-  #muteBtn.muted { opacity: 0.35; }
+  #bb-canvas.grabbable { cursor: grab; }
+  #bb-canvas.grabbing  { cursor: grabbing; }
+  @media (max-width: 520px) {
+    #bb-canvas { width: 210px; height: 155px; }
+  }
 
   /* grain overlay */
   body::after {
@@ -345,8 +344,9 @@
 <iframe id="sc-iframe" frameborder="0" allow="autoplay"
         src="https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fmixtape-exclusives%2Fvol-44-best-of-dj-premier-pt-2&auto_play=false&hide_related=true&show_comments=false&show_user=false&show_reposts=false&visual=false"></iframe>
 
-<!-- Mute toggle, fixed bottom-left corner -->
-<button id="muteBtn" type="button">♫</button>
+<!-- Boombox + tape mini-scene: drag tape onto boombox to start
+     music, tap a playing boombox to pause and eject the tape. -->
+<canvas id="bb-canvas"></canvas>
 
 <div id="hud" class="hud">
   <div id="hud-bar">
@@ -439,12 +439,12 @@ function seekToRandomStart() {
   } catch (e) { console.warn('[sc] seek failed', e); }
 }
 
-// Enter button only enables when BOTH the character GLB and the
-// SoundCloud widget are ready. That way the synchronous play()
-// call inside the click handler has a widget that's actually
-// ready to receive it — critical for mobile audio unlock.
+// Enter button enables as soon as the character GLB is ready.
+// Music isn't tied to Enter anymore — the user starts it manually
+// by dragging the tape onto the boombox (a separate user gesture
+// that satisfies mobile autoplay rules on its own).
 function maybeEnableEnter() {
-  if (!runnerLoaded || !scReady) return;
+  if (!runnerLoaded) return;
   const btn = document.getElementById('start');
   if (btn) {
     btn.textContent = 'enter';
@@ -590,19 +590,339 @@ function startMusicIfNeeded() {
 
 document.addEventListener('DOMContentLoaded', () => {
   initSoundCloud();
-  const btn = document.getElementById('muteBtn');
-  if (btn) {
-    btn.addEventListener('click', () => {
-      scMuted = !scMuted;
-      btn.classList.toggle('muted', scMuted);
-      btn.textContent = scMuted ? '✕' : '♫';
-      if (scWidget) {
-        if (scMuted) scWidget.pause();
-        else if (scStarted) scWidget.play();
-      }
-    });
-  }
+  initBoombox();
 });
+
+// Public hooks the boombox scene calls when the tape lands or the
+// user taps the playing deck. Keep the SC plumbing here; the
+// boombox module just signals "play" / "pause" / "is-playing?".
+function bbStartMusic() {
+  // First insert ever — run the full mobile-unlock burst. After
+  // that, subsequent inserts just play (audio context is unlocked).
+  if (!scStarted) {
+    startMusicIfNeeded();
+    return;
+  }
+  if (!scWidget) return;
+  try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
+  try { scWidget.play(); } catch (_) {}
+  // Re-roll the random start point for each fresh insert.
+  setTimeout(seekToRandomStart, 200);
+}
+function bbStopMusic() {
+  if (!scWidget) return;
+  try { scWidget.pause(); } catch (_) {}
+}
+
+// ============================================================
+// BOOMBOX + TAPE — mini three.js scene, bottom-left corner.
+// Drag the tape onto the boombox to start music. Tap a playing
+// boombox to pause and eject the tape. Replaces the old mute
+// toggle with something you actually want to touch.
+// ============================================================
+const BB = {
+  canvas: null,
+  renderer: null,
+  scene: null,
+  camera: null,
+  raycaster: null,
+  pointerNDC: { x: 0, y: 0 },
+  boombox: null,             // THREE.Group
+  tape: null,                // THREE.Group
+  tapeHome: new THREE.Vector3(),
+  tapeDocked: new THREE.Vector3(),
+  // State: 'idle' (tape at home, no music) | 'dragging' (user holds tape)
+  //      | 'playing' (tape docked, music plays) | 'returning' (tape tweens home)
+  //      | 'docking' (tape tweens into deck)
+  state: 'idle',
+  dragPointerId: null,
+  dragStartXY: { x: 0, y: 0 },
+  dragMoved: false,
+  dragPlane: new THREE.Plane(),
+  dragGrabOffset: new THREE.Vector3(),
+  tween: null,               // { from, to, t, dur, onDone }
+  bobPhase: 0,
+  needsRender: true,
+};
+
+function initBoombox() {
+  const canvas = document.getElementById('bb-canvas');
+  if (!canvas) return;
+  BB.canvas = canvas;
+
+  BB.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  BB.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  resizeBoombox();
+
+  BB.scene = new THREE.Scene();
+  // Cool stage-light fill so the plastic and label colors pop.
+  const amb = new THREE.AmbientLight(0xffffff, 0.85);
+  BB.scene.add(amb);
+  const key = new THREE.DirectionalLight(0xffffff, 1.0);
+  key.position.set(2, 3, 4);
+  BB.scene.add(key);
+  const rim = new THREE.DirectionalLight(0xffd9b0, 0.55);
+  rim.position.set(-3, 1, -2);
+  BB.scene.add(rim);
+
+  BB.camera = new THREE.PerspectiveCamera(28, canvas.clientWidth / canvas.clientHeight, 0.1, 50);
+  BB.camera.position.set(0, 0.4, 6.2);
+  BB.camera.lookAt(0, 0, 0);
+
+  BB.raycaster = new THREE.Raycaster();
+
+  // Load both models, then arrange + show.
+  const loader = new THREE.GLTFLoader();
+  let loadedBoom = null, loadedTape = null;
+  const tryArrange = () => {
+    if (!loadedBoom || !loadedTape) return;
+    arrangeBoomboxScene(loadedBoom, loadedTape);
+    BB.canvas.classList.add('grabbable');
+    BB.needsRender = true;
+  };
+  loader.load('./boombox.glb', (gltf) => { loadedBoom = gltf.scene; tryArrange(); },
+    undefined, (err) => console.warn('[bb] boombox load failed', err));
+  loader.load('./tape.glb', (gltf) => { loadedTape = gltf.scene; tryArrange(); },
+    undefined, (err) => console.warn('[bb] tape load failed', err));
+
+  bindBoomboxPointerEvents();
+  window.addEventListener('resize', resizeBoombox);
+}
+
+function resizeBoombox() {
+  if (!BB.canvas || !BB.renderer) return;
+  const w = BB.canvas.clientWidth;
+  const h = BB.canvas.clientHeight;
+  BB.renderer.setSize(w, h, false);
+  if (BB.camera) {
+    BB.camera.aspect = w / h;
+    BB.camera.updateProjectionMatrix();
+  }
+  BB.needsRender = true;
+}
+
+// Normalize a loaded GLB to a target world height (bounding box).
+// Returns a THREE.Group with the model centered at origin, scaled
+// so its tallest dimension matches `targetH`.
+function normalizeModel(modelRoot, targetH) {
+  const box = new THREE.Box3().setFromObject(modelRoot);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const scale = targetH / maxDim;
+
+  const wrap = new THREE.Group();
+  modelRoot.position.sub(center);          // center on origin
+  modelRoot.scale.setScalar(scale);
+  modelRoot.position.multiplyScalar(scale);
+  wrap.add(modelRoot);
+  return wrap;
+}
+
+function arrangeBoomboxScene(boomboxGLB, tapeGLB) {
+  // Boombox: bigger of the two. Tape: oversized vs reality so it's
+  // an easy grab target on a phone.
+  BB.boombox = normalizeModel(boomboxGLB, 1.6);
+  BB.tape = normalizeModel(tapeGLB, 0.95);
+
+  // Position: boombox slightly left of center; tape floating to the
+  // right of it, a bit elevated so it reads like it's hovering.
+  BB.boombox.position.set(-0.55, -0.05, 0);
+  // Subtle 3/4 angle on the boombox so the deck face is visible.
+  BB.boombox.rotation.y = 0.28;
+
+  BB.tapeHome.set(0.95, 0.05, 0.25);
+  // "Docked" pose: tucked into the deck, slightly behind boombox front.
+  BB.tapeDocked.set(-0.55, -0.05, -0.15);
+
+  BB.tape.position.copy(BB.tapeHome);
+  BB.tape.rotation.y = -0.18;
+
+  BB.scene.add(BB.boombox);
+  BB.scene.add(BB.tape);
+}
+
+function pointerToNDC(clientX, clientY) {
+  const rect = BB.canvas.getBoundingClientRect();
+  BB.pointerNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  BB.pointerNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+}
+
+function raycastHit(target) {
+  if (!target) return null;
+  BB.raycaster.setFromCamera(BB.pointerNDC, BB.camera);
+  const hits = BB.raycaster.intersectObject(target, true);
+  return hits.length ? hits[0] : null;
+}
+
+function bindBoomboxPointerEvents() {
+  const c = BB.canvas;
+
+  c.addEventListener('pointerdown', (e) => {
+    if (!BB.boombox || !BB.tape) return;
+    pointerToNDC(e.clientX, e.clientY);
+
+    // First check: did the user grab the tape? (Only when idle.)
+    if (BB.state === 'idle') {
+      const hit = raycastHit(BB.tape);
+      if (hit) {
+        BB.state = 'dragging';
+        BB.dragPointerId = e.pointerId;
+        BB.dragStartXY = { x: e.clientX, y: e.clientY };
+        BB.dragMoved = false;
+        // Set up a drag plane parallel to the camera passing through
+        // the tape, so screen-space drag maps cleanly to world motion.
+        const camDir = new THREE.Vector3();
+        BB.camera.getWorldDirection(camDir);
+        BB.dragPlane.setFromNormalAndCoplanarPoint(camDir, BB.tape.position);
+        // Where on the tape did we grab? Keep that offset so the tape
+        // doesn't snap its center under the pointer on grab.
+        BB.dragGrabOffset.copy(BB.tape.position).sub(hit.point);
+        c.setPointerCapture(e.pointerId);
+        c.classList.add('grabbing');
+        e.preventDefault();
+        return;
+      }
+    }
+
+    // Second check: did the user tap the playing boombox?
+    if (BB.state === 'playing') {
+      const hit = raycastHit(BB.boombox);
+      if (hit) {
+        BB.dragPointerId = e.pointerId;
+        BB.dragStartXY = { x: e.clientX, y: e.clientY };
+        BB.dragMoved = false;
+        c.setPointerCapture(e.pointerId);
+        e.preventDefault();
+      }
+    }
+  });
+
+  c.addEventListener('pointermove', (e) => {
+    if (BB.state !== 'dragging' || e.pointerId !== BB.dragPointerId) return;
+    pointerToNDC(e.clientX, e.clientY);
+    BB.raycaster.setFromCamera(BB.pointerNDC, BB.camera);
+    const hitPoint = new THREE.Vector3();
+    if (BB.raycaster.ray.intersectPlane(BB.dragPlane, hitPoint)) {
+      hitPoint.add(BB.dragGrabOffset);
+      BB.tape.position.copy(hitPoint);
+      BB.needsRender = true;
+    }
+    if (Math.abs(e.clientX - BB.dragStartXY.x) > 4 ||
+        Math.abs(e.clientY - BB.dragStartXY.y) > 4) {
+      BB.dragMoved = true;
+    }
+    e.preventDefault();
+  });
+
+  const finishPointer = (e) => {
+    if (e.pointerId !== BB.dragPointerId) return;
+    try { c.releasePointerCapture(e.pointerId); } catch (_) {}
+    c.classList.remove('grabbing');
+
+    // Tap path: pointer didn't move much.
+    if (!BB.dragMoved) {
+      // Tap on playing boombox → pause + eject tape.
+      if (BB.state === 'playing') {
+        pointerToNDC(e.clientX, e.clientY);
+        if (raycastHit(BB.boombox)) {
+          ejectTape();
+        }
+      } else if (BB.state === 'dragging') {
+        // User just tapped the tape without dragging — send it home
+        // (no-op visually since it's already there) and stay idle.
+        BB.state = 'idle';
+      }
+      BB.dragPointerId = null;
+      return;
+    }
+
+    // Drag-release path: did the tape land on the boombox?
+    if (BB.state === 'dragging') {
+      pointerToNDC(e.clientX, e.clientY);
+      const onBox = raycastHit(BB.boombox);
+      if (onBox) {
+        dockTape();
+      } else {
+        returnTapeHome();
+      }
+    }
+    BB.dragPointerId = null;
+  };
+  c.addEventListener('pointerup', finishPointer);
+  c.addEventListener('pointercancel', finishPointer);
+}
+
+function dockTape() {
+  BB.state = 'docking';
+  startTween(BB.tape.position, BB.tapeDocked, 0.35, () => {
+    BB.tape.visible = false;
+    BB.state = 'playing';
+    bbStartMusic();
+  });
+}
+
+function ejectTape() {
+  BB.state = 'returning';
+  BB.tape.visible = true;
+  // Lift out of the deck first, then drift to home.
+  const liftPos = new THREE.Vector3(BB.tapeDocked.x, BB.tapeDocked.y + 0.5, BB.tapeDocked.z + 0.4);
+  BB.tape.position.copy(liftPos);
+  startTween(BB.tape.position, BB.tapeHome, 0.45, () => {
+    BB.state = 'idle';
+  });
+  bbStopMusic();
+}
+
+function returnTapeHome() {
+  BB.state = 'returning';
+  startTween(BB.tape.position, BB.tapeHome, 0.35, () => {
+    BB.state = 'idle';
+  });
+}
+
+function startTween(targetVec, dest, dur, onDone) {
+  BB.tween = {
+    from: targetVec.clone(),
+    to: dest.clone(),
+    target: targetVec,
+    t: 0,
+    dur: dur,
+    onDone: onDone || null,
+  };
+}
+
+function stepTween(dt) {
+  const tw = BB.tween;
+  if (!tw) return;
+  tw.t = Math.min(1, tw.t + dt / tw.dur);
+  const e = tw.t < 0.5
+    ? 2 * tw.t * tw.t
+    : 1 - Math.pow(-2 * tw.t + 2, 2) / 2;     // ease-in-out quad
+  tw.target.lerpVectors(tw.from, tw.to, e);
+  BB.needsRender = true;
+  if (tw.t >= 1) {
+    const done = tw.onDone;
+    BB.tween = null;
+    if (done) done();
+  }
+}
+
+function updateBoomboxScene(dt) {
+  if (!BB.renderer || !BB.scene || !BB.camera) return;
+  if (BB.tween) stepTween(dt);
+  // Idle bob on the tape when it's resting in its home spot.
+  if (BB.tape && BB.tape.visible && BB.state === 'idle') {
+    BB.bobPhase += dt * 1.6;
+    BB.tape.position.y = BB.tapeHome.y + Math.sin(BB.bobPhase) * 0.04;
+    BB.tape.rotation.z = Math.sin(BB.bobPhase * 0.7) * 0.05;
+    BB.needsRender = true;
+  }
+  if (BB.needsRender) {
+    BB.renderer.render(BB.scene, BB.camera);
+    BB.needsRender = false;
+  }
+}
 
 // ============================================================
 // CONFIG — tune these
@@ -2847,6 +3167,7 @@ function loop(now) {
   fitCameraTarget();
   tickCamera(dt);
   renderer.render(scene, camera);
+  updateBoomboxScene(dt);
   requestAnimationFrame(loop);
 }
 
@@ -2892,8 +3213,6 @@ function reset() {
 document.getElementById('start').addEventListener('click', () => {
   document.getElementById('title').classList.add('gone');
   setTimeout(() => document.getElementById('title').remove(), 700);
-  // user gesture — satisfies the autoplay requirement on mobile
-  startMusicIfNeeded();
   reset();
 });
 document.getElementById('again').addEventListener('click', () => {
