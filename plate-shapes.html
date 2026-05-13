@@ -36,14 +36,7 @@
   button { -webkit-tap-highlight-color: transparent; }
   canvas#c { display: block; position: fixed; inset: 0; width: 100%; height: 100dvh; }
 
-  /* SoundCloud iframe — on-screen (1px) but visually invisible.
-     WebKit refuses to play audio in iframes it considers off-screen
-     or hidden, so position it at 0,0 with opacity 0.01. */
-  #sc-iframe {
-    position: fixed; left: 0; top: 0;
-    width: 1px; height: 1px;
-    opacity: 0.01; pointer-events: none; z-index: -1;
-  }
+  /* (SoundCloud iframe removed — back to HTML5 <audio> element) */
 
   /* Boombox + tape mini-scene, fixed in the bottom-left corner.
      The user drags the tape onto the boombox to start the music
@@ -343,11 +336,6 @@
 <body>
 <canvas id="c"></canvas>
 
-<!-- Hidden SoundCloud widget — kept on-screen (1px in the top-left)
-     but visually invisible so the widget API can talk to it and
-     WebKit's media-policy sees it as "visible". -->
-<iframe id="sc-iframe" frameborder="0" allow="autoplay"
-        src=""></iframe>
 
 
 <!-- Boombox + tape mini-scene: drag tape onto boombox to start
@@ -395,7 +383,6 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
-<script src="https://w.soundcloud.com/player/api.js"></script>
 <script>
 // Mobile dev console: append #debug to the URL to load eruda, which
 // gives a floating console UI on the page so we can read logs and
@@ -411,36 +398,46 @@ if (location.hash.includes('debug')) {
 'use strict';
 
 // ============================================================
-// MUSIC — SoundCloud Widget API. Drop full mix URLs into MIXES;
-// each user gesture picks one at random. Random start point inside
-// the first MAX_RANDOM_START_RATIO of the track so the user doesn't
-// land at the very tail. Audio output is unlocked on iOS by a
-// silent preflight on the first user pointerdown anywhere on the
-// page (see preflightAudio).
+// MUSIC — HTML5 <audio>. Self-hosted mp3 in the repo. iOS Safari
+// handles this reliably under a user gesture. Drop one or more
+// URLs (relative paths or absolute) into MIX_URLS — when a mix
+// ends, a random one is picked next. Volume sits low so the music
+// is background, not foreground.
 // ============================================================
-const MIXES = [
-  'https://soundcloud.com/mixtape-exclusives/vol-44-best-of-dj-premier-pt-2',
+const MIX_URLS = [
+  './mix_short.mp3',
 ];
 const MAX_RANDOM_START_RATIO = 0.6;
-const SC_VOLUME = 35;            // 0..100
+const AUDIO_VOLUME = 0.35;       // 0..1
 
-let scWidget = null;
-let scStarted = false;
+let audioElement = null;
+let audioStarted = false;
 
 function pickRandomMix() {
-  if (MIXES.length === 0) return null;
-  return MIXES[Math.floor(Math.random() * MIXES.length)];
+  if (MIX_URLS.length === 0) return null;
+  return MIX_URLS[Math.floor(Math.random() * MIX_URLS.length)];
 }
 
+// Set audio.currentTime to a fresh random spot in the first
+// MAX_RANDOM_START_RATIO of the track. Logs both the target and the
+// post-seek value so we can verify in eruda whether the seek stuck.
 function seekToRandomStart() {
-  if (!scWidget) return;
-  try {
-    scWidget.getDuration((dur) => {
-      if (!dur || dur < 1000) return;
-      const startMs = Math.floor(Math.random() * dur * MAX_RANDOM_START_RATIO);
-      scWidget.seekTo(startMs);
-    });
-  } catch (e) { console.warn('[sc] seek failed', e); }
+  if (!audioElement) return;
+  const dur = audioElement.duration;
+  if (!isFinite(dur) || dur < 1) {
+    console.log('[audio] seek skipped — no duration yet');
+    return;
+  }
+  const target = Math.random() * dur * MAX_RANDOM_START_RATIO;
+  const before = audioElement.currentTime;
+  audioElement.currentTime = target;
+  console.log('[audio] seek → target', target.toFixed(1), 'from', before.toFixed(1));
+  // Confirm post-seek (browsers sometimes clamp or revert).
+  setTimeout(() => {
+    if (audioElement) {
+      console.log('[audio] after-seek currentTime:', audioElement.currentTime.toFixed(1));
+    }
+  }, 250);
 }
 
 // Enter button enables as soon as the character GLB is ready.
@@ -456,105 +453,96 @@ function maybeEnableEnter() {
   }
 }
 
-function initSoundCloud() {
-  const iframe = document.getElementById('sc-iframe');
-  if (!iframe || typeof SC === 'undefined' || !SC.Widget) {
-    console.warn('[sc] API not available — music disabled');
-    return;
-  }
-  // Point the iframe at the first mix with auto_play=false. The
-  // widget gets fully primed by the time the user interacts.
-  const url = pickRandomMix();
-  iframe.src = 'https://w.soundcloud.com/player/?url=' +
-    encodeURIComponent(url) +
-    '&auto_play=false&hide_related=true&show_comments=false' +
-    '&show_user=false&show_reposts=false&visual=false';
-
-  scWidget = SC.Widget(iframe);
-  scWidget.bind(SC.Widget.Events.READY, () => {
-    console.log('[sc] widget ready');
-    try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
+function initAudio() {
+  audioElement = new Audio();
+  audioElement.src = pickRandomMix() || '';
+  audioElement.preload = 'auto';
+  audioElement.volume = AUDIO_VOLUME;
+  audioElement.loop = false;
+  // iOS playsinline hints — needed for some embedded contexts.
+  audioElement.setAttribute('playsinline', '');
+  audioElement.setAttribute('webkit-playsinline', '');
+  audioElement.addEventListener('loadedmetadata', () => {
+    console.log('[audio] metadata loaded, duration:', audioElement.duration.toFixed(1));
   });
-  scWidget.bind(SC.Widget.Events.PLAY_PROGRESS, function once() {
-    console.log('[sc] PLAY_PROGRESS — audio is playing!');
-    try { scWidget.unbind(SC.Widget.Events.PLAY_PROGRESS); } catch (_) {}
+  audioElement.addEventListener('playing', () => {
+    console.log('[audio] playing');
   });
-  scWidget.bind(SC.Widget.Events.FINISH, () => {
-    // Loop: load another random mix with auto_play=true. By this
-    // point the iframe has been audio-unlocked, so subsequent
-    // auto_play works normally.
-    const next = pickRandomMix();
-    scWidget.load(next, {
-      auto_play: true,
-      hide_related: true,
-      show_comments: false,
-      show_user: false,
-      show_reposts: false,
-      visual: false,
-      callback: () => {
-        try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
-        seekToRandomStart();
-      },
-    });
+  audioElement.addEventListener('seeked', () => {
+    console.log('[audio] seeked → currentTime', audioElement.currentTime.toFixed(1));
   });
-  scWidget.bind(SC.Widget.Events.ERROR, (err) => {
-    console.warn('[sc] widget error', err);
+  audioElement.addEventListener('error', (e) => {
+    console.warn('[audio] error', e, audioElement.error && audioElement.error.message);
+  });
+  audioElement.addEventListener('ended', () => {
+    // Loop with a new random mix and a fresh random start point.
+    audioElement.src = pickRandomMix() || '';
+    audioElement.addEventListener('loadedmetadata', () => {
+      seekToRandomStart();
+      audioElement.play().catch((err) => console.warn('[audio] replay failed', err));
+    }, { once: true });
   });
 }
 
-// iOS audio preflight: on the user's very first pointerdown
-// anywhere on the page, silently call scWidget.play() then pause().
-// iOS's media-engagement heuristic rejects/mutes the first audio
-// attempt from a fresh page but marks the iframe as "attempted",
-// so the user's actual tape-drop becomes the second call — which
-// iOS allows audibly.
+// iOS audio preflight. On a fresh page load, iOS's media-engagement
+// heuristic rejects the very first audio.play() — even inside a user
+// gesture — but it marks the element as "attempted" so the SECOND
+// play() call goes through. Run a silent preflight (muted play +
+// immediate pause) on the user's first interaction anywhere on the
+// page so the user's actual tape-drop is already the second call.
 let audioPreflighted = false;
 function preflightAudio() {
-  if (audioPreflighted || !scWidget) return;
+  if (audioPreflighted || !audioElement) return;
   audioPreflighted = true;
-  try {
-    // Minimal preflight: one play+pause inside the first user gesture.
-    // iOS marks the iframe as user-engaged on the first attempted play
-    // so the user's actual tape-drop becomes the second call — which
-    // ideally produces audible audio. Skip volume gymnastics: setting
-    // volume to 0 before play and restoring after seems to leave the
-    // widget in a muted state on some iOS versions.
-    scWidget.play();
-    scWidget.pause();
-    console.log('[sc] preflight done');
-  } catch (e) { console.warn('[sc] preflight failed', e); }
+  audioElement.muted = true;
+  const p = audioElement.play();
+  if (p && p.then) {
+    p.then(() => {
+      audioElement.pause();
+      audioElement.muted = false;
+      console.log('[audio] preflight succeeded');
+    }).catch((err) => {
+      audioElement.muted = false;
+      console.log('[audio] preflight rejected (expected on iOS):', err.message);
+    });
+  } else {
+    audioElement.muted = false;
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  initSoundCloud();
+  initAudio();
   initBoombox();
-  // First pointerdown anywhere — Enter button, joystick, tape, doesn't
-  // matter — runs the preflight once. Capture phase so it always
-  // fires before the target element's own handlers.
+  // First pointerdown anywhere — Enter, joystick, tape, anywhere —
+  // runs the preflight once.
   document.addEventListener('pointerdown', preflightAudio, { once: true, capture: true });
 });
 
 // Public hooks the boombox scene calls when the tape lands or the
 // user taps the playing deck.
 function bbStartMusic() {
-  console.log('[bb] startMusic, scStarted=', scStarted, 'scWidget=', !!scWidget);
-  if (!scWidget) return;
-  // play() must be the only media-state call inside the gesture
-  // frame so iOS doesn't reject it. Volume was pre-set in READY;
-  // the seek to a random spot happens after a tick, outside the
-  // gesture, via setTimeout.
-  try { scWidget.play(); } catch (e) { console.warn('[bb] play failed', e); }
-  if (!scStarted) {
-    scStarted = true;
-    setTimeout(seekToRandomStart, 250);
-  } else {
-    // On re-insert, pick a fresh random spot too.
-    setTimeout(seekToRandomStart, 250);
+  console.log('[bb] startMusic, audioStarted=', audioStarted);
+  if (!audioElement) initAudio();
+  if (!audioElement) return;
+  // play() must be the only media-state call in this gesture frame.
+  // iOS rejects play() if setters preceded it. Seek runs AFTER play
+  // resolves — at that point the audio is actively playing and iOS
+  // will honor the seek. There's a fraction-of-a-second of the
+  // previous position audible before the jump.
+  const p = audioElement.play();
+  if (p && p.then) {
+    p.then(() => {
+      console.log('[bb] audio play() succeeded');
+      audioStarted = true;
+      seekToRandomStart();
+    }).catch((err) => {
+      console.warn('[bb] audio play() rejected:', err.message || err);
+    });
   }
 }
 function bbStopMusic() {
-  if (!scWidget) return;
-  try { scWidget.pause(); } catch (_) {}
+  if (!audioElement) return;
+  audioElement.pause();
 }
 
 // ============================================================
@@ -869,8 +857,9 @@ function ejectTape() {
   BB.tape.position.copy(liftPos);
   startTween(BB.tape.position, BB.tapeHome, 0.45, () => {
     BB.state = 'idle';
-    // Pre-seek to a fresh random spot for the next insert.
-    if (scWidget) seekToRandomStart();
+    // (No pre-seek here. With HTML5 audio, setting currentTime
+    // outside a play context can cause iOS to reject the subsequent
+    // play(). The seek runs in bbStartMusic AFTER play() resolves.)
   });
   bbStopMusic();
 }
