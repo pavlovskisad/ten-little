@@ -513,17 +513,14 @@ function preflightAudio() {
   if (audioPreflighted || !scWidget) return;
   audioPreflighted = true;
   try {
-    scWidget.setVolume(0);     // silent so user doesn't hear anything
-    // Two play+pause cycles inside the gesture: the SC widget on iOS
-    // tends to need multiple play attempts before audio becomes
-    // audible (the "eject and re-insert" pattern the user found
-    // manually). Burning through that here lets the user's actual
-    // tape-drop be the call that produces sound.
+    // Minimal preflight: one play+pause inside the first user gesture.
+    // iOS marks the iframe as user-engaged on the first attempted play
+    // so the user's actual tape-drop becomes the second call — which
+    // ideally produces audible audio. Skip volume gymnastics: setting
+    // volume to 0 before play and restoring after seems to leave the
+    // widget in a muted state on some iOS versions.
     scWidget.play();
     scWidget.pause();
-    scWidget.play();
-    scWidget.pause();
-    scWidget.setVolume(SC_VOLUME);
     console.log('[sc] preflight done');
   } catch (e) { console.warn('[sc] preflight failed', e); }
 }
