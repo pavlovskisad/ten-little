@@ -36,17 +36,6 @@
   button { -webkit-tap-highlight-color: transparent; }
   canvas#c { display: block; position: fixed; inset: 0; width: 100%; height: 100dvh; }
 
-  /* SoundCloud iframe — kept on-screen (top-left corner) but visually
-     invisible. WebKit / iOS Safari refuses to play audio from iframes
-     it considers "off-screen / hidden", so we sit it at 0,0 with
-     opacity 0.01 (not 0) and 1x1 size. That's enough to count as
-     "visible" to the media policy without showing the SC widget. */
-  #sc-iframe {
-    position: fixed; left: 0; top: 0;
-    width: 1px; height: 1px;
-    opacity: 0.01; pointer-events: none; z-index: -1;
-  }
-
   /* Boombox + tape mini-scene, fixed in the bottom-left corner.
      The user drags the tape onto the boombox to start the music
      and taps the boombox to pause + eject the tape. Stays out of
@@ -55,7 +44,7 @@
     position: fixed; z-index: 30;
     bottom: calc(env(safe-area-inset-bottom) + 8px);
     left: calc(env(safe-area-inset-left) + 8px);
-    width: 260px; height: 190px;
+    width: 365px; height: 265px;
     pointer-events: auto;
     touch-action: none;
     cursor: default;
@@ -63,7 +52,7 @@
   #bb-canvas.grabbable { cursor: grab; }
   #bb-canvas.grabbing  { cursor: grabbing; }
   @media (max-width: 520px) {
-    #bb-canvas { width: 210px; height: 155px; }
+    #bb-canvas { width: 295px; height: 215px; }
   }
 
   /* grain overlay */
@@ -342,11 +331,6 @@
 <body>
 <canvas id="c"></canvas>
 
-<!-- Hidden SoundCloud widget — pre-loaded with the mix URL so the
-     Widget API is ready to play() the moment the user taps Enter,
-     keeping the user-gesture context intact for mobile autoplay. -->
-<iframe id="sc-iframe" frameborder="0" allow="autoplay"
-        src="https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fmixtape-exclusives%2Fvol-44-best-of-dj-premier-pt-2&auto_play=false&hide_related=true&show_comments=false&show_user=false&show_reposts=false&visual=false"></iframe>
 
 <!-- Boombox + tape mini-scene: drag tape onto boombox to start
      music, tap a playing boombox to pause and eject the tape. -->
@@ -393,7 +377,6 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
-<script src="https://w.soundcloud.com/player/api.js"></script>
 <script>
 // Mobile dev console: append #debug to the URL to load eruda, which
 // gives a floating console UI on the page so we can read logs and
@@ -409,56 +392,43 @@ if (location.hash.includes('debug')) {
 'use strict';
 
 // ============================================================
-// MUSIC — SoundCloud Widget API. Drop full mix URLs into MIXES
-// below; on Enter click one plays at random, and when it finishes
-// the next random one starts. Mute toggle in the bottom-left.
-//
-// Notes:
-//   - Tracks must allow embedding (most public mixes do).
-//   - Mobile browsers block audio autoplay without a user gesture
-//     — the Enter button click counts, so we start audio there.
-//   - To add a mix: just paste its full https://soundcloud.com/...
-//     URL into the array.
+// MUSIC — HTML5 Audio. Self-hosted mp3 file plays via <audio>
+// element. iOS Safari handles this reliably under a user gesture,
+// where the SoundCloud iframe path was getting blocked. Drop one
+// or more URLs (relative paths or absolute) into MIX_URLS — when
+// a mix finishes, a new random one starts. Volume sits low so
+// the music is background, not foreground.
 // ============================================================
-const MIXES = [
-  'https://soundcloud.com/mixtape-exclusives/vol-44-best-of-dj-premier-pt-2',
+const MIX_URLS = [
+  './mix_short.mp3',
 ];
 
-// max starting offset — every play seeks to a random point between
-// 0 and this many milliseconds (capped at the track's actual length).
-// 50 minutes feels like a fair window for a long DJ mix.
-const MAX_RANDOM_START_MS = 50 * 60 * 1000;
+// Random start point: pick anywhere in the first PORTION of the
+// track. 0.6 = within the first 60% so we never land near the end —
+// a 44-minute mix caps the random start at ~26 min, leaving ~18 min
+// of music to ride out.
+const MAX_RANDOM_START_RATIO = 0.6;
 
-// Playback volume — 0..100. Mix sits in the background, not loud.
-const SC_VOLUME = 35;
+// Playback volume — 0..1.
+const AUDIO_VOLUME = 0.35;
 
-let scWidget = null;
-let scReady = false;
-let scMuted = false;
-let scStarted = false;
+let audioElement = null;
+let audioStarted = false;
 
 function pickRandomMix() {
-  if (MIXES.length === 0) return null;
-  return MIXES[Math.floor(Math.random() * MIXES.length)];
+  if (MIX_URLS.length === 0) return null;
+  return MIX_URLS[Math.floor(Math.random() * MIX_URLS.length)];
 }
 
 function seekToRandomStart() {
-  if (!scWidget) return;
-  try {
-    scWidget.getDuration((dur) => {
-      const cap = Math.min(dur || MAX_RANDOM_START_MS, MAX_RANDOM_START_MS);
-      if (cap > 1000) {
-        const startMs = Math.floor(Math.random() * cap);
-        scWidget.seekTo(startMs);
-      }
-    });
-  } catch (e) { console.warn('[sc] seek failed', e); }
+  if (!audioElement || !isFinite(audioElement.duration)) return;
+  const cap = audioElement.duration * MAX_RANDOM_START_RATIO;
+  audioElement.currentTime = Math.random() * cap;
 }
 
 // Enter button enables as soon as the character GLB is ready.
-// Music isn't tied to Enter anymore — the user starts it manually
-// by dragging the tape onto the boombox (a separate user gesture
-// that satisfies mobile autoplay rules on its own).
+// Music isn't tied to Enter — the user starts it by tapping the
+// tape, which is a fresh user gesture for iOS audio unlock.
 function maybeEnableEnter() {
   if (!runnerLoaded) return;
   const btn = document.getElementById('start');
@@ -469,230 +439,61 @@ function maybeEnableEnter() {
   }
 }
 
-function initSoundCloud() {
-  const iframe = document.getElementById('sc-iframe');
-  if (!iframe || typeof SC === 'undefined' || !SC.Widget) {
-    // SC API didn't load (ad-blocker, slow CDN). Don't gate the game.
-    scReady = true;
-    maybeEnableEnter();
-    return;
-  }
-  scWidget = SC.Widget(iframe);
-  scWidget.bind(SC.Widget.Events.READY, () => {
-    console.log('[sc] widget ready — warming sound metadata');
-    // READY only means the widget UI is up — the track itself may
-    // still be loading. Poll getCurrentSound() until it returns a
-    // real sound object, then we know play() will actually do
-    // something when the user clicks enter.
-    let polls = 0;
-    const warm = setInterval(() => {
-      polls++;
-      try {
-        scWidget.getCurrentSound((sound) => {
-          if (sound && sound.id) {
-            clearInterval(warm);
-            scReady = true;
-            console.log('[sc] sound primed:', sound.title || sound.id);
-            // Pre-set volume so the user-gesture play() lands at the
-            // right level immediately, no audible ramp.
-            try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
-            maybeEnableEnter();
-          }
-        });
-      } catch (_) {}
-      if (polls > 40) {
-        clearInterval(warm);
-        if (!scReady) {
-          console.warn('[sc] sound metadata never arrived — enabling anyway');
-          scReady = true;
-          maybeEnableEnter();
-        }
-      }
-    }, 200);
+function initAudio() {
+  audioElement = new Audio();
+  audioElement.src = pickRandomMix() || '';
+  audioElement.preload = 'auto';
+  audioElement.volume = AUDIO_VOLUME;
+  audioElement.loop = false;
+  audioElement.addEventListener('loadedmetadata', () => {
+    console.log('[audio] metadata loaded, duration:', audioElement.duration);
   });
-  // Hard fallback: if READY itself never fires in 6s, let the user play
-  // without confirmed audio rather than blocking them entirely.
-  setTimeout(() => {
-    if (!scReady) {
-      console.warn('[sc] not ready after 6s — enabling game without confirmed audio');
-      scReady = true;
-      maybeEnableEnter();
-    }
-  }, 6000);
-  scWidget.bind(SC.Widget.Events.FINISH, () => {
-    // single mix on loop → just seek to a new random spot + replay.
-    // Multiple mixes → load a different random one.
-    if (MIXES.length <= 1) {
-      seekToRandomStart();
-      try { scWidget.play(); } catch (_) {}
-    } else {
-      playRandomMix();
-    }
+  audioElement.addEventListener('playing', () => {
+    console.log('[audio] playing');
   });
-  scWidget.bind(SC.Widget.Events.ERROR, (e) => {
-    console.error('[sc] error', e);
+  audioElement.addEventListener('error', (e) => {
+    console.warn('[audio] error', e, audioElement.error && audioElement.error.message);
   });
-}
-
-function playRandomMix() {
-  if (!scWidget) return;
-  const url = pickRandomMix();
-  if (!url) return;
-  scWidget.load(url, {
-    auto_play: true,
-    hide_related: true,
-    show_comments: false,
-    show_user: false,
-    show_reposts: false,
-    visual: false,
-    callback: () => {
-      try { scWidget.play(); } catch (_) {}
-      seekToRandomStart();
-    },
+  audioElement.addEventListener('ended', () => {
+    // Loop with a new random mix and a fresh random start point.
+    audioElement.src = pickRandomMix() || '';
+    audioElement.addEventListener('loadedmetadata', seekToRandomStart, { once: true });
+    audioElement.play().catch((err) => console.warn('[audio] replay failed', err));
   });
-}
-
-// Called from the Enter click handler — must stay synchronous so
-// the user-gesture context is preserved for mobile autoplay rules.
-function startMusicIfNeeded() {
-  if (scStarted) return;
-  scStarted = true;
-  if (!scWidget) initSoundCloud();
-  if (!scWidget) return;
-
-  // Burst of synchronous postMessages, all riding on the user
-  // gesture from the Enter click. Mobile browsers only honor audio
-  // unlock for calls that happen inside that same gesture frame —
-  // setTimeout / setInterval are typically already too late.
-  // The pause→play sequence is what mute-toggle does manually,
-  // and that's the call pattern that reliably starts audio.
-  try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
-  try { scWidget.play(); } catch (_) {}
-  try { scWidget.pause(); } catch (_) {}
-  try { scWidget.play(); } catch (_) {}
-  try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
-
-  // Confirmation: we only know audio is actually playing once
-  // PLAY_PROGRESS fires. Once it does, reassert volume (in case
-  // a race let the default 100 slip through) and seek to a random
-  // spot in the mix.
-  let confirmed = false;
-  const onProgress = () => {
-    if (confirmed) return;
-    confirmed = true;
-    try { scWidget.unbind(SC.Widget.Events.PLAY_PROGRESS); } catch (_) {}
-    try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
-    setTimeout(seekToRandomStart, 200);
-  };
-  try { scWidget.bind(SC.Widget.Events.PLAY_PROGRESS, onProgress); } catch (_) {}
-
-  // Last-resort retry: pause+play toggle every 500ms for up to 6s,
-  // for cases where the initial burst didn't take. Each iteration
-  // also re-asserts volume.
-  let attempts = 0;
-  const retry = setInterval(() => {
-    attempts++;
-    if (confirmed || attempts > 12) {
-      clearInterval(retry);
-      return;
-    }
-    try {
-      scWidget.pause();
-      scWidget.play();
-      scWidget.setVolume(SC_VOLUME);
-    } catch (_) {}
-  }, 500);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  initSoundCloud();
+  initAudio();
   initBoombox();
 });
 
 // Public hooks the boombox scene calls when the tape lands or the
-// user taps the playing deck. Keep the SC plumbing here; the
-// boombox module just signals "play" / "pause" / "is-playing?".
+// user taps the playing deck.
 function bbStartMusic() {
-  console.log('[bb] startMusic, scWidget=', !!scWidget, 'scStarted=', scStarted);
-
-  if (!scStarted) {
-    scStarted = true;
-    // iOS Safari trick: scWidget.play() / scWidget.load() via
-    // postMessage don't reliably unlock cross-origin iframe audio
-    // even with allow="autoplay". What DOES work is creating a
-    // fresh iframe load inside the user gesture, with auto_play=true
-    // baked into the URL. The iframe navigation happens during the
-    // gesture activation window, and the autoplay attempt that
-    // fires when the new content loads inherits that activation.
-    const oldIframe = document.getElementById('sc-iframe');
-    const newIframe = document.createElement('iframe');
-    newIframe.id = 'sc-iframe';
-    newIframe.setAttribute('frameborder', '0');
-    newIframe.setAttribute('allow', 'autoplay');
-    // auto_play=false on purpose: previous attempts with auto_play=true
-    // triggered iOS Safari's "muted autoplay" state — PLAY_PROGRESS fired
-    // but no actual sound came out. With auto_play=false we keep the iOS
-    // audio path clean and instead call scWidget.play() explicitly inside
-    // the READY callback. That play() rides the original tap's transient-
-    // activation window and iOS treats it as a real user-initiated start.
-    newIframe.src = 'https://w.soundcloud.com/player/?url=' +
-      encodeURIComponent(MIXES[0]) +
-      '&auto_play=false&hide_related=true&show_comments=false' +
-      '&show_user=false&show_reposts=false&visual=false';
-
-    if (oldIframe && oldIframe.parentNode) {
-      oldIframe.parentNode.replaceChild(newIframe, oldIframe);
+  console.log('[bb] startMusic, audioStarted=', audioStarted);
+  if (!audioElement) initAudio();
+  if (!audioElement) return;
+  audioElement.volume = AUDIO_VOLUME;
+  if (!audioStarted) {
+    audioStarted = true;
+    // Seek to a random spot on first start. If metadata isn't loaded
+    // yet, defer the seek until it is.
+    if (isFinite(audioElement.duration)) {
+      seekToRandomStart();
     } else {
-      document.body.appendChild(newIframe);
+      audioElement.addEventListener('loadedmetadata', seekToRandomStart, { once: true });
     }
-    console.log('[bb] fresh iframe inserted (auto_play=false, will play() in READY)');
-
-    // Once the new iframe loads, re-bind the SC.Widget API to it
-    // and wire FINISH / PLAY_PROGRESS for the rest of the session.
-    newIframe.addEventListener('load', () => {
-      console.log('[bb] new iframe loaded');
-      try {
-        scWidget = SC.Widget(newIframe);
-        scWidget.bind(SC.Widget.Events.READY, () => {
-          console.log('[bb] widget ready, calling explicit play()');
-          // Explicit play() inside transient-activation window of the
-          // original tap. iOS treats this as a user-initiated start
-          // rather than autoplay, so audio plays AUDIBLE (not muted).
-          try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
-          try { scWidget.play(); } catch (_) {}
-          setTimeout(seekToRandomStart, 200);
-          // Belt-and-braces: a second play() shortly after, in case
-          // the first didn't take.
-          setTimeout(() => {
-            try { scWidget.play(); } catch (_) {}
-          }, 150);
-        });
-        scWidget.bind(SC.Widget.Events.PLAY_PROGRESS, function once() {
-          console.log('[bb] PLAY_PROGRESS — audio is playing!');
-          try { scWidget.unbind(SC.Widget.Events.PLAY_PROGRESS); } catch (_) {}
-        });
-        scWidget.bind(SC.Widget.Events.FINISH, () => {
-          seekToRandomStart();
-          try { scWidget.play(); } catch (_) {}
-        });
-        scWidget.bind(SC.Widget.Events.ERROR, (err) => {
-          console.warn('[bb] sc error', err);
-        });
-      } catch (e) { console.warn('[bb] widget re-bind failed', e); }
-    }, { once: true });
-
-    return;
   }
-
-  // Subsequent inserts: audio is already unlocked, just resume.
-  if (!scWidget) return;
-  try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
-  try { scWidget.play(); } catch (_) {}
-  setTimeout(seekToRandomStart, 200);
+  // play() returns a Promise — important to log rejection on iOS.
+  const p = audioElement.play();
+  if (p && p.then) {
+    p.then(() => console.log('[bb] audio play() succeeded'))
+     .catch((err) => console.warn('[bb] audio play() rejected:', err.message || err));
+  }
 }
 function bbStopMusic() {
-  if (!scWidget) return;
-  try { scWidget.pause(); } catch (_) {}
+  if (!audioElement) return;
+  audioElement.pause();
 }
 
 // ============================================================
@@ -805,6 +606,36 @@ function normalizeModel(modelRoot, targetH) {
   return wrap;
 }
 
+// Procedural radial-gradient texture for the glow sprites — soft
+// amber halo, transparent edges. Used to telegraph "this is the
+// thing you can touch right now".
+function makeGlowTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0,    'rgba(255, 220, 120, 1.0)');
+  g.addColorStop(0.35, 'rgba(255, 200,  90, 0.45)');
+  g.addColorStop(1,    'rgba(255, 180,  60, 0.0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  return tex;
+}
+
+function makeGlowSprite(scale) {
+  const mat = new THREE.SpriteMaterial({
+    map: makeGlowTexture(),
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    opacity: 0,
+  });
+  const s = new THREE.Sprite(mat);
+  s.scale.set(scale, scale, 1);
+  return s;
+}
+
 function arrangeBoomboxScene(boomboxGLB, tapeGLB) {
   // Boombox: bigger of the two. Tape: oversized vs reality so it's
   // an easy grab target on a phone.
@@ -823,6 +654,18 @@ function arrangeBoomboxScene(boomboxGLB, tapeGLB) {
 
   BB.tape.position.copy(BB.tapeHome);
   BB.tape.rotation.y = -0.18;
+
+  // Glow halos. tapeGlow pulses while the tape is idle (signaling
+  // "grab me"). boomboxGlow pulses while music is playing (signaling
+  // "tap me to pause/eject"). Both ride additive blending behind the
+  // model so the textures don't get washed out.
+  BB.tapeGlow = makeGlowSprite(2.0);
+  BB.tape.add(BB.tapeGlow);
+  BB.tapeGlow.position.set(0, 0, -0.05);
+
+  BB.boomboxGlow = makeGlowSprite(2.6);
+  BB.boombox.add(BB.boomboxGlow);
+  BB.boomboxGlow.position.set(0, 0.05, -0.1);
 
   BB.scene.add(BB.boombox);
   BB.scene.add(BB.tape);
@@ -915,11 +758,9 @@ function bindBoomboxPointerEvents() {
           ejectTape();
         }
       } else if (BB.state === 'dragging') {
-        // Tap on the tape (no real drag) → animate it into the deck
-        // and start music. Same gamified outcome as a drag-and-drop
-        // but a single tap is a stronger user-gesture signal for
-        // mobile autoplay unlock, so this path is the most reliable.
-        dockTape();
+        // Tap on the tape without dragging — keep state idle, do nothing.
+        // Music starts only via the drag-and-drop interaction.
+        BB.state = 'idle';
       }
       BB.dragPointerId = null;
       return;
@@ -1002,11 +843,24 @@ function stepTween(dt) {
 function updateBoomboxScene(dt) {
   if (!BB.renderer || !BB.scene || !BB.camera) return;
   if (BB.tween) stepTween(dt);
+  // Always advance the phase so glow pulses stay alive even when
+  // the tape isn't bobbing.
+  BB.bobPhase += dt * 1.6;
   // Idle bob on the tape when it's resting in its home spot.
   if (BB.tape && BB.tape.visible && BB.state === 'idle') {
-    BB.bobPhase += dt * 1.6;
     BB.tape.position.y = BB.tapeHome.y + Math.sin(BB.bobPhase) * 0.04;
     BB.tape.rotation.z = Math.sin(BB.bobPhase * 0.7) * 0.05;
+    BB.needsRender = true;
+  }
+  // Glow pulse: shows which thing is interactive right now. Tape
+  // glows while it's draggable (idle); boombox glows while music
+  // is playing (tappable to eject).
+  if (BB.tapeGlow && BB.boomboxGlow) {
+    const pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(BB.bobPhase * 1.6));
+    const tapeOn = (BB.state === 'idle' || BB.state === 'dragging');
+    const boxOn  = (BB.state === 'playing');
+    BB.tapeGlow.material.opacity    = tapeOn ? pulse : 0;
+    BB.boomboxGlow.material.opacity = boxOn  ? pulse : 0;
     BB.needsRender = true;
   }
   if (BB.needsRender) {
