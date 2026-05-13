@@ -598,16 +598,48 @@ document.addEventListener('DOMContentLoaded', () => {
 // user taps the playing deck. Keep the SC plumbing here; the
 // boombox module just signals "play" / "pause" / "is-playing?".
 function bbStartMusic() {
-  // First insert ever — run the full mobile-unlock burst. After
-  // that, subsequent inserts just play (audio context is unlocked).
+  console.log('[bb] startMusic, scWidget=', !!scWidget, 'scStarted=', scStarted);
+  if (!scWidget) {
+    initSoundCloud();
+    if (!scWidget) {
+      console.warn('[bb] no scWidget — SoundCloud API blocked?');
+      return;
+    }
+  }
+  // Pre-set volume so audio comes in at the target level immediately.
+  try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
+
   if (!scStarted) {
-    startMusicIfNeeded();
+    scStarted = true;
+    // First insert ever: re-load the mix with auto_play: true.
+    // This is SoundCloud's documented entry point for starting
+    // audio inside a user gesture, and it's the call pattern that
+    // most reliably unlocks playback on mobile Safari / Chrome.
+    // We run it synchronously in the pointerup handler so it rides
+    // the user-activation event.
+    try {
+      scWidget.load(MIXES[0], {
+        auto_play: true,
+        hide_related: true,
+        show_comments: false,
+        show_user: false,
+        show_reposts: false,
+        visual: false,
+        callback: () => {
+          console.log('[bb] load callback fired, calling play+seek');
+          try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
+          try { scWidget.play(); } catch (_) {}
+          setTimeout(seekToRandomStart, 200);
+        },
+      });
+    } catch (e) {
+      console.warn('[bb] load() failed', e);
+    }
     return;
   }
-  if (!scWidget) return;
-  try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
+  // Subsequent inserts: audio is already unlocked, just resume +
+  // pick a fresh random spot.
   try { scWidget.play(); } catch (_) {}
-  // Re-roll the random start point for each fresh insert.
   setTimeout(seekToRandomStart, 200);
 }
 function bbStopMusic() {
