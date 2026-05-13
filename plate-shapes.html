@@ -356,6 +356,26 @@
   }
   #hint.on { opacity: 1; }
 
+  /* Spectator caption — shown once the local player is eliminated.
+     Sits where the joystick used to be, dims everything else. */
+  #spectator {
+    position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 24px);
+    transform: translateX(-50%);
+    z-index: 11; pointer-events: none;
+    font-family: 'VT323', monospace;
+    font-size: 22px;
+    color: #f1e5cd; opacity: 0;
+    transition: opacity 0.3s;
+    background: rgba(20,17,13,0.55);
+    padding: 6px 18px;
+    letter-spacing: 0.15em;
+    text-transform: lowercase;
+  }
+  #spectator.on { opacity: 0.9; }
+  /* Hide the joystick when spectating so dead players don't try to
+     drive a corpse. */
+  body.spectating #stick { display: none !important; }
+
   /* ============================================================
      MOBILE — compact layout, joystick on right, no tilt indicator
      ============================================================ */
@@ -421,6 +441,7 @@
 </div>
 
 <div id="hint"></div>
+<div id="spectator">spectating</div>
 
 <div id="stick"><div id="stick-knob"></div></div>
 
@@ -441,6 +462,7 @@
       <input id="lobby-code" type="text" maxlength="6" placeholder="code" autocomplete="off" />
       <button id="lobby-join">join</button>
     </div>
+    <button id="lobby-solo">solo (bot-fill)</button>
     <div class="err" id="lobby-err"></div>
   </div>
   <div class="panel" id="lobby-in" style="display:none;">
@@ -448,7 +470,7 @@
     <div class="code" id="lobby-code-show">----</div>
     <div class="roster" id="lobby-roster">1 / 10 players</div>
     <div class="meta countdown" id="lobby-countdown">starts in 60s</div>
-    <button id="lobby-start" style="display:none;">start now</button>
+    <button id="lobby-start" style="display:none;">skip timer</button>
     <div class="meta" id="lobby-status">waiting for host...</div>
   </div>
 </div>
@@ -2107,6 +2129,7 @@ function netReconcile(snap) {
     let f = byId.get(sf.id);
     if (!f) f = spawnNetFigure(sf);
     const wasPicked = f.picked, wasDropping = f.dropping, wasDraining = f.draining;
+    const wasAlive = f.alive;
     f.x = sf.x;
     f.z = sf.z;
     f.hp = sf.hp;
@@ -2133,7 +2156,30 @@ function netReconcile(snap) {
       f.mesh.position.copy(wp);
       f.mesh.quaternion.copy(wq);
     }
+    // Local-player just died: fire hint + flip into spectator mode so
+    // the joystick disappears and they see a "spectating" caption.
+    if (wasAlive && !f.alive && f.isPlayer) onLocalPlayerDied(f);
   }
+  // Live update of the spectator caption while we wait for the round
+  // to end. Server reports S.alive on every snapshot.
+  updateSpectatorCaption();
+}
+
+let _spectating = false;
+function onLocalPlayerDied(f) {
+  _spectating = true;
+  const reason = f.draining ? 'you cracked'
+              : f.picked   ? 'you were taken'
+              : f.dropping ? 'you fell'
+              :              'you went out';
+  showHint(reason);
+  document.body.classList.add('spectating');
+}
+function updateSpectatorCaption() {
+  const el = document.getElementById('spectator');
+  if (!_spectating) { el.classList.remove('on'); return; }
+  el.textContent = `spectating · ${S.alive} alive`;
+  el.classList.add('on');
 }
 
 function netSendInput() {
@@ -2154,6 +2200,8 @@ function netConnect() {
     if (mode === 'join' && NET.joinCode) {
       ws.send(JSON.stringify({ type: 'join', code: NET.joinCode }));
     } else {
+      // solo and create both open with a fresh room; solo just also
+      // sends start right after the joined ack.
       ws.send(JSON.stringify({ type: 'create' }));
     }
   });
@@ -2165,6 +2213,9 @@ function netConnect() {
       NET.code = msg.code;
       console.log('[net] joined', msg.code, 'as', msg.playerId);
       if (NET.onJoined) NET.onJoined(msg);
+      if (NET.joinMode === 'solo') {
+        ws.send(JSON.stringify({ type: 'start' }));
+      }
     } else if (msg.type === 'roster') {
       if (NET.onRoster) NET.onRoster(msg);
     } else if (msg.type === 'start') {
@@ -3063,6 +3114,13 @@ document.getElementById('again').addEventListener('click', () => {
     errEl.textContent = '';
     NET.joinMode = 'join';
     NET.joinCode = code;
+    netConnect();
+  });
+  // Solo = create + auto-start. netConnect's onJoined handler fires
+  // start immediately if NET.joinMode === 'solo'.
+  document.getElementById('lobby-solo').addEventListener('click', () => {
+    errEl.textContent = '';
+    NET.joinMode = 'solo';
     netConnect();
   });
   startBtn.addEventListener('click', () => {
