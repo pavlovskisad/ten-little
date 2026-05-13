@@ -648,9 +648,26 @@ function bbStartMusic() {
       try {
         scWidget = SC.Widget(newIframe);
         scWidget.bind(SC.Widget.Events.READY, () => {
-          console.log('[bb] widget ready, setting volume + seeking');
+          console.log('[bb] widget ready, attempting play sequence');
+          // auto_play=true in the URL was supposed to start audio
+          // but iOS Safari blocks it silently. What the user found
+          // manually is: insert → eject → insert again WORKS. That
+          // sequence is play → pause → play, each in its own gesture.
+          // Simulate the same call pattern automatically here while
+          // we're still within the original tap's transient-
+          // activation window (~5s on iOS).
           try { scWidget.setVolume(SC_VOLUME); } catch (_) {}
-          setTimeout(seekToRandomStart, 400);
+          try { scWidget.play(); } catch (_) {}
+          // Pause-then-play burst: mimics the user's manual eject+
+          // reinsert sequence. Spread across a couple of frames so
+          // the widget can process each message in order.
+          setTimeout(() => {
+            try { scWidget.pause(); } catch (_) {}
+            setTimeout(() => {
+              try { scWidget.play(); } catch (_) {}
+              setTimeout(seekToRandomStart, 200);
+            }, 80);
+          }, 80);
         });
         scWidget.bind(SC.Widget.Events.PLAY_PROGRESS, function once() {
           console.log('[bb] PLAY_PROGRESS — audio is playing!');
