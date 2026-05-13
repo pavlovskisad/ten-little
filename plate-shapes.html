@@ -2172,12 +2172,14 @@ function updateTilt(dt) {
 // FIGURE PHYSICS — slide on tilt, friction, collision, edges
 // ============================================================
 function updateFigures(dt) {
-  const ax = S.tilt.x * CFG.slideForce;
-  const az = S.tilt.z * CFG.slideForce;
+  // Per-figure intent + movement integration lives in sim/figures.js.
+  // The client provides the intent callback so playerIntent (DOM-coupled)
+  // stays here while bots delegate to the sim.
+  window.SIM.tickMovement(S, dt, (f) => f.isPlayer ? playerIntent(f) : botIntent(f, dt));
 
+  // Death animations (drain / drop / picked) stay on the client — they're
+  // visual flourishes coupled to mesh transforms, not gameplay.
   for (const f of S.figs) {
-    if (f.invulnT > 0) f.invulnT = Math.max(0, f.invulnT - dt);
-
     if (f.picked) continue;
 
     if (f.draining) {
@@ -2210,28 +2212,8 @@ function updateFigures(dt) {
       continue;
     }
 
-    if (!f.alive) continue;
-
-    let dx, dz;
-    if (f.isPlayer) {
-      [dx, dz] = playerIntent(f);
-    } else {
-      [dx, dz] = botIntent(f, dt);
-    }
-
-    const accel = f.isPlayer ? CFG.playerAccel : CFG.botAccel;
-    f.vx += (dx - f.vx) * Math.min(1, accel * dt);
-    f.vz += (dz - f.vz) * Math.min(1, accel * dt);
-
-    f.vx += ax * dt;
-    f.vz += az * dt;
-
-    const fr = 1 - Math.min(1, CFG.friction * dt);
-    f.vx *= fr;
-    f.vz *= fr;
-
-    f.x += f.vx * dt;
-    f.z += f.vz * dt;
+    // Live figures: movement integration already happened in tickMovement
+    // above. Nothing more to do in this loop for them.
   }
 
   // figure-figure collision + contact damage runs in sim/figures.js. The
@@ -2242,18 +2224,16 @@ function updateFigures(dt) {
     eliminate(figure, reason);
   }
 
-  // edge check + mesh transforms
+  // Edge-fall detection runs in sim/figures.js; eliminate side effects
+  // (HUD hint, end-game overlay) fire here.
+  const newlyFell = window.SIM.tickEdgeFall(S);
+  for (const { figure, reason } of newlyFell) {
+    eliminate(figure, reason);
+  }
+
+  // Mesh transform sync for still-alive figures.
   for (const f of S.figs) {
     if (!f.alive || f.picked || f.dropping || f.draining) continue;
-    const d = Math.hypot(f.x, f.z);
-    if (d > S.plateR + CFG.edgePadFall) {
-      f.dropping = true;
-      f.dropT = 0;
-      f.dropY = 0;
-      f.dropVy = 0;
-      eliminate(f, 'fell');
-      continue;
-    }
     f.mesh.position.x = f.x;
     f.mesh.position.z = f.z;
     f.mesh.position.y = CFG.plateThick / 2;

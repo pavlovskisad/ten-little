@@ -186,6 +186,60 @@
     return { fromR, toR: S.plateR };
   }
 
+  // Per-figure integration: decay i-frames, apply intent → velocity →
+  // position with friction + tilt slide. getIntent(f, dt) is supplied by
+  // the caller; on the client today it returns playerIntent for the
+  // player and botIntent for bots; on the server it pulls input from the
+  // joined client per figure.
+  //
+  // Drain / drop / picked figures skip the integration but still tick
+  // their i-frame timer.
+  function tickMovement(S, dt, getIntent) {
+    const ax = S.tilt.x * CFG.slideForce;
+    const az = S.tilt.z * CFG.slideForce;
+    for (const f of S.figs) {
+      if (f.invulnT > 0) f.invulnT = Math.max(0, f.invulnT - dt);
+      if (f.picked || f.dropping || f.draining) continue;
+      if (!f.alive) continue;
+
+      const intent = getIntent(f, dt);
+      const dx = intent[0], dz = intent[1];
+
+      const accel = f.isPlayer ? CFG.playerAccel : CFG.botAccel;
+      f.vx += (dx - f.vx) * Math.min(1, accel * dt);
+      f.vz += (dz - f.vz) * Math.min(1, accel * dt);
+      // tilt slide
+      f.vx += ax * dt;
+      f.vz += az * dt;
+      // friction
+      const fr = 1 - Math.min(1, CFG.friction * dt);
+      f.vx *= fr;
+      f.vz *= fr;
+      // integrate
+      f.x += f.vx * dt;
+      f.z += f.vz * dt;
+    }
+  }
+
+  // Detect figures that have slid past the plate rim, mark them as
+  // dropping (so the client can animate the off-rim fall), and return
+  // the list so the caller can invoke eliminate(f, 'fell').
+  function tickEdgeFall(S) {
+    const fell = [];
+    for (const f of S.figs) {
+      if (!f.alive || f.picked || f.dropping || f.draining) continue;
+      const d = Math.hypot(f.x, f.z);
+      if (d > S.plateR + CFG.edgePadFall) {
+        f.dropping = true;
+        f.dropT = 0;
+        f.dropY = 0;
+        f.dropVy = 0;
+        fell.push({ figure: f, reason: 'fell' });
+      }
+    }
+    return fell;
+  }
+
   // Claw capture-zone radius. Scales from CFG.zoneMinFrac at 10 alive to
   // CFG.zoneMaxFrac at podium count, so the late game is more lethal.
   function currentZoneR(S) {
@@ -195,7 +249,7 @@
     return S.plateR * frac;
   }
 
-  const api = { botIntent, tickTilt, tickCollisions, maybeShrink, currentZoneR };
+  const api = { botIntent, tickTilt, tickCollisions, maybeShrink, currentZoneR, tickMovement, tickEdgeFall };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {
