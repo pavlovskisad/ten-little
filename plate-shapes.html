@@ -44,7 +44,7 @@
     position: fixed; z-index: 30;
     bottom: calc(env(safe-area-inset-bottom) + 8px);
     left: calc(env(safe-area-inset-left) + 8px);
-    width: 260px; height: 190px;
+    width: 365px; height: 265px;
     pointer-events: auto;
     touch-action: none;
     cursor: default;
@@ -52,7 +52,7 @@
   #bb-canvas.grabbable { cursor: grab; }
   #bb-canvas.grabbing  { cursor: grabbing; }
   @media (max-width: 520px) {
-    #bb-canvas { width: 210px; height: 155px; }
+    #bb-canvas { width: 295px; height: 215px; }
   }
 
   /* grain overlay */
@@ -400,13 +400,14 @@ if (location.hash.includes('debug')) {
 // the music is background, not foreground.
 // ============================================================
 const MIX_URLS = [
-  './mix.mp3',
+  './mix_short.mp3',
 ];
 
 // Random start point: pick anywhere in the first PORTION of the
-// track. 0.7 = within the first 70% so we don't drop the user
-// at the tail end.
-const MAX_RANDOM_START_RATIO = 0.7;
+// track. 0.6 = within the first 60% so we never land near the end —
+// a 44-minute mix caps the random start at ~26 min, leaving ~18 min
+// of music to ride out.
+const MAX_RANDOM_START_RATIO = 0.6;
 
 // Playback volume — 0..1.
 const AUDIO_VOLUME = 0.35;
@@ -605,6 +606,36 @@ function normalizeModel(modelRoot, targetH) {
   return wrap;
 }
 
+// Procedural radial-gradient texture for the glow sprites — soft
+// amber halo, transparent edges. Used to telegraph "this is the
+// thing you can touch right now".
+function makeGlowTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0,    'rgba(255, 220, 120, 1.0)');
+  g.addColorStop(0.35, 'rgba(255, 200,  90, 0.45)');
+  g.addColorStop(1,    'rgba(255, 180,  60, 0.0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  return tex;
+}
+
+function makeGlowSprite(scale) {
+  const mat = new THREE.SpriteMaterial({
+    map: makeGlowTexture(),
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    opacity: 0,
+  });
+  const s = new THREE.Sprite(mat);
+  s.scale.set(scale, scale, 1);
+  return s;
+}
+
 function arrangeBoomboxScene(boomboxGLB, tapeGLB) {
   // Boombox: bigger of the two. Tape: oversized vs reality so it's
   // an easy grab target on a phone.
@@ -623,6 +654,18 @@ function arrangeBoomboxScene(boomboxGLB, tapeGLB) {
 
   BB.tape.position.copy(BB.tapeHome);
   BB.tape.rotation.y = -0.18;
+
+  // Glow halos. tapeGlow pulses while the tape is idle (signaling
+  // "grab me"). boomboxGlow pulses while music is playing (signaling
+  // "tap me to pause/eject"). Both ride additive blending behind the
+  // model so the textures don't get washed out.
+  BB.tapeGlow = makeGlowSprite(2.0);
+  BB.tape.add(BB.tapeGlow);
+  BB.tapeGlow.position.set(0, 0, -0.05);
+
+  BB.boomboxGlow = makeGlowSprite(2.6);
+  BB.boombox.add(BB.boomboxGlow);
+  BB.boomboxGlow.position.set(0, 0.05, -0.1);
 
   BB.scene.add(BB.boombox);
   BB.scene.add(BB.tape);
@@ -715,11 +758,9 @@ function bindBoomboxPointerEvents() {
           ejectTape();
         }
       } else if (BB.state === 'dragging') {
-        // Tap on the tape (no real drag) → animate it into the deck
-        // and start music. Same gamified outcome as a drag-and-drop
-        // but a single tap is a stronger user-gesture signal for
-        // mobile autoplay unlock, so this path is the most reliable.
-        dockTape();
+        // Tap on the tape without dragging — keep state idle, do nothing.
+        // Music starts only via the drag-and-drop interaction.
+        BB.state = 'idle';
       }
       BB.dragPointerId = null;
       return;
@@ -802,11 +843,24 @@ function stepTween(dt) {
 function updateBoomboxScene(dt) {
   if (!BB.renderer || !BB.scene || !BB.camera) return;
   if (BB.tween) stepTween(dt);
+  // Always advance the phase so glow pulses stay alive even when
+  // the tape isn't bobbing.
+  BB.bobPhase += dt * 1.6;
   // Idle bob on the tape when it's resting in its home spot.
   if (BB.tape && BB.tape.visible && BB.state === 'idle') {
-    BB.bobPhase += dt * 1.6;
     BB.tape.position.y = BB.tapeHome.y + Math.sin(BB.bobPhase) * 0.04;
     BB.tape.rotation.z = Math.sin(BB.bobPhase * 0.7) * 0.05;
+    BB.needsRender = true;
+  }
+  // Glow pulse: shows which thing is interactive right now. Tape
+  // glows while it's draggable (idle); boombox glows while music
+  // is playing (tappable to eject).
+  if (BB.tapeGlow && BB.boomboxGlow) {
+    const pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(BB.bobPhase * 1.6));
+    const tapeOn = (BB.state === 'idle' || BB.state === 'dragging');
+    const boxOn  = (BB.state === 'playing');
+    BB.tapeGlow.material.opacity    = tapeOn ? pulse : 0;
+    BB.boomboxGlow.material.opacity = boxOn  ? pulse : 0;
     BB.needsRender = true;
   }
   if (BB.needsRender) {
