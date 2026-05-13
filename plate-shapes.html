@@ -54,12 +54,15 @@
     bottom: calc(env(safe-area-inset-bottom) + 8px);
     left: calc(env(safe-area-inset-left) + 8px);
     width: 365px; height: 265px;
-    pointer-events: auto;
+    /* Pointer events are handled at document level (see
+       bindBoomboxPointerEvents) so that empty canvas areas don't
+       intercept touches meant for the joystick or game UI. */
+    pointer-events: none;
     touch-action: none;
     cursor: default;
   }
-  #bb-canvas.grabbable { cursor: grab; }
-  #bb-canvas.grabbing  { cursor: grabbing; }
+  body.bb-grabbable { cursor: grab; }
+  body.bb-grabbing  { cursor: grabbing; }
   @media (max-width: 520px) {
     #bb-canvas { width: 295px; height: 215px; }
   }
@@ -618,7 +621,7 @@ function initBoombox() {
   const tryArrange = () => {
     if (!loadedBoom || !loadedTape) return;
     arrangeBoomboxScene(loadedBoom, loadedTape);
-    BB.canvas.classList.add('grabbable');
+    document.body.classList.add('bb-grabbable');
     BB.needsRender = true;
   };
   loader.load('./boombox.glb', (gltf) => { loadedBoom = gltf.scene; tryArrange(); },
@@ -739,11 +742,25 @@ function raycastHit(target) {
   return hits.length ? hits[0] : null;
 }
 
-function bindBoomboxPointerEvents() {
-  const c = BB.canvas;
+function pointerInsideCanvas(clientX, clientY) {
+  const rect = BB.canvas.getBoundingClientRect();
+  return (
+    clientX >= rect.left && clientX <= rect.right &&
+    clientY >= rect.top && clientY <= rect.bottom
+  );
+}
 
-  c.addEventListener('pointerdown', (e) => {
+function bindBoomboxPointerEvents() {
+  // Pointer events listen at DOCUMENT level (capture phase). The
+  // canvas itself is pointer-events: none — that way empty canvas
+  // areas don't block touches meant for the joystick or other UI.
+  // We only call stopPropagation when we actually hit the tape /
+  // boombox; otherwise we silently let the event reach its real
+  // target.
+
+  document.addEventListener('pointerdown', (e) => {
     if (!BB.boombox || !BB.tape) return;
+    if (!pointerInsideCanvas(e.clientX, e.clientY)) return;
     pointerToNDC(e.clientX, e.clientY);
 
     // First check: did the user grab the tape? (Only when idle.)
@@ -754,17 +771,13 @@ function bindBoomboxPointerEvents() {
         BB.dragPointerId = e.pointerId;
         BB.dragStartXY = { x: e.clientX, y: e.clientY };
         BB.dragMoved = false;
-        // Set up a drag plane parallel to the camera passing through
-        // the tape, so screen-space drag maps cleanly to world motion.
         const camDir = new THREE.Vector3();
         BB.camera.getWorldDirection(camDir);
         BB.dragPlane.setFromNormalAndCoplanarPoint(camDir, BB.tape.position);
-        // Where on the tape did we grab? Keep that offset so the tape
-        // doesn't snap its center under the pointer on grab.
         BB.dragGrabOffset.copy(BB.tape.position).sub(hit.point);
-        c.setPointerCapture(e.pointerId);
-        c.classList.add('grabbing');
+        document.body.classList.add('bb-grabbing');
         e.preventDefault();
+        e.stopPropagation();
         return;
       }
     }
@@ -776,13 +789,13 @@ function bindBoomboxPointerEvents() {
         BB.dragPointerId = e.pointerId;
         BB.dragStartXY = { x: e.clientX, y: e.clientY };
         BB.dragMoved = false;
-        c.setPointerCapture(e.pointerId);
         e.preventDefault();
+        e.stopPropagation();
       }
     }
-  });
+  }, { capture: true });
 
-  c.addEventListener('pointermove', (e) => {
+  document.addEventListener('pointermove', (e) => {
     if (BB.state !== 'dragging' || e.pointerId !== BB.dragPointerId) return;
     pointerToNDC(e.clientX, e.clientY);
     BB.raycaster.setFromCamera(BB.pointerNDC, BB.camera);
@@ -797,31 +810,26 @@ function bindBoomboxPointerEvents() {
       BB.dragMoved = true;
     }
     e.preventDefault();
-  });
+    e.stopPropagation();
+  }, { capture: true });
 
   const finishPointer = (e) => {
     if (e.pointerId !== BB.dragPointerId) return;
-    try { c.releasePointerCapture(e.pointerId); } catch (_) {}
-    c.classList.remove('grabbing');
+    document.body.classList.remove('bb-grabbing');
 
-    // Tap path: pointer didn't move much.
     if (!BB.dragMoved) {
-      // Tap on playing boombox → pause + eject tape.
       if (BB.state === 'playing') {
         pointerToNDC(e.clientX, e.clientY);
         if (raycastHit(BB.boombox)) {
           ejectTape();
         }
       } else if (BB.state === 'dragging') {
-        // Tap on the tape without dragging — keep state idle, do nothing.
-        // Music starts only via the drag-and-drop interaction.
         BB.state = 'idle';
       }
       BB.dragPointerId = null;
       return;
     }
 
-    // Drag-release path: did the tape land on the boombox?
     if (BB.state === 'dragging') {
       pointerToNDC(e.clientX, e.clientY);
       const onBox = raycastHit(BB.boombox);
@@ -833,8 +841,8 @@ function bindBoomboxPointerEvents() {
     }
     BB.dragPointerId = null;
   };
-  c.addEventListener('pointerup', finishPointer);
-  c.addEventListener('pointercancel', finishPointer);
+  document.addEventListener('pointerup', finishPointer, { capture: true });
+  document.addEventListener('pointercancel', finishPointer, { capture: true });
 }
 
 function dockTape() {
