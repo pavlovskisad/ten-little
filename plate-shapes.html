@@ -391,6 +391,17 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
 <script src="https://w.soundcloud.com/player/api.js"></script>
 <script>
+// Mobile dev console: append #debug to the URL to load eruda, which
+// gives a floating console UI on the page so we can read logs and
+// errors without a desktop dev tools connection.
+if (location.hash.includes('debug')) {
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/eruda';
+  s.onload = () => { try { eruda.init(); console.log('[eruda] loaded'); } catch (e) {} };
+  document.head.appendChild(s);
+}
+</script>
+<script>
 'use strict';
 
 // ============================================================
@@ -867,9 +878,11 @@ function bindBoomboxPointerEvents() {
           ejectTape();
         }
       } else if (BB.state === 'dragging') {
-        // User just tapped the tape without dragging — send it home
-        // (no-op visually since it's already there) and stay idle.
-        BB.state = 'idle';
+        // Tap on the tape (no real drag) → animate it into the deck
+        // and start music. Same gamified outcome as a drag-and-drop
+        // but a single tap is a stronger user-gesture signal for
+        // mobile autoplay unlock, so this path is the most reliable.
+        dockTape();
       }
       BB.dragPointerId = null;
       return;
