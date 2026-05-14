@@ -30,6 +30,14 @@ import escrowIdl from './contracts/escrow/target/idl/escrow.json';
 
 // Program ID locked at devnet deploy. Server's address must match.
 const ESCROW_PROGRAM_ID = new PublicKey('DsFoEFQw6uPGgXDztmuPUozi1AqP9KWC6N71H2MLVG5z');
+// Separate RPC for escrow tx submission. SOLANA_RPC stays mainnet for
+// the wallet drawer's balance display; ESCROW_RPC follows the program
+// (devnet today; flip to mainnet when the program is redeployed there).
+// Override via ?escrowRpc=… for testing.
+const ESCROW_RPC = (() => {
+  const params = new URLSearchParams(location.search);
+  return params.get('escrowRpc') || 'https://api.devnet.solana.com';
+})();
 const _escrowCoder = new BorshCoder(escrowIdl);
 
 const PRIVY_APP_ID = 'cmp5itgpu000j0dk4zp6r05rs';
@@ -274,7 +282,9 @@ function AuthIsland() {
       || wallets?.[0];
     window.payEntryFee = async (escrow) => {
       if (!wallet) throw new Error('wallet not ready');
-      const conn = new Connection(SOLANA_RPC, 'confirmed');
+      // Escrow program lives on the same cluster as ESCROW_RPC.
+      // Don't reuse the mainnet SOLANA_RPC here.
+      const conn = new Connection(ESCROW_RPC, 'confirmed');
       const playerPk = new PublicKey(wallet.address);
       const potPk = new PublicKey(escrow.pot);
       const data = _escrowCoder.instruction.encode('join_pot', {});
@@ -292,7 +302,10 @@ function AuthIsland() {
       tx.recentBlockhash = blockhash;
       tx.feePayer = playerPk;
       const sig = await wallet.sendTransaction(tx, conn);
-      return typeof sig === 'string' ? sig : (sig?.signature || 'sent');
+      return {
+        signature: typeof sig === 'string' ? sig : (sig?.signature || 'sent'),
+        wallet: wallet.address,
+      };
     };
     return () => { delete window.payEntryFee; };
   }, [privy.authenticated, wallets, privy.user]);

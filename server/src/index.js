@@ -318,6 +318,18 @@ wss.on('connection', (ws) => {
               signature,
             };
             console.log('[escrow] init_pot', room.code, 'roomId=' + roomIdBigInt, '→ pot=' + pot);
+            // Wire lifecycle hooks. The room calls these after its
+            // start / end broadcasts. start_pot is straightforward.
+            // finalize_pot needs winners + amounts (handled in B2.5c-ii).
+            room.onRoundStart = async () => {
+              try {
+                const { signature: sig } = await escrow.startPot(roomIdBigInt);
+                console.log('[escrow] start_pot', room.code, 'sig=' + sig);
+              } catch (err) {
+                console.warn('[escrow] start_pot failed', room.code, err.message);
+              }
+            };
+            // onRoundEnd left unset for now — B2.5c-ii fills it in.
           } catch (err) {
             console.warn('[escrow] init_pot failed for', room.code, ':', err.message);
             // Tear down the WS room so the next quickjoin doesn't try
@@ -363,19 +375,19 @@ wss.on('connection', (ws) => {
       return;
     }
     if (msg.type === 'paid') {
-      // Client claims they've signed + submitted join_pot. For v0 we
-      // just log + stash. Phase B4 will RPC-validate against
-      // pot.players before allowing the player into finalize_pot's
-      // winners list. Until then, the on-chain require! in
-      // finalize_pot is the only enforcement, but unpaid players also
-      // can't be winners (their pubkey wouldn't appear in pot.players
-      // when finalize runs).
+      // Client confirms join_pot signed + submitted. We stash the
+      // signature and the wallet address; finalize_pot uses the
+      // wallet to pay the player when they place. The wallet claim
+      // is enforced by the on-chain pot.players list — even if the
+      // client lies here, finalize_pot's require! rejects winners
+      // not in that list.
       const room = rooms.get(roomCode);
       if (!room) return;
       const player = room.players.get(playerId);
       if (player) {
         player.paidSig = msg.signature || null;
-        console.log('[escrow] paid', room.code, playerId, '→ sig=' + msg.signature);
+        player.wallet = msg.wallet || null;
+        console.log('[escrow] paid', room.code, playerId, 'wallet=' + msg.wallet, 'sig=' + msg.signature);
       }
       return;
     }

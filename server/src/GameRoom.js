@@ -118,6 +118,14 @@ class GameRoom {
     this.state.startedAt = this.startedAt;
 
     this.broadcast({ type: 'start', humans, bots, seed: this.seed, reason, bindings });
+    // Lifecycle hook — index.js wires this to escrow.startPot when a
+    // pot exists for the room. Kept off GameRoom's own dependency
+    // surface so the sim stays escrow-agnostic.
+    if (typeof this.onRoundStart === 'function') {
+      Promise.resolve(this.onRoundStart()).catch(err => {
+        console.warn('[room] onRoundStart failed', this.code, err.message || err);
+      });
+    }
     this.tickHandle = setInterval(() => this.tick(), TICK_MS);
   }
 
@@ -169,7 +177,15 @@ class GameRoom {
     // End round when only the podium remains.
     if (S.alive <= SIM.CFG.podiumCount) {
       S.phase = 'over';
-      this.broadcast({ type: 'end', eliminated: S.eliminated, survivors: S.figs.filter(f => f.alive).map(f => f.id) });
+      const survivors = S.figs.filter(f => f.alive).map(f => f.id);
+      this.broadcast({ type: 'end', eliminated: S.eliminated, survivors });
+      // Lifecycle hook — index.js wires this to escrow.finalizePot
+      // with the computed winners + amounts.
+      if (typeof this.onRoundEnd === 'function') {
+        Promise.resolve(this.onRoundEnd({ eliminated: S.eliminated, survivors })).catch(err => {
+          console.warn('[room] onRoundEnd failed', this.code, err.message || err);
+        });
+      }
       this.stop();
       return;
     }
