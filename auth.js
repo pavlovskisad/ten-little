@@ -162,20 +162,28 @@ function SendForm({ fromAddress, wallet, onDone, onCancel }) {
 function WalletDrawer({ address, onClose }) {
   // balance: { ok: true, sol } | { ok: false, error } | null (still loading)
   const [balance, setBalance] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const { wallets } = useSolanaWallets();
   const wallet = wallets?.find(w => w.address === address) || wallets?.[0];
 
+  // Auto-refresh balance every 5 s while the drawer is open. The
+  // manual refresh button below bumps refreshKey to retrigger the
+  // first fetch immediately rather than waiting for the interval.
   useEffect(() => {
     let alive = true;
     const tick = async () => {
+      setRefreshing(true);
       const b = await fetchBalance(address);
-      if (alive) setBalance(b);
+      if (alive) {
+        setBalance(b);
+        setRefreshing(false);
+      }
     };
     tick();
-    const id = setInterval(tick, 10000);
+    const id = setInterval(tick, 5000);
     return () => { alive = false; clearInterval(id); };
   }, [address, refreshKey]);
 
@@ -203,7 +211,15 @@ function WalletDrawer({ address, onClose }) {
         ]),
       ]),
       h('div', { className: 'wd-row' }, [
-        h('div', { className: 'wd-label' }, 'balance'),
+        h('div', { className: 'wd-row-head' }, [
+          h('div', { className: 'wd-label' }, 'balance'),
+          h('button', {
+            className: 'wd-refresh',
+            onClick: () => setRefreshKey(k => k + 1),
+            disabled: refreshing,
+            title: 'refresh balance',
+          }, refreshing ? '…' : '↻'),
+        ]),
         h('div', {
           className: 'wd-balance' + (balance && balance.ok === false ? ' wd-balance-err' : ''),
         },

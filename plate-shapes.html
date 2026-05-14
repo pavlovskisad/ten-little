@@ -431,7 +431,23 @@
   }
   .wd-close:hover { border-color: #ff1a1a; color: #ff1a1a; }
   .wd-row { display: flex; flex-direction: column; gap: 4px; }
+  .wd-row-head { display: flex; justify-content: space-between; align-items: center; }
   .wd-label { font-size: 12px; opacity: 0.55; letter-spacing: 0.15em; text-transform: lowercase; }
+  /* Small "↻" refresh button next to the balance label. Plain
+     unstyled chevron, sized to read as chrome not a primary action. */
+  .wd-refresh {
+    background: transparent;
+    color: #f1e5cd;
+    border: 1px solid #f1e5cd33;
+    font-family: 'VT323', monospace;
+    font-size: 14px;
+    line-height: 1;
+    padding: 2px 10px;
+    cursor: pointer;
+    opacity: 0.6;
+  }
+  .wd-refresh:hover { opacity: 1; border-color: #ff1a1a; color: #ff1a1a; }
+  .wd-refresh:disabled { opacity: 0.3; cursor: default; }
   .wd-addr {
     background: rgba(255,255,255,0.04);
     border: 1px dashed #f1e5cd22;
