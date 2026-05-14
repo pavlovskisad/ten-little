@@ -1,0 +1,24 @@
+.anchor
+.DS_Store
+**/*.rs.bk
+node_modules
+test-ledger
+.yarn
+.surfpool
+
+# Build outputs — regenerable via `anchor build`. Keeping target/'s
+# children out of git except the integration artifacts (IDL +
+# TypeScript types) and the program keypair, which together pin the
+# program ID across the team so server/client wire to it without a
+# build step. Note: trailing-slash "target/" prevents !target/* from
+# re-including children — using /target/* instead.
+/target/*
+!/target/idl/
+!/target/types/
+!/target/deploy/
+/target/deploy/*
+!/target/deploy/escrow-keypair.json
+
+# yarn install left a node_modules dir — handled above. Lock file
+# isn't useful until the test suite is wired.
+yarn.lock
