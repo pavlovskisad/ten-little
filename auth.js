@@ -1,33 +1,38 @@
-// Preact island for Privy login + wallet drawer.
+// Preact island for Privy login + wallet drawer + send SOL.
 //
-// Stage 1: login + access token (already shipped).
-// Stage 2 (this version): wallet drawer with full address + copy +
-//   live SOL balance.
-// Stage 3 (next): send SOL form.
+// Layout:
+//  - #auth-root inside the lobby panel: renders the main action
+//    button ("log in to join" or "join").
+//  - .auth-corner fixed top-right of the viewport: wallet badge +
+//    "log out" button, shown only when authenticated. Travels with
+//    the user across screens (title, lobby, game).
+//  - WalletDrawer is a modal overlay anchored center; opens when the
+//    user taps the wallet badge.
 //
 // Bridge to the vanilla code: window.startQuickjoin(token) is defined
 // in plate-shapes.html and triggers the existing netConnect /
 // quickjoin flow with the Privy access token attached.
 
 import { h, render } from 'preact';
-import { useState, useEffect, useRef } from 'preact/hooks';
+import { useState, useEffect } from 'preact/hooks';
 import { PrivyProvider, usePrivy } from '@privy-io/react-auth';
+import { useSolanaWallets } from '@privy-io/react-auth/solana';
+import {
+  Connection,
+  PublicKey,
+  Transaction,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from '@solana/web3.js';
 
 const PRIVY_APP_ID = 'cmp5itgpu000j0dk4zp6r05rs';
-// Public mainnet RPC. Rate-limited; sufficient for read-only balance
-// polling while a drawer is open. Phase B will swap in an authenticated
-// endpoint for the heavier escrow traffic.
 const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
-const LAMPORTS_PER_SOL = 1_000_000_000;
 
 function shortAddr(addr) {
   if (!addr || addr.length < 9) return addr || '';
   return addr.slice(0, 4) + '…' + addr.slice(-4);
 }
 
-// Privy returns { type:'wallet', chainType:'solana', address } in
-// user.linkedAccounts for both embedded and externally connected
-// Solana wallets.
 function pickSolanaAddress(user) {
   if (!user || !Array.isArray(user.linkedAccounts)) return '';
   const acct = user.linkedAccounts.find(
@@ -54,12 +59,99 @@ async function fetchBalance(address) {
   }
 }
 
+function validatePubkey(s) {
+  try { new PublicKey(s); return true; } catch { return false; }
+}
+
+function SendForm({ fromAddress, wallet, onDone, onCancel }) {
+  const [to, setTo] = useState('');
+  const [amountSol, setAmountSol] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const submit = async () => {
+    setError(''); setSuccess('');
+    if (!validatePubkey(to)) { setError('invalid address'); return; }
+    const amt = parseFloat(amountSol);
+    if (!isFinite(amt) || amt <= 0) { setError('invalid amount'); return; }
+    if (!wallet) { setError('wallet not ready'); return; }
+    setBusy(true);
+    try {
+      const conn = new Connection(SOLANA_RPC, 'confirmed');
+      const fromKey = new PublicKey(fromAddress);
+      const toKey = new PublicKey(to);
+      const lamports = Math.round(amt * LAMPORTS_PER_SOL);
+      const tx = new Transaction().add(
+        SystemProgram.transfer({ fromPubkey: fromKey, toPubkey: toKey, lamports }),
+      );
+      const { blockhash } = await conn.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = fromKey;
+      // Privy's embedded Solana wallet exposes sendTransaction directly;
+      // it signs with the user's embedded key and submits via the
+      // provided Connection.
+      const sig = await wallet.sendTransaction(tx, conn);
+      setSuccess(typeof sig === 'string' ? sig : (sig?.signature || 'sent'));
+      onDone && onDone();
+    } catch (err) {
+      console.warn('[send] failed:', err);
+      setError(err.message || 'send failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return h('div', { className: 'wd-send-form' }, [
+    h('div', { className: 'wd-row' }, [
+      h('div', { className: 'wd-label' }, 'recipient'),
+      h('input', {
+        className: 'wd-input',
+        type: 'text',
+        autocomplete: 'off',
+        spellcheck: false,
+        placeholder: 'paste Solana address',
+        value: to,
+        onInput: e => setTo(e.target.value.trim()),
+      }),
+    ]),
+    h('div', { className: 'wd-row' }, [
+      h('div', { className: 'wd-label' }, 'amount (SOL)'),
+      h('input', {
+        className: 'wd-input',
+        type: 'number',
+        step: '0.001',
+        min: '0',
+        placeholder: '0.0',
+        value: amountSol,
+        onInput: e => setAmountSol(e.target.value),
+      }),
+    ]),
+    error && h('div', { className: 'wd-error' }, error),
+    success && h('div', { className: 'wd-success' }, 'sent · ' + shortAddr(success)),
+    h('div', { className: 'wd-row wd-actions wd-actions-row' }, [
+      h('button', {
+        className: 'wd-cancel',
+        onClick: onCancel,
+        disabled: busy,
+      }, 'cancel'),
+      h('button', {
+        className: 'wd-send',
+        onClick: submit,
+        disabled: busy || !to || !amountSol,
+      }, busy ? 'sending…' : 'confirm'),
+    ]),
+  ]);
+}
+
 function WalletDrawer({ address, onClose }) {
   const [balance, setBalance] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { wallets } = useSolanaWallets();
+  const wallet = wallets?.find(w => w.address === address) || wallets?.[0];
 
-  // Poll balance every 10 s while the drawer is open. First fetch
-  // runs immediately on mount.
   useEffect(() => {
     let alive = true;
     const tick = async () => {
@@ -69,7 +161,7 @@ function WalletDrawer({ address, onClose }) {
     tick();
     const id = setInterval(tick, 10000);
     return () => { alive = false; clearInterval(id); };
-  }, [address]);
+  }, [address, refreshKey]);
 
   const copyAddr = async () => {
     try {
@@ -77,8 +169,6 @@ function WalletDrawer({ address, onClose }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      // Older browsers / private mode — show the address selected so
-      // the user can long-press to copy themselves.
       console.warn('[wallet] clipboard write failed');
     }
   };
@@ -102,13 +192,20 @@ function WalletDrawer({ address, onClose }) {
           balance == null ? '…' : balance.toFixed(4) + ' SOL'
         ),
       ]),
-      h('div', { className: 'wd-row wd-actions' }, [
+      !sending && h('div', { className: 'wd-row wd-actions' }, [
         h('button', {
           className: 'wd-send',
-          disabled: true,
-          title: 'coming next',
-        }, 'send · soon'),
+          onClick: () => setSending(true),
+          disabled: !wallet,
+          title: wallet ? 'send SOL to any address' : 'wallet not ready',
+        }, 'send'),
       ]),
+      sending && h(SendForm, {
+        fromAddress: address,
+        wallet,
+        onDone: () => { setSending(false); setRefreshKey(k => k + 1); },
+        onCancel: () => setSending(false),
+      }),
     ]),
   );
 }
@@ -122,14 +219,8 @@ function AuthIsland() {
     return h('div', { className: 'auth-loading' }, '…');
   }
 
-  if (!privy.authenticated) {
-    return h('button', {
-      id: 'auth-login',
-      onClick: () => privy.login(),
-    }, 'log in to join');
-  }
+  const addr = privy.authenticated ? pickSolanaAddress(privy.user) : '';
 
-  const addr = pickSolanaAddress(privy.user);
   const handleJoin = async () => {
     setJoining(true);
     try {
@@ -142,22 +233,34 @@ function AuthIsland() {
     }
   };
 
-  return h('div', { className: 'auth-loggedin' }, [
-    h('button', {
-      className: 'wallet-badge',
-      title: addr || 'wallet',
-      onClick: () => addr && setDrawerOpen(true),
-    }, shortAddr(addr) || 'wallet…'),
-    h('button', {
-      id: 'auth-join',
-      onClick: handleJoin,
-      disabled: joining,
-    }, joining ? 'joining…' : 'join'),
-    h('button', {
-      className: 'logout',
-      onClick: () => privy.logout(),
-      title: 'log out',
-    }, 'log out'),
+  // Single rendered element; the corner widget uses position:fixed so
+  // it lives top-right of the viewport regardless of its DOM ancestry.
+  return h('div', null, [
+    // Main action button — sits inside the lobby panel.
+    !privy.authenticated
+      ? h('button', {
+          id: 'auth-login',
+          onClick: () => privy.login(),
+        }, 'log in to join')
+      : h('button', {
+          id: 'auth-join',
+          onClick: handleJoin,
+          disabled: joining,
+        }, joining ? 'joining…' : 'join'),
+    // Wallet + logout pinned top-right when authenticated. Travels
+    // across title / lobby / game screens.
+    privy.authenticated && h('div', { className: 'auth-corner' }, [
+      h('button', {
+        className: 'wallet-badge',
+        title: addr || 'wallet',
+        onClick: () => addr && setDrawerOpen(true),
+      }, shortAddr(addr) || 'wallet…'),
+      h('button', {
+        className: 'logout',
+        onClick: () => privy.logout(),
+        title: 'log out',
+      }, 'log out'),
+    ]),
     drawerOpen && h(WalletDrawer, {
       address: addr,
       onClose: () => setDrawerOpen(false),
