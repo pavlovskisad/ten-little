@@ -21,9 +21,16 @@ import {
   Connection,
   PublicKey,
   Transaction,
+  TransactionInstruction,
   SystemProgram,
   LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
+import { BorshCoder } from '@coral-xyz/anchor';
+import escrowIdl from './contracts/escrow/target/idl/escrow.json';
+
+// Program ID locked at devnet deploy. Server's address must match.
+const ESCROW_PROGRAM_ID = new PublicKey('DsFoEFQw6uPGgXDztmuPUozi1AqP9KWC6N71H2MLVG5z');
+const _escrowCoder = new BorshCoder(escrowIdl);
 
 const PRIVY_APP_ID = 'cmp5itgpu000j0dk4zp6r05rs';
 // Solana mainnet RPC. Public endpoints (mainnet-beta.solana.com, ankr)
@@ -252,8 +259,43 @@ function WalletDrawer({ address, onClose }) {
 
 function AuthIsland() {
   const privy = usePrivy();
+  const { wallets } = useSolanaWallets();
   const [joining, setJoining] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Publish a payEntryFee bridge for the vanilla netConnect handler.
+  // Called by plate-shapes.html when the server sends a 'joined'
+  // message with an escrow payload. Returns the tx signature on
+  // success so the vanilla side can forward it to the server in a
+  // 'paid' message.
+  useEffect(() => {
+    if (!privy.authenticated) return;
+    const wallet = wallets?.find(w => w.address === pickSolanaAddress(privy.user))
+      || wallets?.[0];
+    window.payEntryFee = async (escrow) => {
+      if (!wallet) throw new Error('wallet not ready');
+      const conn = new Connection(SOLANA_RPC, 'confirmed');
+      const playerPk = new PublicKey(wallet.address);
+      const potPk = new PublicKey(escrow.pot);
+      const data = _escrowCoder.instruction.encode('join_pot', {});
+      const ix = new TransactionInstruction({
+        programId: ESCROW_PROGRAM_ID,
+        keys: [
+          { pubkey: potPk, isSigner: false, isWritable: true },
+          { pubkey: playerPk, isSigner: true, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data,
+      });
+      const tx = new Transaction().add(ix);
+      const { blockhash } = await conn.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = playerPk;
+      const sig = await wallet.sendTransaction(tx, conn);
+      return typeof sig === 'string' ? sig : (sig?.signature || 'sent');
+    };
+    return () => { delete window.payEntryFee; };
+  }, [privy.authenticated, wallets, privy.user]);
 
   if (!privy.ready) {
     return h('div', { className: 'auth-loading' }, '…');

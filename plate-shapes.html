@@ -2508,6 +2508,24 @@ function netConnect() {
       if (NET.onJoined) NET.onJoined(msg);
       if (NET.joinMode === 'solo') {
         ws.send(JSON.stringify({ type: 'start' }));
+      } else if (msg.escrow && typeof window.payEntryFee === 'function') {
+        // Quickmatch with an on-chain pot. Pay the entry fee from the
+        // Privy embedded wallet, then tell the server the tx landed.
+        // Errors surface in the lobby status line; the player stays in
+        // the WS room (still gets snapshots) but won't show up as paid
+        // until they retry — for v0 we don't auto-retry.
+        const statusEl = document.getElementById('lobby-status');
+        if (statusEl) statusEl.textContent = 'paying entry fee…';
+        window.payEntryFee(msg.escrow)
+          .then((signature) => {
+            console.log('[net] entry fee paid:', signature);
+            if (statusEl) statusEl.textContent = 'paid · waiting for players';
+            ws.send(JSON.stringify({ type: 'paid', signature }));
+          })
+          .catch((err) => {
+            console.warn('[net] payment failed:', err);
+            if (statusEl) statusEl.textContent = 'payment failed: ' + (err.message || 'unknown');
+          });
       }
     } else if (msg.type === 'roster') {
       if (NET.onRoster) NET.onRoster(msg);
