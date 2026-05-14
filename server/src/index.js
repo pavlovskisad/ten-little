@@ -362,6 +362,23 @@ wss.on('connection', (ws) => {
       send(ws, { type: 'joined', code: room.code, playerId });
       return;
     }
+    if (msg.type === 'paid') {
+      // Client claims they've signed + submitted join_pot. For v0 we
+      // just log + stash. Phase B4 will RPC-validate against
+      // pot.players before allowing the player into finalize_pot's
+      // winners list. Until then, the on-chain require! in
+      // finalize_pot is the only enforcement, but unpaid players also
+      // can't be winners (their pubkey wouldn't appear in pot.players
+      // when finalize runs).
+      const room = rooms.get(roomCode);
+      if (!room) return;
+      const player = room.players.get(playerId);
+      if (player) {
+        player.paidSig = msg.signature || null;
+        console.log('[escrow] paid', room.code, playerId, '→ sig=' + msg.signature);
+      }
+      return;
+    }
     if (msg.type === 'input') {
       const room = rooms.get(roomCode);
       if (!room) return;
