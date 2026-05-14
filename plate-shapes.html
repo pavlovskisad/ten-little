@@ -2120,11 +2120,11 @@ function netReconcile(snap) {
   S.plateR = snap.plateR;
   S.tilt.x = snap.tilt.x;
   S.tilt.z = snap.tilt.z;
-  S.hand.phase = snap.hand.phase;
-  S.hand.x = snap.hand.x;
-  S.hand.z = snap.hand.z;
-  S.hand.zoneR = snap.hand.zoneR;
-  S.hand.t = snap.hand.t;
+  // Mirror the entire snapshot.hand into S.hand. The renderer reads
+  // azimuth, per-phase durations, arc magnitudes, hover drift, and the
+  // hold window every frame; missing any of them produces NaN math
+  // (rotation matrix → invalid → claw mesh disappears).
+  Object.assign(S.hand, snap.hand);
   S.alive = snap.alive;
   S.t = snap.t;
 

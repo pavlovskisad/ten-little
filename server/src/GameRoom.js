@@ -186,13 +186,31 @@ class GameRoom {
       picked: f.picked, dropping: f.dropping, draining: f.draining,
       isPlayer: f.isPlayer,
     }));
+    const h = this.state.hand;
     return {
       t: this.state.t,
       plateR: this.state.plateR,
       tilt: this.state.tilt,
+      // Full hand state. The visual is built from per-cycle randomized
+      // values (azimuth, durations, arc magnitudes, hover drift, hold
+      // window) that the client reads to compute per-phase progress
+      // and orientation; without them the renderer hits NaN math and
+      // the claw mesh disappears.
       hand: {
-        phase: this.state.hand.phase, x: this.state.hand.x, z: this.state.hand.z,
-        zoneR: this.state.hand.zoneR, t: this.state.hand.t,
+        phase: h.phase, x: h.x, z: h.z, zoneR: h.zoneR, t: h.t,
+        azimuth: h.azimuth || 0,
+        telegraphMs: h.telegraphMs || 1000,
+        approachMs:  h.approachMs  || 700,
+        hoverMs:     h.hoverMs     || 200,
+        pinchMs:     h.pinchMs     || 250,
+        liftMs:      h.liftMs      || 900,
+        approachArc:    h.approachArc    || 1.0,
+        liftArc:        h.liftArc        || 1.0,
+        approachEaseMix: h.approachEaseMix || 0,
+        hoverDriftAmp:   h.hoverDriftAmp   || 0,
+        hoverDriftPhase: h.hoverDriftPhase || 0,
+        holdStart: h.holdStart || 0.4,
+        holdEnd:   h.holdEnd   || 0.55,
       },
       figs,
       alive: this.state.alive,
