@@ -2134,13 +2134,30 @@ function netReconcile(snap) {
     if (!f) f = spawnNetFigure(sf);
     const wasPicked = f.picked, wasDropping = f.dropping, wasDraining = f.draining;
     const wasAlive = f.alive;
-    f.x = sf.x;
-    f.z = sf.z;
-    // Server-authored velocity. Used by the mixer-rate scaler so the
-    // walk loop matches actual movement speed; without it the client
-    // sees vx/vz=0 and pins the mixer at its 0.4 floor (the moonwalk).
-    f.vx = sf.vx || 0;
-    f.vz = sf.vz || 0;
+    const isLocal = (f.id === NET.myFigureId);
+    if (isLocal && f.alive && !sf.picked && !sf.dropping && !sf.draining) {
+      // Local player runs client-side prediction (see predictLocalPlayer).
+      // Don't overwrite f.x/f.z from the snapshot — instead measure
+      // drift and softly correct. Big drift (collision knockback, lag
+      // spike) snaps; small drift converges over a few frames so the
+      // joystick still feels instant.
+      const dx = sf.x - f.x, dz = sf.z - f.z;
+      const drift = Math.hypot(dx, dz);
+      if (drift > 1.5) {
+        f.x = sf.x; f.z = sf.z;
+      } else {
+        f.x += dx * 0.30;
+        f.z += dz * 0.30;
+      }
+      // Keep local f.vx/vz as the prediction state — animation rate
+      // tracks what the player is doing right now, not the server's
+      // 33-ms-stale view.
+    } else {
+      f.x = sf.x;
+      f.z = sf.z;
+      f.vx = sf.vx || 0;
+      f.vz = sf.vz || 0;
+    }
     f.hp = sf.hp;
     f.alive = sf.alive;
     f.picked = !!sf.picked;
@@ -2194,6 +2211,32 @@ function updateSpectatorCaption() {
 function netSendInput() {
   if (!NET.ws || NET.ws.readyState !== WebSocket.OPEN) return;
   NET.ws.send(JSON.stringify({ type: 'input', dx: S.input.dx || 0, dy: S.input.dy || 0 }));
+}
+
+// Client-side prediction for the local player. Same kinematics the
+// server runs in sim/figures.js::tickMovement, applied per frame to
+// f.x/f.z/f.vx/f.vz so the joystick feels instant instead of waiting
+// for the next snapshot round-trip. Server stays authoritative; the
+// soft-correction in netReconcile pulls the predicted position back
+// toward the server's view a little each snapshot.
+function predictLocalPlayer(dt) {
+  if (S.phase !== 'play') return;
+  const f = S.player;
+  if (!f || !f.alive || f.picked || f.dropping || f.draining) return;
+  const ix = (S.input.dx || 0) * CFG.playerSpeed;
+  const iz = (S.input.dy || 0) * CFG.playerSpeed;
+  const a = Math.min(1, CFG.playerAccel * dt);
+  f.vx += (ix - f.vx) * a;
+  f.vz += (iz - f.vz) * a;
+  // Tilt slide — uses the snapshot-authored tilt so the figure
+  // accelerates downhill the same way the server sees it.
+  f.vx += S.tilt.x * CFG.slideForce * dt;
+  f.vz += S.tilt.z * CFG.slideForce * dt;
+  const fr = 1 - Math.min(1, CFG.friction * dt);
+  f.vx *= fr;
+  f.vz *= fr;
+  f.x += f.vx * dt;
+  f.z += f.vz * dt;
 }
 
 function netConnect() {
@@ -2488,8 +2531,15 @@ function updateFigures(dt) {
   const a = Math.min(1, SMOOTH_K * dt);
   for (const f of S.figs) {
     if (!f.alive || f.picked || f.dropping || f.draining) continue;
-    f.renderX += (f.x - f.renderX) * a;
-    f.renderZ += (f.z - f.renderZ) * a;
+    if (f.isPlayer) {
+      // Local player: prediction already updates f.x/f.z per frame,
+      // so render position == predicted position (no extra smoothing).
+      f.renderX = f.x;
+      f.renderZ = f.z;
+    } else {
+      f.renderX += (f.x - f.renderX) * a;
+      f.renderZ += (f.z - f.renderZ) * a;
+    }
     f.mesh.position.x = f.renderX;
     f.mesh.position.z = f.renderZ;
     f.mesh.position.y = CFG.plateThick / 2;
@@ -3016,7 +3066,7 @@ function loop(now) {
   const tSec = now / 1000;
 
   if (S.phase === 'play' || S.phase === 'over') {
-    if (S.phase === 'play') tickInputFromKeys();
+    if (S.phase === 'play') { tickInputFromKeys(); predictLocalPlayer(dt); }
     updateTilt(dt);
     updateFigures(dt);
     updateHand(dt);
