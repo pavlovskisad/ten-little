@@ -356,9 +356,10 @@
   }
   #hint.on { opacity: 1; }
 
-  /* Auth island — Privy login + wallet badge inside the lobby panel.
-     Styled to match the rest of the lobby (lowercase, monospace, dim
-     background, red accent). */
+  /* Auth island — Privy login wires up the multiplayer button in the
+     lobby. Wallet badge + logout pinned top-right of the viewport via
+     .auth-corner so they're visible on title / lobby / game screens.
+     The drawer is a modal overlay anchored center. */
   #auth-root { display: flex; flex-direction: column; align-items: center; gap: 8px; }
   #auth-root .auth-loading { font-family: 'VT323', monospace; font-size: 14px; opacity: 0.6; }
   #auth-root #auth-login,
@@ -371,21 +372,31 @@
   #auth-root #auth-login:hover,
   #auth-root #auth-join:hover { background: #ff3030; }
   #auth-root #auth-join:disabled { opacity: 0.4; cursor: default; }
-  #auth-root .auth-loggedin { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-  #auth-root .wallet-badge {
+
+  /* Top-right corner: wallet + logout. Detached from the lobby panel
+     so it travels across screens. */
+  .auth-corner {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 12px);
+    right: calc(env(safe-area-inset-right) + 12px);
+    z-index: 60;
+    display: flex; gap: 8px; align-items: center;
+  }
+  .auth-corner .wallet-badge {
     font-family: 'VT323', monospace; font-size: 14px;
-    color: #f1e5cd; opacity: 0.7; letter-spacing: 0.1em;
-    background: transparent; border: 1px dashed #f1e5cd33;
+    color: #f1e5cd; opacity: 0.75; letter-spacing: 0.1em;
+    background: rgba(20,17,13,0.6); border: 1px dashed #f1e5cd33;
     padding: 4px 12px; cursor: pointer;
   }
-  #auth-root .wallet-badge:hover { opacity: 1; border-color: #ff1a1a; }
-  #auth-root .logout {
-    background: transparent; color: #f1e5cd; border: 1px solid #f1e5cd33;
+  .auth-corner .wallet-badge:hover { opacity: 1; border-color: #ff1a1a; }
+  .auth-corner .logout {
+    background: rgba(20,17,13,0.6); color: #f1e5cd;
+    border: 1px solid #f1e5cd33;
     font-size: 14px; padding: 2px 14px; cursor: pointer;
     font-family: 'VT323', monospace; letter-spacing: 0.1em;
     text-transform: lowercase; opacity: 0.55;
   }
-  #auth-root .logout:hover { border-color: #ff1a1a; color: #ff1a1a; opacity: 1; }
+  .auth-corner .logout:hover { border-color: #ff1a1a; color: #ff1a1a; opacity: 1; }
 
   /* Wallet drawer — modal overlay anchored center, backdrop dims the
      game beneath. Tap backdrop or × to close. */
@@ -425,7 +436,43 @@
   .wd-copy-hint { font-size: 12px; opacity: 0.5; }
   .wd-balance { font-size: 24px; letter-spacing: 0.04em; }
   .wd-actions { margin-top: 4px; }
+  .wd-actions-row { flex-direction: row !important; gap: 8px; }
+  .wd-input {
+    background: rgba(255,255,255,0.04);
+    border: 1px dashed #f1e5cd22;
+    color: #f1e5cd;
+    padding: 8px 12px;
+    font-family: 'VT323', monospace; font-size: 16px;
+    letter-spacing: 0.04em;
+    width: 100%; box-sizing: border-box;
+    outline: none;
+  }
+  .wd-input:focus { border-color: #ff1a1a; }
+  .wd-error {
+    color: #ff5555; font-size: 14px;
+    background: rgba(255,26,26,0.08);
+    padding: 6px 10px;
+    border: 1px solid #ff1a1a44;
+  }
+  .wd-success {
+    color: #88e88c; font-size: 14px;
+    background: rgba(136,232,140,0.08);
+    padding: 6px 10px;
+    border: 1px solid #88e88c44;
+    word-break: break-all;
+  }
+  .wd-cancel {
+    flex: 1;
+    background: transparent; color: #f1e5cd;
+    border: 1px solid #f1e5cd33;
+    padding: 10px 0; cursor: pointer;
+    font-family: 'VT323', monospace; font-size: 18px;
+    letter-spacing: 0.08em; text-transform: lowercase;
+  }
+  .wd-cancel:hover { border-color: #ff1a1a; color: #ff1a1a; }
+  .wd-cancel:disabled { opacity: 0.35; cursor: default; }
   .wd-send {
+    flex: 1;
     background: #ff1a1a; color: #f1e5cd; border: none;
     padding: 10px 0; cursor: pointer; width: 100%;
     font-family: 'VT323', monospace; font-size: 20px;
