@@ -26,7 +26,16 @@ esbuild.build({
   define: {
     'process.env.NODE_ENV': '"production"',
     'process.env.SOLANA_RPC': JSON.stringify(process.env.SOLANA_RPC || ''),
+    // @solana/web3.js and friends reference `global`. Browsers have
+    // `globalThis`; alias it so those refs resolve.
+    'global': 'globalThis',
   },
+  // Inject the Buffer polyfill at the top of the bundle so any later
+  // code that touches the Buffer global (Solana, spl-token, Privy's
+  // serialization layer) finds it on globalThis. Without this the
+  // browser throws "Can't find variable: Buffer" the first time a
+  // transaction is built.
+  inject: ['./build-polyfills.js'],
   // Rewrite every react/react-dom import in the dep tree to
   // preact/compat — preact ships a React-compatible API surface that
   // is a drop-in for what Privy expects.
