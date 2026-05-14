@@ -457,12 +457,8 @@
 <div id="lobby">
   <div class="panel" id="lobby-pre">
     <h2>multiplayer</h2>
-    <button id="lobby-create">create room</button>
-    <div class="row">
-      <input id="lobby-code" type="text" maxlength="6" placeholder="code" autocomplete="off" />
-      <button id="lobby-join">join</button>
-    </div>
-    <button id="lobby-solo">solo (bot-fill)</button>
+    <button id="lobby-join">join</button>
+    <button id="lobby-solo">solo (bots)</button>
     <div class="err" id="lobby-err"></div>
   </div>
   <div class="panel" id="lobby-in" style="display:none;">
@@ -2248,12 +2244,13 @@ function netConnect() {
   NET.ws = ws;
   ws.addEventListener('open', () => {
     console.log('[net] open', NET.url);
-    const mode = NET.joinMode || 'create';
-    if (mode === 'join' && NET.joinCode) {
-      ws.send(JSON.stringify({ type: 'join', code: NET.joinCode }));
+    const mode = NET.joinMode || 'quickjoin';
+    if (mode === 'quickjoin') {
+      // Find an open lobby or spin up a new one — no code typing.
+      ws.send(JSON.stringify({ type: 'quickjoin' }));
     } else {
-      // solo and create both open with a fresh room; solo just also
-      // sends start right after the joined ack.
+      // 'solo' (and any future 'create' callers) always get a fresh
+      // empty room. Solo also fires 'start' on the joined ack.
       ws.send(JSON.stringify({ type: 'create' }));
     }
   });
@@ -3172,21 +3169,16 @@ document.getElementById('again').addEventListener('click', () => {
     }
   };
 
-  document.getElementById('lobby-create').addEventListener('click', () => {
-    errEl.textContent = '';
-    NET.joinMode = 'create';
-    netConnect();
-  });
+  // Single matchmaking button: server finds an open lobby with
+  // capacity or spins up a fresh one. No room code coordination.
   document.getElementById('lobby-join').addEventListener('click', () => {
-    const code = (document.getElementById('lobby-code').value || '').trim().toUpperCase();
-    if (!code) { errEl.textContent = 'enter a code'; return; }
     errEl.textContent = '';
-    NET.joinMode = 'join';
-    NET.joinCode = code;
+    NET.joinMode = 'quickjoin';
     netConnect();
   });
-  // Solo = create + auto-start. netConnect's onJoined handler fires
-  // start immediately if NET.joinMode === 'solo'.
+  // Solo = create a fresh room + auto-start. netConnect's onJoined
+  // handler fires start immediately if NET.joinMode === 'solo' so the
+  // round begins with bot-fill the moment the WS opens.
   document.getElementById('lobby-solo').addEventListener('click', () => {
     errEl.textContent = '';
     NET.joinMode = 'solo';
