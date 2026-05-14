@@ -461,13 +461,17 @@
   .wd-balance { font-size: 24px; letter-spacing: 0.04em; }
   .wd-actions { margin-top: 4px; }
   .wd-actions-row { flex-direction: row !important; gap: 8px; }
+  /* Inputs: compact system monospace so a 44-char Solana address
+     fits inside the 360 px drawer without overflowing. Same family
+     for the amount input keeps the form unified. */
   .wd-input {
     background: rgba(255,255,255,0.04);
     border: 1px dashed #f1e5cd22;
     color: #f1e5cd;
-    padding: 8px 12px;
-    font-family: 'VT323', monospace; font-size: 16px;
-    letter-spacing: 0.04em;
+    padding: 10px 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    letter-spacing: 0;
     width: 100%; box-sizing: border-box;
     outline: none;
   }
