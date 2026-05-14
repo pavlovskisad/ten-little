@@ -402,7 +402,7 @@
   #lobby .auth-corner .wallet-badge,
   #lobby .auth-corner .logout {
     font-family: 'VT323', monospace;
-    font-size: 16px;
+    font-size: 22px;
     padding: 2px 0;
   }
 
@@ -458,7 +458,13 @@
   .wd-addr:hover { border-color: #ff1a1a; }
   .wd-addr-text { color: #f1e5cd; }
   .wd-copy-hint { font-size: 12px; opacity: 0.5; }
-  .wd-balance { font-size: 24px; letter-spacing: 0.04em; }
+  .wd-balance {
+    font-size: 24px; letter-spacing: 0.04em;
+    transition: opacity 180ms ease-in-out;
+  }
+  /* Pulses dim while the auto-refresh/manual-refresh fetch is in
+     flight. Makes "is the balance still polling?" visually obvious. */
+  .wd-balance.wd-balance-fetching { opacity: 0.45; }
   .wd-actions { margin-top: 4px; }
   .wd-actions-row { flex-direction: row !important; gap: 8px; }
   /* Inputs: compact system monospace so a 44-char Solana address
@@ -1365,21 +1371,31 @@ function applyBasketballGlbToScene() {
     map: basketballTex,
     color: 0xffffff,
   });
-  for (const ball of wallCubes) {
+  // Easter-egg watermelon variant — every 10th ball in the wall + void
+  // gets a green tint over the same basketball texture. Same seams, same
+  // grain, just dressed up as a melon.
+  const melonMat = new THREE.MeshLambertMaterial({
+    map: basketballTex,
+    color: 0x3aa83a,
+  });
+  wallCubes.forEach((ball, i) => {
     ball.geometry = basketballGlbGeom;
     ball.scale.setScalar(0.7); // match the previous SphereGeometry(0.7) radius
-    ball.material = wallMat;
-  }
+    ball.material = (i % 10 === 0) ? melonMat : wallMat;
+  });
   // Void: swap geom on sphere-tagged entries and rebuild the
   // material with the procedural texture + per-shape tint/opacity.
+  // Every 10th swappable ball goes melon too.
+  let voidIdx = 0;
   for (const g of giantShapes) {
     if (g.glbSwappable) {
       g.mesh.geometry = basketballGlbGeom;
       g.mesh.scale.setScalar(g.glbBaseSize);
     }
+    const isMelon = g.glbSwappable && (voidIdx++ % 10 === 0);
     const m = new THREE.MeshLambertMaterial({
       map: basketballTex,
-      color: g.tintColor,
+      color: isMelon ? 0x3aa83a : g.tintColor,
       transparent: true,
       opacity: g.baseOpacity,
       side: THREE.DoubleSide,
