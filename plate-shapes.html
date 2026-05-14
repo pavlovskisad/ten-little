@@ -1330,6 +1330,8 @@ const NET = (function () {
 // ============================================================
 let basketballGlbGeom = null;
 let basketballGlbTex = null;
+let watermelonGlbGeom = null;
+let watermelonGlbTex = null;
 (function loadBasketballGlb() {
   const loader = new THREE.GLTFLoader();
   loader.load('./basketball.glb', (gltf) => {
@@ -1359,6 +1361,38 @@ let basketballGlbTex = null;
   });
 })();
 
+// Same loader pattern for the watermelon. Used by the 1-in-10
+// occurrence rule in applyBasketballGlbToScene so every tenth ball
+// becomes a watermelon. Normalized to unit radius so the same
+// scale.setScalar(0.7) used for basketballs reads as the same size.
+(function loadWatermelonGlb() {
+  const loader = new THREE.GLTFLoader();
+  loader.load('./Meshy_AI_Watermelon_0514185047_texture-compressed.glb', (gltf) => {
+    let geom = null, tex = null;
+    gltf.scene.traverse((node) => {
+      if (node.isMesh && !geom) {
+        geom = node.geometry;
+        if (node.material && node.material.map) tex = node.material.map;
+      }
+    });
+    if (!geom) { console.warn('[watermelon.glb] no mesh found'); return; }
+    geom.computeBoundingSphere();
+    const r = (geom.boundingSphere && geom.boundingSphere.radius) || 1;
+    const norm = geom.clone();
+    if (r > 0 && Math.abs(r - 1) > 1e-3) {
+      const sm = new THREE.Matrix4().makeScale(1 / r, 1 / r, 1 / r);
+      norm.applyMatrix4(sm);
+      norm.computeBoundingSphere();
+    }
+    watermelonGlbGeom = norm;
+    watermelonGlbTex = tex;
+    applyBasketballGlbToScene();
+    console.log('[watermelon.glb] loaded; texture:', !!tex);
+  }, undefined, (err) => {
+    console.error('[watermelon.glb] failed', err);
+  });
+})();
+
 // Wall + void swap, called once the GLB resolves. Wall balls share
 // one Lambert material; void shapes each get a cloned Lambert with
 // their own tint.
@@ -1371,35 +1405,39 @@ function applyBasketballGlbToScene() {
     map: basketballTex,
     color: 0xffffff,
   });
-  // Easter-egg watermelon variant — every 10th ball in the wall + void
-  // becomes solid lime green with NO basketball texture map. Multiplying
-  // a green tint against the orange/brown basketball texture muted the
-  // green into olive; dropping the texture entirely keeps the shading
-  // (Lambert reacts to the scene lights) while letting the green read
-  // as bright and cartoon-clean.
-  const melonMat = new THREE.MeshLambertMaterial({
-    color: 0x4dff2e,
-  });
+  // Watermelon variant — every 10th ball in the wall + void becomes a
+  // watermelon mesh (separate GLB, separate texture). Until the
+  // watermelon GLB resolves we fall back to a solid lime sphere so
+  // the easter egg still shows on first paint.
+  const melonReady = !!watermelonGlbGeom;
+  const melonMat = new THREE.MeshLambertMaterial(
+    melonReady
+      ? { map: watermelonGlbTex || null, color: 0xffffff }
+      : { color: 0x4dff2e }
+  );
   wallCubes.forEach((ball, i) => {
-    ball.geometry = basketballGlbGeom;
-    ball.scale.setScalar(0.7); // match the previous SphereGeometry(0.7) radius
-    ball.material = (i % 10 === 0) ? melonMat : wallMat;
+    const isMelon = (i % 10 === 0);
+    ball.geometry = isMelon && melonReady ? watermelonGlbGeom : basketballGlbGeom;
+    // Same on-screen size whether basketball or watermelon — both
+    // geoms are normalized to unit bounding-sphere radius.
+    ball.scale.setScalar(0.7);
+    ball.material = isMelon ? melonMat : wallMat;
   });
   // Void: swap geom on sphere-tagged entries and rebuild the
   // material with the procedural texture + per-shape tint/opacity.
-  // Every 10th swappable ball goes melon too.
+  // Every 10th swappable ball goes watermelon too.
   let voidIdx = 0;
   for (const g of giantShapes) {
+    const isMelon = g.glbSwappable && (voidIdx++ % 10 === 0);
     if (g.glbSwappable) {
-      g.mesh.geometry = basketballGlbGeom;
+      g.mesh.geometry = isMelon && melonReady ? watermelonGlbGeom : basketballGlbGeom;
       g.mesh.scale.setScalar(g.glbBaseSize);
     }
-    const isMelon = g.glbSwappable && (voidIdx++ % 10 === 0);
     const m = new THREE.MeshLambertMaterial({
-      // melon: no map, solid bright green so it pops; basketball: map +
-      // per-shape tint as before.
-      map: isMelon ? null : basketballTex,
-      color: isMelon ? 0x4dff2e : g.tintColor,
+      // melon: own GLB texture (or solid green fallback). basketball:
+      // procedural texture with per-shape tint as before.
+      map: isMelon ? (melonReady ? (watermelonGlbTex || null) : null) : basketballTex,
+      color: isMelon ? (melonReady ? 0xffffff : 0x4dff2e) : g.tintColor,
       transparent: true,
       opacity: g.baseOpacity,
       side: THREE.DoubleSide,
