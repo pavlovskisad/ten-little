@@ -1,30 +1,33 @@
-// Preact island for Privy login.
+// Preact island for Privy login + wallet drawer.
 //
-// Stage 1 (this file): minimum surface — login + access token only.
-// We deliberately avoid importing @privy-io/react-auth/solana here so
-// the bundle stays small (~500 KB instead of ~4 MB; web3.js +
-// spl-token only get pulled in by the Solana subpath). The wallet
-// address shows up in usePrivy().user.linkedAccounts already without
-// the heavier hooks.
+// Stage 1: login + access token (already shipped).
+// Stage 2 (this version): wallet drawer with full address + copy +
+//   live SOL balance.
+// Stage 3 (next): send SOL form.
 //
 // Bridge to the vanilla code: window.startQuickjoin(token) is defined
 // in plate-shapes.html and triggers the existing netConnect /
 // quickjoin flow with the Privy access token attached.
 
 import { h, render } from 'preact';
-import { useState } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import { PrivyProvider, usePrivy } from '@privy-io/react-auth';
 
 const PRIVY_APP_ID = 'cmp5itgpu000j0dk4zp6r05rs';
+// Public mainnet RPC. Rate-limited; sufficient for read-only balance
+// polling while a drawer is open. Phase B will swap in an authenticated
+// endpoint for the heavier escrow traffic.
+const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
+const LAMPORTS_PER_SOL = 1_000_000_000;
 
 function shortAddr(addr) {
   if (!addr || addr.length < 9) return addr || '';
   return addr.slice(0, 4) + '…' + addr.slice(-4);
 }
 
-// Pull the user's Solana wallet address out of the linkedAccounts list.
-// Privy returns objects of shape { type: 'wallet', chainType: 'solana',
-// address: '...' } for both embedded and externally connected wallets.
+// Privy returns { type:'wallet', chainType:'solana', address } in
+// user.linkedAccounts for both embedded and externally connected
+// Solana wallets.
 function pickSolanaAddress(user) {
   if (!user || !Array.isArray(user.linkedAccounts)) return '';
   const acct = user.linkedAccounts.find(
@@ -33,9 +36,87 @@ function pickSolanaAddress(user) {
   return acct?.address || '';
 }
 
+async function fetchBalance(address) {
+  try {
+    const res = await fetch(SOLANA_RPC, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'getBalance', params: [address],
+      }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    return (data.result?.value ?? 0) / LAMPORTS_PER_SOL;
+  } catch (err) {
+    console.warn('[wallet] balance fetch failed:', err.message);
+    return null;
+  }
+}
+
+function WalletDrawer({ address, onClose }) {
+  const [balance, setBalance] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  // Poll balance every 10 s while the drawer is open. First fetch
+  // runs immediately on mount.
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      const b = await fetchBalance(address);
+      if (alive) setBalance(b);
+    };
+    tick();
+    const id = setInterval(tick, 10000);
+    return () => { alive = false; clearInterval(id); };
+  }, [address]);
+
+  const copyAddr = async () => {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Older browsers / private mode — show the address selected so
+      // the user can long-press to copy themselves.
+      console.warn('[wallet] clipboard write failed');
+    }
+  };
+
+  return h('div', { className: 'wallet-drawer-backdrop', onClick: onClose },
+    h('div', { className: 'wallet-drawer', onClick: e => e.stopPropagation() }, [
+      h('div', { className: 'wd-header' }, [
+        h('div', { className: 'wd-title' }, 'wallet'),
+        h('button', { className: 'wd-close', onClick: onClose, title: 'close' }, '×'),
+      ]),
+      h('div', { className: 'wd-row' }, [
+        h('div', { className: 'wd-label' }, 'address'),
+        h('div', { className: 'wd-addr', onClick: copyAddr }, [
+          h('span', { className: 'wd-addr-text' }, shortAddr(address)),
+          h('span', { className: 'wd-copy-hint' }, copied ? 'copied' : 'tap to copy'),
+        ]),
+      ]),
+      h('div', { className: 'wd-row' }, [
+        h('div', { className: 'wd-label' }, 'balance'),
+        h('div', { className: 'wd-balance' },
+          balance == null ? '…' : balance.toFixed(4) + ' SOL'
+        ),
+      ]),
+      h('div', { className: 'wd-row wd-actions' }, [
+        h('button', {
+          className: 'wd-send',
+          disabled: true,
+          title: 'coming next',
+        }, 'send · soon'),
+      ]),
+    ]),
+  );
+}
+
 function AuthIsland() {
   const privy = usePrivy();
   const [joining, setJoining] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   if (!privy.ready) {
     return h('div', { className: 'auth-loading' }, '…');
@@ -62,7 +143,11 @@ function AuthIsland() {
   };
 
   return h('div', { className: 'auth-loggedin' }, [
-    h('div', { className: 'wallet-badge', title: addr }, shortAddr(addr) || 'wallet…'),
+    h('button', {
+      className: 'wallet-badge',
+      title: addr || 'wallet',
+      onClick: () => addr && setDrawerOpen(true),
+    }, shortAddr(addr) || 'wallet…'),
     h('button', {
       id: 'auth-join',
       onClick: handleJoin,
@@ -72,7 +157,11 @@ function AuthIsland() {
       className: 'logout',
       onClick: () => privy.logout(),
       title: 'log out',
-    }, '×'),
+    }, 'log out'),
+    drawerOpen && h(WalletDrawer, {
+      address: addr,
+      onClose: () => setDrawerOpen(false),
+    }),
   ]);
 }
 
