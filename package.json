@@ -5,10 +5,18 @@
   "description": "ten little — multiplayer plate game. Static client + ws game server in one process.",
   "scripts": {
     "postinstall": "cd server && npm install --omit=dev",
+    "build": "node build.js",
     "start": "cd server && npm start",
     "test": "cd server && npm test"
   },
   "engines": {
     "node": ">=20 <23"
+  },
+  "dependencies": {
+    "@privy-io/react-auth": "^2.0.0",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.95.0",
+    "esbuild": "^0.24.0",
+    "preact": "^10.22.0"
   }
 }

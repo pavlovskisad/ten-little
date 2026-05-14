@@ -21,9 +21,15 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { WebSocketServer } = require('ws');
 const { GameRoom, MAX_PLAYERS } = require('./GameRoom.js');
 const { verifyAccessToken } = require('./privy.js');
+
+// Extensions where on-the-fly gzip is a meaningful win. Binary media
+// (glb, mp3, png) is already compressed and gzipping it just burns
+// CPU for no size reduction.
+const GZIPPABLE = new Set(['.html', '.js', '.css', '.json', '.svg', '.txt', '.md']);
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 2570;
 // Repo root: server/src/index.js → ../../
@@ -119,6 +125,22 @@ function serveStatic(req, res) {
         ...noCacheHeaders,
       });
       fs.createReadStream(filePath, { start, end }).pipe(res);
+      return;
+    }
+    // gzip on the wire for text assets. Skipped for binary media
+    // (already compressed) and for Range requests (Range + gzip is
+    // its own headache; serve uncompressed). Drops auth.bundle.js
+    // from ~3.6 MB raw to ~700 KB on the wire.
+    const acceptsGzip = (req.headers['accept-encoding'] || '').includes('gzip');
+    if (acceptsGzip && GZIPPABLE.has(ext)) {
+      res.writeHead(200, {
+        'Content-Type': ct,
+        'Content-Encoding': 'gzip',
+        'Vary': 'Accept-Encoding',
+        'Accept-Ranges': 'bytes',
+        ...noCacheHeaders,
+      });
+      fs.createReadStream(filePath).pipe(zlib.createGzip()).pipe(res);
       return;
     }
     res.writeHead(200, {

@@ -1,19 +1,19 @@
-// Preact island for Privy login + wallet UI.
+// Preact island for Privy login.
 //
-// This file is the only React-API code in the project. Everything else
-// (game loop, three.js scene, network reconcile) stays vanilla. We use
-// Preact instead of React for the ~3 KB footprint and a drop-in compat
-// shim so @privy-io/react-auth runs unmodified on top.
+// Stage 1 (this file): minimum surface — login + access token only.
+// We deliberately avoid importing @privy-io/react-auth/solana here so
+// the bundle stays small (~500 KB instead of ~4 MB; web3.js +
+// spl-token only get pulled in by the Solana subpath). The wallet
+// address shows up in usePrivy().user.linkedAccounts already without
+// the heavier hooks.
 //
 // Bridge to the vanilla code: window.startQuickjoin(token) is defined
 // in plate-shapes.html and triggers the existing netConnect /
-// quickjoin flow with the Privy access token attached. The Preact
-// island just calls it once the user is logged in.
+// quickjoin flow with the Privy access token attached.
 
 import { h, render } from 'preact';
-import { useState, useEffect } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import { PrivyProvider, usePrivy } from '@privy-io/react-auth';
-import { useSolanaWallets } from '@privy-io/react-auth/solana';
 
 const PRIVY_APP_ID = 'cmp5itgpu000j0dk4zp6r05rs';
 
@@ -22,12 +22,21 @@ function shortAddr(addr) {
   return addr.slice(0, 4) + '…' + addr.slice(-4);
 }
 
+// Pull the user's Solana wallet address out of the linkedAccounts list.
+// Privy returns objects of shape { type: 'wallet', chainType: 'solana',
+// address: '...' } for both embedded and externally connected wallets.
+function pickSolanaAddress(user) {
+  if (!user || !Array.isArray(user.linkedAccounts)) return '';
+  const acct = user.linkedAccounts.find(
+    a => a.type === 'wallet' && a.chainType === 'solana'
+  );
+  return acct?.address || '';
+}
+
 function AuthIsland() {
   const privy = usePrivy();
-  const { wallets } = useSolanaWallets();
   const [joining, setJoining] = useState(false);
 
-  // SDK isn't ready yet — Privy fetches its iframe + config on mount.
   if (!privy.ready) {
     return h('div', { className: 'auth-loading' }, '…');
   }
@@ -39,7 +48,7 @@ function AuthIsland() {
     }, 'log in to join');
   }
 
-  const addr = wallets[0]?.address || '';
+  const addr = pickSolanaAddress(privy.user);
   const handleJoin = async () => {
     setJoining(true);
     try {
@@ -57,7 +66,7 @@ function AuthIsland() {
     h('button', {
       id: 'auth-join',
       onClick: handleJoin,
-      disabled: joining || !addr,
+      disabled: joining,
     }, joining ? 'joining…' : 'join'),
     h('button', {
       className: 'logout',
