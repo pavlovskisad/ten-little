@@ -124,6 +124,8 @@ function SendForm({ fromAddress, wallet, onDone, onCancel }) {
         className: 'wd-input',
         type: 'text',
         autocomplete: 'off',
+        autocapitalize: 'off',
+        autocorrect: 'off',
         spellcheck: false,
         placeholder: 'paste Solana address',
         value: to,
