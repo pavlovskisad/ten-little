@@ -1372,13 +1372,13 @@ function applyBasketballGlbToScene() {
     color: 0xffffff,
   });
   // Easter-egg watermelon variant — every 10th ball in the wall + void
-  // gets a bright cartoon-green tint over the same basketball texture.
-  // The MeshLambertMaterial color *multiplies* the texture, so the tint
-  // has to be brighter than you'd naively pick; a vivid lime reads as
-  // "watermelon" once it's filtered through the orange/brown seams.
+  // becomes solid lime green with NO basketball texture map. Multiplying
+  // a green tint against the orange/brown basketball texture muted the
+  // green into olive; dropping the texture entirely keeps the shading
+  // (Lambert reacts to the scene lights) while letting the green read
+  // as bright and cartoon-clean.
   const melonMat = new THREE.MeshLambertMaterial({
-    map: basketballTex,
-    color: 0x6dff4d,
+    color: 0x4dff2e,
   });
   wallCubes.forEach((ball, i) => {
     ball.geometry = basketballGlbGeom;
@@ -1396,8 +1396,10 @@ function applyBasketballGlbToScene() {
     }
     const isMelon = g.glbSwappable && (voidIdx++ % 10 === 0);
     const m = new THREE.MeshLambertMaterial({
-      map: basketballTex,
-      color: isMelon ? 0x6dff4d : g.tintColor,
+      // melon: no map, solid bright green so it pops; basketball: map +
+      // per-shape tint as before.
+      map: isMelon ? null : basketballTex,
+      color: isMelon ? 0x4dff2e : g.tintColor,
       transparent: true,
       opacity: g.baseOpacity,
       side: THREE.DoubleSide,
