@@ -2517,10 +2517,10 @@ function netConnect() {
         const statusEl = document.getElementById('lobby-status');
         if (statusEl) statusEl.textContent = 'paying entry fee…';
         window.payEntryFee(msg.escrow)
-          .then((signature) => {
-            console.log('[net] entry fee paid:', signature);
+          .then(({ signature, wallet }) => {
+            console.log('[net] entry fee paid:', signature, 'wallet:', wallet);
             if (statusEl) statusEl.textContent = 'paid · waiting for players';
-            ws.send(JSON.stringify({ type: 'paid', signature }));
+            ws.send(JSON.stringify({ type: 'paid', signature, wallet }));
           })
           .catch((err) => {
             console.warn('[net] payment failed:', err);
