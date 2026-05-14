@@ -52,14 +52,20 @@ console.log('[static] bundle version =', BUNDLE_VERSION);
 
 // Read plate-shapes.html once on startup, inject the cache-buster on
 // every "./auth.bundle.js" reference, cache the result in memory.
-// The gzip path uses the buffer directly via createGzip().pipe; the
-// uncompressed path needs Content-Length so we keep both around.
-const PLATE_HTML = (() => {
+// If the file isn't where we expect (shouldn't happen, but a deploy
+// quirk could leave it elsewhere), keep PLATE_HTML null and the
+// serve path falls back to plain file streaming.
+let PLATE_HTML = null;
+try {
   const raw = fs.readFileSync(path.join(STATIC_ROOT, 'plate-shapes.html'), 'utf8');
-  return Buffer.from(
+  PLATE_HTML = Buffer.from(
     raw.replace(/\.\/auth\.bundle\.js(?:\?[^"'\s]*)?/g, './auth.bundle.js?v=' + BUNDLE_VERSION)
   );
-})();
+  console.log('[static] cached plate-shapes.html, bundle ?v=' + BUNDLE_VERSION);
+} catch (err) {
+  console.warn('[static] could not pre-cache plate-shapes.html:', err.message,
+    '— falling back to streaming file (no cache-bust)');
+}
 
 const rooms = new Map();  // code → GameRoom
 let playerSeq = 0;
@@ -92,9 +98,11 @@ const MIME = {
 };
 
 // Serve the cache-busted in-memory plate-shapes.html. Honours
-// Accept-Encoding: gzip the same as the file-streaming path so we
-// keep the ~70% bandwidth win.
+// Accept-Encoding: gzip the same as the file-streaming path. If the
+// pre-cache failed at startup (PLATE_HTML === null), the caller's
+// fallback path streams the file directly.
 function servePlateHtml(req, res) {
+  if (!PLATE_HTML) return false;
   const noCacheHeaders = {
     'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
     'Pragma': 'no-cache',
@@ -111,7 +119,7 @@ function servePlateHtml(req, res) {
       ...noCacheHeaders,
     });
     res.end(gz);
-    return;
+    return true;
   }
   res.writeHead(200, {
     'Content-Type': MIME['.html'],
@@ -119,6 +127,7 @@ function servePlateHtml(req, res) {
     ...noCacheHeaders,
   });
   res.end(PLATE_HTML);
+  return true;
 }
 
 function serveStatic(req, res) {
@@ -133,11 +142,11 @@ function serveStatic(req, res) {
   }
 
   // Special case: plate-shapes.html is served from an in-memory buffer
-  // with the auth.bundle.js URL cache-busted. We could read the file
-  // every time, but this keeps the rewrite cost off the hot path.
+  // with the auth.bundle.js URL cache-busted. If the pre-cache failed
+  // (e.g., file not on disk where we expected at startup), servePlateHtml
+  // returns false and we fall through to plain streaming.
   if (filePath === path.join(STATIC_ROOT, 'plate-shapes.html')) {
-    servePlateHtml(req, res);
-    return;
+    if (servePlateHtml(req, res)) return;
   }
 
   fs.stat(filePath, (err, stat) => {
