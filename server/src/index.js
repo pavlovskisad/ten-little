@@ -82,8 +82,17 @@ function serveStatic(req, res) {
     }
     // Don't cache the HTML or sim modules during dev so reloads pick
     // up changes immediately. Long-cache the assets that don't change.
+    // Use the belt-and-suspenders set of no-cache headers — mobile
+    // Safari sometimes serves a cached HTML page on back/forward
+    // navigation despite plain Cache-Control: no-store.
     const noCache = ext === '.html' || ext === '.js' || ext === '.json';
-    const cacheCtl = noCache ? 'no-store' : 'public, max-age=300';
+    const noCacheHeaders = noCache
+      ? {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        }
+      : { 'Cache-Control': 'public, max-age=300' };
     const total = stat.size;
     // HTTP Range support. Required for HTMLAudioElement.currentTime
     // seeking on the mp3 score: setting currentTime triggers a Range
@@ -107,7 +116,7 @@ function serveStatic(req, res) {
         'Content-Range': `bytes ${start}-${end}/${total}`,
         'Accept-Ranges': 'bytes',
         'Content-Length': end - start + 1,
-        'Cache-Control': cacheCtl,
+        ...noCacheHeaders,
       });
       fs.createReadStream(filePath, { start, end }).pipe(res);
       return;
@@ -116,7 +125,7 @@ function serveStatic(req, res) {
       'Content-Type': ct,
       'Content-Length': total,
       'Accept-Ranges': 'bytes',
-      'Cache-Control': cacheCtl,
+      ...noCacheHeaders,
     });
     fs.createReadStream(filePath).pipe(res);
   });
