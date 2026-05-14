@@ -21,7 +21,12 @@ esbuild.build({
   outfile: './auth.bundle.js',
   minify: true,
   // React-libs introspect this to enable prod paths (drop dev warnings).
-  define: { 'process.env.NODE_ENV': '"production"' },
+  // SOLANA_RPC lets the deploy pipeline inject a real (Helius / QuickNode /
+  // Triton) RPC URL — public endpoints are unusable in 2026.
+  define: {
+    'process.env.NODE_ENV': '"production"',
+    'process.env.SOLANA_RPC': JSON.stringify(process.env.SOLANA_RPC || ''),
+  },
   // Rewrite every react/react-dom import in the dep tree to
   // preact/compat — preact ships a React-compatible API surface that
   // is a drop-in for what Privy expects.

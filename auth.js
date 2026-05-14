@@ -26,14 +26,20 @@ import {
 } from '@solana/web3.js';
 
 const PRIVY_APP_ID = 'cmp5itgpu000j0dk4zp6r05rs';
-// Solana mainnet RPC. The official api.mainnet-beta.solana.com is
-// 403-throttling free traffic now, so we default to Ankr's public
-// endpoint (no API key, sufficient for getBalance + the occasional
-// SystemProgram.transfer). Override per-load with ?rpc=<url> for
-// devnet testing or a paid endpoint.
+// Solana mainnet RPC. Public endpoints (mainnet-beta.solana.com, ankr)
+// are 403-throttling free traffic in 2026. Resolution order:
+//   1. ?rpc=<url> query param (per-load override)
+//   2. SOLANA_RPC env var, injected at build time by esbuild
+//   3. Helius free-tier fallback (rotated by setting the env var)
+// The Helius key in the fallback is rate-limited and may be rotated;
+// for prod, set SOLANA_RPC on Railway and the env-var path wins.
 const SOLANA_RPC = (() => {
   const params = new URLSearchParams(location.search);
-  return params.get('rpc') || 'https://rpc.ankr.com/solana';
+  const urlOverride = params.get('rpc');
+  if (urlOverride) return urlOverride;
+  const envInjected = process.env.SOLANA_RPC;
+  if (envInjected) return envInjected;
+  return 'https://mainnet.helius-rpc.com/?api-key=f06fa0f0-ba74-43b6-afef-dfa9928341cc';
 })();
 
 function shortAddr(addr) {
