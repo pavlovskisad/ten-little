@@ -223,7 +223,9 @@ function WalletDrawer({ address, onClose }) {
           }, refreshing ? '…' : '↻'),
         ]),
         h('div', {
-          className: 'wd-balance' + (balance && balance.ok === false ? ' wd-balance-err' : ''),
+          className: 'wd-balance'
+            + (balance && balance.ok === false ? ' wd-balance-err' : '')
+            + (refreshing ? ' wd-balance-fetching' : ''),
         },
           balance == null ? '…'
             : balance.ok ? balance.sol.toFixed(4) + ' SOL'
@@ -292,7 +294,7 @@ function AuthIsland() {
         className: 'wallet-badge',
         title: addr || 'wallet',
         onClick: () => addr && setDrawerOpen(true),
-      }, shortAddr(addr) || 'wallet…'),
+      }, 'wallet'),
       h('button', {
         className: 'logout',
         onClick: () => privy.logout(),
