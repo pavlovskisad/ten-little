@@ -362,6 +362,21 @@
      The drawer is a modal overlay anchored center. */
   #auth-root { display: flex; flex-direction: column; align-items: center; gap: 8px; }
   #auth-root .auth-loading { font-family: 'VT323', monospace; font-size: 14px; opacity: 0.6; }
+
+  /* Reset for all auth/wallet buttons + inputs. iOS Safari otherwise
+     overrides our color rules with system blue. -webkit-appearance:
+     none kills the default style; -webkit-text-fill-color forces the
+     text color we actually want. */
+  #auth-root button,
+  .auth-corner button,
+  .wallet-drawer button,
+  .wallet-drawer input {
+    -webkit-appearance: none;
+    appearance: none;
+    -webkit-text-fill-color: currentColor;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   #auth-root #auth-login,
   #auth-root #auth-join {
     font-family: 'VT323', monospace; font-size: 22px;
@@ -374,7 +389,7 @@
   #auth-root #auth-join:disabled { opacity: 0.4; cursor: default; }
 
   /* Top-right corner: wallet + logout. Detached from the lobby panel
-     so it travels across screens. */
+     so it travels across screens. Grey palette — chrome, not action. */
   .auth-corner {
     position: fixed;
     top: calc(env(safe-area-inset-top) + 12px);
@@ -384,19 +399,20 @@
   }
   .auth-corner .wallet-badge {
     font-family: 'VT323', monospace; font-size: 14px;
-    color: #f1e5cd; opacity: 0.75; letter-spacing: 0.1em;
-    background: rgba(20,17,13,0.6); border: 1px dashed #f1e5cd33;
+    color: #9a9a9a; letter-spacing: 0.1em;
+    background: rgba(20,17,13,0.6); border: 1px dashed #555;
     padding: 4px 12px; cursor: pointer;
+    text-transform: lowercase;
   }
-  .auth-corner .wallet-badge:hover { opacity: 1; border-color: #ff1a1a; }
+  .auth-corner .wallet-badge:hover { color: #ccc; border-color: #888; }
   .auth-corner .logout {
-    background: rgba(20,17,13,0.6); color: #f1e5cd;
-    border: 1px solid #f1e5cd33;
+    background: rgba(20,17,13,0.6); color: #9a9a9a;
+    border: 1px solid #555;
     font-size: 14px; padding: 2px 14px; cursor: pointer;
     font-family: 'VT323', monospace; letter-spacing: 0.1em;
-    text-transform: lowercase; opacity: 0.55;
+    text-transform: lowercase;
   }
-  .auth-corner .logout:hover { border-color: #ff1a1a; color: #ff1a1a; opacity: 1; }
+  .auth-corner .logout:hover { color: #ccc; border-color: #888; }
 
   /* Wallet drawer — modal overlay anchored center, backdrop dims the
      game beneath. Tap backdrop or × to close. */

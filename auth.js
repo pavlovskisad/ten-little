@@ -26,7 +26,15 @@ import {
 } from '@solana/web3.js';
 
 const PRIVY_APP_ID = 'cmp5itgpu000j0dk4zp6r05rs';
-const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
+// Solana mainnet RPC. The official api.mainnet-beta.solana.com is
+// 403-throttling free traffic now, so we default to Ankr's public
+// endpoint (no API key, sufficient for getBalance + the occasional
+// SystemProgram.transfer). Override per-load with ?rpc=<url> for
+// devnet testing or a paid endpoint.
+const SOLANA_RPC = (() => {
+  const params = new URLSearchParams(location.search);
+  return params.get('rpc') || 'https://rpc.ankr.com/solana';
+})();
 
 function shortAddr(addr) {
   if (!addr || addr.length < 9) return addr || '';
