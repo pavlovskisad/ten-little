@@ -148,6 +148,30 @@ wss.on('connection', (ws) => {
     try { msg = JSON.parse(data.toString()); }
     catch { send(ws, { type: 'error', message: 'invalid json' }); return; }
 
+    if (msg.type === 'quickjoin') {
+      // Smart matchmaking: pick the first lobby-phase room with
+      // capacity; if none exists, spin up a fresh one. Friends who
+      // both tap "join" within the same lobby window land together
+      // without needing to coordinate a room code.
+      let room = null;
+      for (const r of rooms.values()) {
+        if (r.state.phase !== 'lobby') continue;
+        if (r.players.size >= MAX_PLAYERS) continue;
+        room = r;
+        break;
+      }
+      if (!room) {
+        room = new GameRoom({});
+        rooms.set(room.code, room);
+      }
+      if (!room.addPlayer(playerId, ws)) {
+        send(ws, { type: 'error', message: 'could not join room' });
+        return;
+      }
+      roomCode = room.code;
+      send(ws, { type: 'joined', code: room.code, playerId });
+      return;
+    }
     if (msg.type === 'create') {
       const room = new GameRoom({});
       rooms.set(room.code, room);
