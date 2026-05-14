@@ -25,6 +25,11 @@ const zlib = require('zlib');
 const { WebSocketServer } = require('ws');
 const { GameRoom, MAX_PLAYERS } = require('./GameRoom.js');
 const { verifyAccessToken } = require('./privy.js');
+const escrow = require('./escrow.js');
+
+// Wake up the on-chain client. No-ops cleanly when
+// ORACLE_KEYPAIR_JSON is unset (logs a clear "disabled" line).
+escrow.init();
 
 // Extensions where on-the-fly gzip is a meaningful win. Binary media
 // (glb, mp3, png) is already compressed and gzipping it just burns

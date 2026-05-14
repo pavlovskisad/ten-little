@@ -8,6 +8,8 @@
     "test": "node src/smoke.js"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.31.0",
+    "@solana/web3.js": "^1.95.0",
     "jose": "^5.9.6",
     "ws": "^8.18.0"
   }
