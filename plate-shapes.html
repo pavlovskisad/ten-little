@@ -326,6 +326,15 @@
   }
   #over button:hover { color: #551a8b; }
   #over button:active { color: #ff0000; }
+  /* Two buttons side-by-side: "again" + "back to menu". Flex row
+     so they sit naturally; #over button keeps the link styling. */
+  #over .over-actions {
+    display: flex;
+    gap: 28px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  #over .over-actions button { margin-top: 26px; }
 
   /* virtual joystick — desktop default left, mobile moves right */
   #stick {
@@ -651,7 +660,10 @@
   <div class="place">you placed</div>
   <div class="ord" id="ord">3rd</div>
   <div class="stat" id="overStat">survived 00:00</div>
-  <button id="again">again</button>
+  <div class="over-actions">
+    <button id="again">again</button>
+    <button id="back-to-menu">back to menu</button>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -1367,7 +1379,10 @@ let watermelonGlbTex = null;
 // scale.setScalar(0.7) used for basketballs reads as the same size.
 (function loadWatermelonGlb() {
   const loader = new THREE.GLTFLoader();
-  loader.load('./Meshy_AI_Watermelon_0514185047_texture-compressed.glb', (gltf) => {
+  // Note: dequantized at build time from the original Meshy export
+  // because r128's GLTFLoader is finicky about KHR_mesh_quantization.
+  // watermelon.glb is the vanilla-attributes copy.
+  loader.load('./watermelon.glb', (gltf) => {
     let geom = null, tex = null;
     gltf.scene.traverse((node) => {
       if (node.isMesh && !geom) {
@@ -3345,6 +3360,12 @@ document.getElementById('start').addEventListener('click', () => {
 document.getElementById('again').addEventListener('click', () => {
   // Cleanest reset path for v0 multiplayer: reload so we land on the
   // lobby chooser with a fresh WS and a fresh client state.
+  location.reload();
+});
+document.getElementById('back-to-menu').addEventListener('click', () => {
+  // Same reload path; the difference is intent — "again" is "queue
+  // another round," "back to menu" is "I'm done for now, take me out."
+  // After the rebuild both land at the title → lobby flow.
   location.reload();
 });
 
