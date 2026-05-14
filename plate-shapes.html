@@ -1431,7 +1431,7 @@ function applyBasketballGlbToScene() {
       : { color: 0x4dff2e }
   );
   wallCubes.forEach((ball, i) => {
-    const isMelon = (i % 10 === 0);
+    const isMelon = (i % 20 === 0);
     ball.geometry = isMelon && melonReady ? watermelonGlbGeom : basketballGlbGeom;
     // Same on-screen size whether basketball or watermelon — both
     // geoms are normalized to unit bounding-sphere radius.
@@ -1443,7 +1443,7 @@ function applyBasketballGlbToScene() {
   // Every 10th swappable ball goes watermelon too.
   let voidIdx = 0;
   for (const g of giantShapes) {
-    const isMelon = g.glbSwappable && (voidIdx++ % 10 === 0);
+    const isMelon = g.glbSwappable && (voidIdx++ % 20 === 0);
     if (g.glbSwappable) {
       g.mesh.geometry = isMelon && melonReady ? watermelonGlbGeom : basketballGlbGeom;
       g.mesh.scale.setScalar(g.glbBaseSize);
