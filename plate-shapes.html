@@ -440,25 +440,6 @@
     #over button { font-size: 18px; }
   }
 </style>
-
-<!-- Preact island for Privy login + wallet UI. The game stays vanilla
-     three.js; only auth lives inside React-API code, with Preact
-     standing in for React (~3 KB instead of ~45 KB). esm.sh bundles
-     @privy-io/react-auth with react/react-dom aliased to preact/compat
-     so the SDK runs on top of Preact without a build step. -->
-<script type="importmap">
-{
-  "imports": {
-    "preact": "https://esm.sh/preact@10.22.0",
-    "preact/hooks": "https://esm.sh/preact@10.22.0/hooks",
-    "preact/compat": "https://esm.sh/preact@10.22.0/compat",
-    "preact/jsx-runtime": "https://esm.sh/preact@10.22.0/jsx-runtime",
-    "@privy-io/react-auth": "https://esm.sh/@privy-io/react-auth?bundle&alias=react:preact/compat,react-dom:preact/compat",
-    "@privy-io/react-auth/solana": "https://esm.sh/@privy-io/react-auth/solana?bundle&alias=react:preact/compat,react-dom:preact/compat",
-    "@solana/web3.js": "https://esm.sh/@solana/web3.js@1.95.3?bundle"
-  }
-}
-</script>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -3251,9 +3232,10 @@ document.getElementById('again').addEventListener('click', () => {
 requestAnimationFrame(loop);
 
 </script>
-<!-- Preact auth island. Loaded as a module so esm.sh imports resolve
-     through the import map at the top of the page. Defer-equivalent
-     by virtue of being a module — no need to wait for window.load. -->
-<script type="module" src="./auth.js"></script>
+<!-- Preact auth island, pre-bundled by build.js (esbuild) at deploy
+     time. Self-contained ESM: preact + @privy-io/react-auth +
+     @solana/web3.js bundled together with react aliased to
+     preact/compat. No runtime CDN, no import map. -->
+<script type="module" src="./auth.bundle.js"></script>
 </body>
 </html>
