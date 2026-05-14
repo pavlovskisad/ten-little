@@ -1,0 +1,14 @@
+{
+  "name": "ten-little",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ten little — multiplayer plate game. Static client + ws game server in one process.",
+  "scripts": {
+    "postinstall": "cd server && npm install --omit=dev",
+    "start": "cd server && npm start",
+    "test": "cd server && npm test"
+  },
+  "engines": {
+    "node": ">=20 <23"
+  }
+}

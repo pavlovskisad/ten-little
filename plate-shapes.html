@@ -225,6 +225,67 @@
   #title button:active { color: #ff0000; } /* classic active-link red on press */
   #title.gone { opacity: 0; pointer-events: none; }
 
+  /* lobby overlay — sits between title and game. Only visible in
+     network mode. Two states share the same wrapper:
+       1) `pre`: create-or-join chooser
+       2) `inRoom`: roster + countdown + start (host only) */
+  #lobby {
+    position: fixed; inset: 0; display: none; flex-direction: column;
+    align-items: center; justify-content: center; z-index: 20;
+    background: rgba(20,17,13,0.78);
+    font-family: 'VT323', monospace; color: #f1e5cd;
+  }
+  #lobby.show { display: flex; }
+  #lobby h2 {
+    font-family: 'Press Start 2P', monospace;
+    font-size: clamp(20px, 4vw, 32px);
+    text-transform: lowercase;
+    letter-spacing: 0.12em;
+    margin: 0 0 24px 0;
+    color: #ffd000;
+  }
+  #lobby .panel {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 18px; max-width: 480px; padding: 0 24px;
+  }
+  #lobby input[type=text] {
+    background: transparent; border: 0; border-bottom: 2px solid #f1e5cd;
+    color: #f1e5cd; font-family: 'VT323', monospace; font-size: 28px;
+    text-align: center; letter-spacing: 0.25em; text-transform: uppercase;
+    width: 180px; padding: 4px 0;
+  }
+  #lobby input[type=text]:focus { outline: 0; border-bottom-color: #ffd000; }
+  #lobby button {
+    background: transparent; border: 0;
+    color: #0000ee; font-family: 'VT323', monospace;
+    font-size: 28px; cursor: pointer;
+    text-decoration: underline; text-underline-offset: 6px;
+    text-transform: lowercase;
+  }
+  #lobby button:hover { color: #551a8b; }
+  #lobby button:active { color: #ff0000; }
+  #lobby button:disabled {
+    color: #6b6b6b; cursor: not-allowed; text-decoration: none;
+  }
+  #lobby .row { display: flex; gap: 20px; align-items: center; }
+  #lobby .code {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 36px; letter-spacing: 0.25em;
+    color: #ffd000;
+  }
+  #lobby .meta {
+    font-size: 20px; opacity: 0.85;
+  }
+  #lobby .roster {
+    font-size: 22px;
+    color: #f1e5cd;
+  }
+  #lobby .countdown { color: #ff7a10; }
+  #lobby .err {
+    font-size: 18px; color: #ff1a1a;
+    min-height: 22px;
+  }
+
   /* end overlay */
   #over {
     position: fixed; inset: 0; display: none; flex-direction: column;
@@ -295,6 +356,26 @@
   }
   #hint.on { opacity: 1; }
 
+  /* Spectator caption — shown once the local player is eliminated.
+     Sits where the joystick used to be, dims everything else. */
+  #spectator {
+    position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 24px);
+    transform: translateX(-50%);
+    z-index: 11; pointer-events: none;
+    font-family: 'VT323', monospace;
+    font-size: 22px;
+    color: #f1e5cd; opacity: 0;
+    transition: opacity 0.3s;
+    background: rgba(20,17,13,0.55);
+    padding: 6px 18px;
+    letter-spacing: 0.15em;
+    text-transform: lowercase;
+  }
+  #spectator.on { opacity: 0.9; }
+  /* Hide the joystick when spectating so dead players don't try to
+     drive a corpse. */
+  body.spectating #stick { display: none !important; }
+
   /* ============================================================
      MOBILE — compact layout, joystick on right, no tilt indicator
      ============================================================ */
@@ -360,6 +441,7 @@
 </div>
 
 <div id="hint"></div>
+<div id="spectator">spectating</div>
 
 <div id="stick"><div id="stick-knob"></div></div>
 
@@ -370,6 +452,27 @@
     <span class="line line-nigas"><span class="c9">n</span><span class="c0">i</span><span class="c3">g</span><span class="c6">a</span><span class="c7">s</span></span>
   </h1>
   <button id="start" style="pointer-events:none;opacity:0.65">loading...</button>
+</div>
+
+<div id="lobby">
+  <div class="panel" id="lobby-pre">
+    <h2>multiplayer</h2>
+    <button id="lobby-create">create room</button>
+    <div class="row">
+      <input id="lobby-code" type="text" maxlength="6" placeholder="code" autocomplete="off" />
+      <button id="lobby-join">join</button>
+    </div>
+    <button id="lobby-solo">solo (bot-fill)</button>
+    <div class="err" id="lobby-err"></div>
+  </div>
+  <div class="panel" id="lobby-in" style="display:none;">
+    <h2>lobby</h2>
+    <div class="code" id="lobby-code-show">----</div>
+    <div class="roster" id="lobby-roster">1 / 10 players</div>
+    <div class="meta countdown" id="lobby-countdown">starts in 60s</div>
+    <button id="lobby-start" style="display:none;">skip timer</button>
+    <div class="meta" id="lobby-status">waiting for host...</div>
+  </div>
 </div>
 
 <div id="over">
@@ -383,6 +486,15 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
+<!-- Shared simulation modules. Authored to also work in Node so the
+     forthcoming Colyseus server can require() the same files. -->
+<script src="./sim/cfg.js"></script>
+<script src="./sim/shapes.js"></script>
+<script src="./sim/rng.js"></script>
+<script src="./sim/util.js"></script>
+<script src="./sim/state.js"></script>
+<script src="./sim/figures.js"></script>
+<script src="./sim/hand.js"></script>
 <script>
 // Mobile dev console: append #debug to the URL to load eruda, which
 // gives a floating console UI on the page so we can read logs and
@@ -1009,55 +1121,35 @@ function updateBoomboxScene(dt) {
 // ============================================================
 // CONFIG — tune these
 // ============================================================
-const CFG = {
-  // plate
-  plateR0: 7.5,
-  plateThick: 0.25,
-  shrinkEveryMs: 14000,
-  shrinkFactor: 0.93,
-  shrinkMin: 3.5,
+// CFG, SHAPE_DEFS, SHAPE_COLORS live in sim/ so the server can share them.
+// See sim/cfg.js for tuning, sim/shapes.js for the catalog.
+const { CFG, SHAPE_DEFS, SHAPE_COLORS, lerp, clamp, clamp01 } = window.SIM;
 
-  // figures (base unit, individual shapes carry their own collidR)
-  figR: 0.42,
-  figH: 0.85,
-  startCount: 10,
-  podiumCount: 1,        // round runs until one figure remains; placement
-                         // is decided by elimination order so 3rd/2nd/1st
-                         // can be distinguished (tiered prizes)
-
-  // tilt
-  maxTilt: 0.50,
-  slideForce: 34,
-  friction: 3.2,
-  tiltEase: 9,
-  edgePadFall: 0.05,
-
-  // movement
-  playerSpeed: 4.5,
-  botSpeed: 3.6,
-  fleeSpeed: 6.2,
-  botAccel: 6.0,
-  playerAccel: 14.0,
-
-  // claw
-  handIdleY: 9.5,
-  handGrabY: 0.55,
-  handCooldownMs: 2600,
-  handTelegraphMs: 1500,
-  handApproachMs: 700,
-  handHoverMs: 180,
-  handPinchMs: 220,
-  handLiftMs: 850,
-  zoneMinFrac: 0.11,
-  zoneMaxFrac: 0.55,
-
-  // contact damage
-  hpMax: 10,
-  contactDmg: 1,
-  iframeMs: 600,
-  drainMs: 550,
-  bumpForce: 11.0,        // knockback velocity added on damage
-};
+// ============================================================
+// NETWORK — multiplayer is the only mode. Client connects to the game
+// server, renders authoritative state snapshots, forwards joystick.
+// ============================================================
+const NET = (function () {
+  const params = new URLSearchParams(location.search);
+  // Default to same-origin WS: http→ws, https→wss. Override with
+  // ?ws=ws://example.com:2570 when serving the static client from
+  // a different origin than the game server.
+  let url = params.get('ws');
+  if (!url) {
+    const scheme = (location.protocol === 'https:') ? 'wss:' : 'ws:';
+    const host = location.host || 'localhost:2570';
+    url = `${scheme}//${host}`;
+  }
+  return {
+    url,
+    ws: null,
+    playerId: null,
+    code: null,
+    myFigureId: null,
+    inputTimer: null,
+    spawned: false,
+  };
+})();
 
 // ============================================================
 // BASKETBALL GLB — supplied model used for the wall + the void
@@ -1159,68 +1251,15 @@ const runnerCenterY = 0.85;  // approx half-height for marker placement
     runnerLoaded = true;
     maybeEnableEnter();
     console.log('[runner.glb] loaded; clips:', gltf.animations && gltf.animations.length);
-    // Kick off the demo loop so the title screen has a live game
-    // running behind it. reset(true) skips the wall explosion and
-    // doesn't assign a player; endGame loops back into a fresh
-    // demo round automatically.
-    if (S.phase === 'idle') reset(true);
   }, undefined, (err) => {
     console.error('[runner.glb] failed', err);
   });
 })();
 
 // ============================================================
-// SHAPE CATALOG — colored geometric primitives for figures
+// STATE — shape lives in sim/state.js so the server can mirror it.
 // ============================================================
-const SHAPE_DEFS = [
-  // type, visual size factor, collidR (separation half-radius), yOffset (vertical center above plate top)
-  { type: 'cube',       collidR: 0.42, yOffset: 0.42 },
-  { type: 'sphere',     collidR: 0.45, yOffset: 0.45 },
-  { type: 'cone',       collidR: 0.40, yOffset: 0.50 },
-  { type: 'cylinder',   collidR: 0.40, yOffset: 0.45 },
-  { type: 'octahedron', collidR: 0.45, yOffset: 0.55 },
-  { type: 'pyramid',    collidR: 0.42, yOffset: 0.50 },
-];
-
-// Pure saturated primaries — match the Crayola / foam-pit look of the
-// Shape Store footage. No dusty/pastel hues; everything pops.
-const SHAPE_COLORS = [
-  0xff1a1a, // red
-  0x1a40e0, // royal blue
-  0xffd000, // yellow
-  0x0fb020, // grass green
-  0xff7a10, // orange
-  0x9010e0, // purple
-  0xff2080, // hot pink / magenta
-  0x00b8ff, // cyan
-  0x70d800, // lime
-  0xffaa00, // amber
-];
-
-// ============================================================
-// STATE
-// ============================================================
-const S = {
-  phase: 'idle',
-  t: 0,
-  plateR: CFG.plateR0,
-  nextShrinkAt: CFG.shrinkEveryMs,
-  figs: [],
-  player: null,
-  alive: 0,
-  eliminated: [],
-  podium: [],
-  hand: { phase: 'idle', t: 0, x: 0, z: 0, zoneR: 0, target: null, captured: [] },
-  nextHandAt: 4500,
-  firstHand: true,
-  tilt: { x: 0, z: 0 },
-  input: { dx: 0, dy: 0 },
-  startedAt: 0,
-  // Demo mode: game loop runs on the title screen with all 10
-  // figures as bots (no player). On endGame in demo, we loop back
-  // to a fresh demo round instead of showing the placement overlay.
-  demo: false,
-};
+const S = window.SIM.createState();
 
 // ============================================================
 // THREE setup
@@ -1451,7 +1490,7 @@ plateGroup.add(ring(CFG.plateR0 * 0.55, 0.15));
 plateGroup.add(ring(CFG.plateR0 * 0.25, 0.12));
 
 // ============================================================
-// SHAPE STORE ROOM — floating plate suspended over a psychedelic void.
+// ROOM — floating plate suspended over a psychedelic void.
 // Distant ring of stacked primary-colored foam cubes hovers as the
 // room perimeter, bases hidden in shadow. A descending tunnel of
 // glowing rings spirals down into endless space below. Figures that
@@ -2027,68 +2066,197 @@ function buildPlayerMarker() {
   return group;
 }
 
-function spawnFigures(demoMode) {
-  for (const f of S.figs) plateGroup.remove(f.mesh);
-  S.figs = [];
+// ============================================================
+// NETWORK — connection lifecycle, snapshot reconcile, input forward.
+// ============================================================
 
-  // unique color shuffle, plus a shape rotation so every combo is distinct
-  const colorOrder = [...SHAPE_COLORS].sort(() => Math.random() - 0.5);
-  // shape rotation: cycle through SHAPE_DEFS so we get a mix
-  const shapeBase = Math.floor(Math.random() * SHAPE_DEFS.length);
-
-  // -1 means no player at all (demo on the title screen).
-  const playerSlot = demoMode ? -1 : Math.floor(Math.random() * CFG.startCount);
-  for (let i = 0; i < CFG.startCount; i++) {
-    const ang = (i / CFG.startCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.15;
-    const r = CFG.plateR0 * (0.45 + Math.random() * 0.15);
-    const x = Math.cos(ang) * r;
-    const z = Math.sin(ang) * r;
-    const isPlayer = (i === playerSlot);
-    const defIdx = (shapeBase + i) % SHAPE_DEFS.length;
-    const color = colorOrder[i];
-    const built = makeFigure(isPlayer, defIdx, color);
-    const mesh = built.group;
-    mesh.position.set(x, CFG.plateThick / 2, z);
-    mesh.rotation.y = Math.atan2(-x, -z);
-    plateGroup.add(mesh);
-    const f = {
-      id: i,
-      x, z, vx: 0, vz: 0,
-      alive: true,
-      isPlayer,
-      mesh,
-      shapeMesh: built.shapeMesh,
-      shapeMat: built.shapeMat,
-      def: built.def,
-      dangerRing: built.dangerRing,
-      mixer: built.mixer,
-      baseColor: color,
-      collidR: built.def.collidR,
-      yOffset: built.def.yOffset,
-      hp: CFG.hpMax,
-      invulnT: 0,
-      hp0Logged: false,
-      draining: false, drainT: 0,
-      dropping: false, dropT: 0, dropY: 0, dropVy: 0,
-      picked: false, pickT: 0, pickStartX: 0, pickStartZ: 0, pickStartY: 0,
-      scale: 1,
-      wanderAng: Math.random() * Math.PI * 2,
-      wanderTimer: Math.random() * 1.5,
-      boldness: isPlayer ? 0 : Math.random(),
-      // subtle hover bob phase so the shapes feel light, not bolted
-      bobPhase: Math.random() * Math.PI * 2,
-      spinAxis: Math.random() * Math.PI * 2,
-    };
-    S.figs.push(f);
-    if (isPlayer) {
-      S.player = f;
-      // attach the spinning marker; it lives in plateGroup and tracks player position
-      if (playerMarker) plateGroup.remove(playerMarker);
-      playerMarker = buildPlayerMarker();
-      plateGroup.add(playerMarker);
-    }
+// Spawn a single figure-with-mesh on demand. Used by netReconcile when
+// the server reports a figure id we haven't seen yet. Server tells us
+// position; everything visual is the client's choice.
+function spawnNetFigure(snap) {
+  const defIdx = snap.id % SHAPE_DEFS.length;
+  const color = SHAPE_COLORS[snap.id % SHAPE_COLORS.length];
+  const isPlayer = (snap.id === NET.myFigureId);
+  const built = makeFigure(isPlayer, defIdx, color);
+  const mesh = built.group;
+  mesh.position.set(snap.x, CFG.plateThick / 2, snap.z);
+  mesh.rotation.y = Math.atan2(-snap.x, -snap.z);
+  plateGroup.add(mesh);
+  const f = {
+    id: snap.id,
+    x: snap.x, z: snap.z, vx: 0, vz: 0,
+    alive: true, isPlayer, mesh,
+    shapeMesh: built.shapeMesh, shapeMat: built.shapeMat,
+    def: built.def, dangerRing: built.dangerRing, mixer: built.mixer,
+    baseColor: color, collidR: built.def.collidR, yOffset: built.def.yOffset,
+    hp: snap.hp, invulnT: 0,
+    draining: false, drainT: 0,
+    dropping: false, dropT: 0, dropY: 0, dropVy: 0,
+    picked: false, pickT: 0, pickStartX: 0, pickStartY: 0, pickStartZ: 0,
+    scale: 1,
+    wanderAng: 0, wanderTimer: 0, boldness: 0,
+    bobPhase: Math.random() * Math.PI * 2,
+    spinAxis: Math.random() * Math.PI * 2,
+  };
+  S.figs.push(f);
+  if (isPlayer) {
+    S.player = f;
+    if (playerMarker && playerMarker.parent) playerMarker.parent.remove(playerMarker);
+    playerMarker = buildPlayerMarker();
+    plateGroup.add(playerMarker);
   }
-  S.alive = CFG.startCount;
+  return f;
+}
+
+// Merge a server state snapshot into S. Lazily spawns meshes for any
+// figure id we haven't seen yet. Detects local transitions on the
+// picked / dropping / draining flags so we can reset client-side
+// animation timers and detach freshly-picked meshes from plateGroup.
+function netReconcile(snap) {
+  S.plateR = snap.plateR;
+  S.tilt.x = snap.tilt.x;
+  S.tilt.z = snap.tilt.z;
+  S.hand.phase = snap.hand.phase;
+  S.hand.x = snap.hand.x;
+  S.hand.z = snap.hand.z;
+  S.hand.zoneR = snap.hand.zoneR;
+  S.hand.t = snap.hand.t;
+  S.alive = snap.alive;
+  S.t = snap.t;
+
+  const byId = new Map(S.figs.map(f => [f.id, f]));
+  for (const sf of snap.figs) {
+    let f = byId.get(sf.id);
+    if (!f) f = spawnNetFigure(sf);
+    const wasPicked = f.picked, wasDropping = f.dropping, wasDraining = f.draining;
+    const wasAlive = f.alive;
+    f.x = sf.x;
+    f.z = sf.z;
+    f.hp = sf.hp;
+    f.alive = sf.alive;
+    f.picked = !!sf.picked;
+    f.dropping = !!sf.dropping;
+    f.draining = !!sf.draining;
+    // Kick local death-animation timers on transitions so the existing
+    // render code (drain shrink, drop tumble, picked lift) animates
+    // smoothly without server having to send timer values.
+    if (!wasDraining && f.draining) f.drainT = 0;
+    if (!wasDropping && f.dropping) { f.dropT = 0; f.dropY = 0; f.dropVy = 0; }
+    if (!wasPicked && f.picked) {
+      f.pickT = 0;
+      // Detach from plateGroup so the lift animation can ride the claw
+      // in world space, away from the plate group's tilt rotation.
+      const wp = new THREE.Vector3();
+      const wq = new THREE.Quaternion();
+      f.mesh.getWorldPosition(wp);
+      f.mesh.getWorldQuaternion(wq);
+      f.pickStartX = wp.x; f.pickStartY = wp.y; f.pickStartZ = wp.z;
+      if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
+      scene.add(f.mesh);
+      f.mesh.position.copy(wp);
+      f.mesh.quaternion.copy(wq);
+    }
+    // Local-player just died: fire hint + flip into spectator mode so
+    // the joystick disappears and they see a "spectating" caption.
+    if (wasAlive && !f.alive && f.isPlayer) onLocalPlayerDied(f);
+  }
+  // Live update of the spectator caption while we wait for the round
+  // to end. Server reports S.alive on every snapshot.
+  updateSpectatorCaption();
+}
+
+let _spectating = false;
+function onLocalPlayerDied(f) {
+  _spectating = true;
+  const reason = f.draining ? 'you cracked'
+              : f.picked   ? 'you were taken'
+              : f.dropping ? 'you fell'
+              :              'you went out';
+  showHint(reason);
+  document.body.classList.add('spectating');
+}
+function updateSpectatorCaption() {
+  const el = document.getElementById('spectator');
+  if (!_spectating) { el.classList.remove('on'); return; }
+  el.textContent = `spectating · ${S.alive} alive`;
+  el.classList.add('on');
+}
+
+function netSendInput() {
+  if (!NET.ws || NET.ws.readyState !== WebSocket.OPEN) return;
+  NET.ws.send(JSON.stringify({ type: 'input', dx: S.input.dx || 0, dy: S.input.dy || 0 }));
+}
+
+function netConnect() {
+  if (NET.ws && NET.ws.readyState <= 1 /* CONNECTING || OPEN */) {
+    try { NET.ws.close(); } catch (e) {}
+  }
+  NET.spawned = false;
+  const ws = new WebSocket(NET.url);
+  NET.ws = ws;
+  ws.addEventListener('open', () => {
+    console.log('[net] open', NET.url);
+    const mode = NET.joinMode || 'create';
+    if (mode === 'join' && NET.joinCode) {
+      ws.send(JSON.stringify({ type: 'join', code: NET.joinCode }));
+    } else {
+      // solo and create both open with a fresh room; solo just also
+      // sends start right after the joined ack.
+      ws.send(JSON.stringify({ type: 'create' }));
+    }
+  });
+  ws.addEventListener('message', (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (e) { return; }
+    if (msg.type === 'joined') {
+      NET.playerId = msg.playerId;
+      NET.code = msg.code;
+      console.log('[net] joined', msg.code, 'as', msg.playerId);
+      if (NET.onJoined) NET.onJoined(msg);
+      if (NET.joinMode === 'solo') {
+        ws.send(JSON.stringify({ type: 'start' }));
+      }
+    } else if (msg.type === 'roster') {
+      if (NET.onRoster) NET.onRoster(msg);
+    } else if (msg.type === 'start') {
+      console.log('[net] start humans=' + msg.humans + ' bots=' + msg.bots + ' reason=' + msg.reason);
+      // Server tells us which figure belongs to us.
+      if (msg.bindings && msg.bindings[NET.playerId] != null) {
+        NET.myFigureId = msg.bindings[NET.playerId];
+      } else {
+        NET.myFigureId = 0;
+      }
+      S.phase = 'play';
+      S.startedAt = performance.now();
+      explodeRoom();
+      document.getElementById('over').classList.remove('show');
+      // Begin forwarding joystick input.
+      if (NET.inputTimer) clearInterval(NET.inputTimer);
+      NET.inputTimer = setInterval(netSendInput, 50);
+      if (NET.onStart) NET.onStart(msg);
+    } else if (msg.type === 'state') {
+      netReconcile(msg.state);
+      NET.spawned = true;
+    } else if (msg.type === 'end') {
+      console.log('[net] end', msg);
+      if (NET.inputTimer) { clearInterval(NET.inputTimer); NET.inputTimer = null; }
+      S.phase = 'over';
+      S.eliminated = msg.eliminated || [];
+      const idx = S.eliminated.findIndex(e => e.id === NET.myFigureId);
+      let placement;
+      if (idx === -1) placement = 1;
+      else placement = CFG.startCount - idx;
+      showOverlay(placement);
+    } else if (msg.type === 'error') {
+      console.error('[net] error', msg.message);
+      if (NET.onError) NET.onError(msg);
+    }
+  });
+  ws.addEventListener('close', () => {
+    console.log('[net] closed');
+    if (NET.inputTimer) { clearInterval(NET.inputTimer); NET.inputTimer = null; }
+  });
+  ws.addEventListener('error', (e) => console.error('[net] ws error', e));
 }
 
 // ============================================================
@@ -2244,24 +2412,11 @@ function setAllProngs(t) {
 }
 
 // ============================================================
-// TILT MATH — recompute from CoM each frame
+// TILT MATH — pure sim runs in sim/figures.js; here we only sync the
+// plate mesh to the resulting tilt vector.
 // ============================================================
 function updateTilt(dt) {
-  let cx = 0, cz = 0, n = 0;
-  for (const f of S.figs) {
-    if (!f.alive || f.picked || f.dropping) continue;
-    cx += f.x; cz += f.z; n++;
-  }
-  if (n === 0) {
-    S.tilt.x = 0; S.tilt.z = 0;
-  } else {
-    cx /= n; cz /= n;
-    const tx = Math.max(-1, Math.min(1, cx / S.plateR));
-    const tz = Math.max(-1, Math.min(1, cz / S.plateR));
-    const k = 1 - Math.exp(-CFG.tiltEase * dt);
-    S.tilt.x += (tx - S.tilt.x) * k;
-    S.tilt.z += (tz - S.tilt.z) * k;
-  }
+  // S.tilt is server-authoritative; apply it to the plate mesh.
   plateGroup.rotation.x = S.tilt.z * CFG.maxTilt;
   plateGroup.rotation.z = -S.tilt.x * CFG.maxTilt;
 }
@@ -2270,12 +2425,13 @@ function updateTilt(dt) {
 // FIGURE PHYSICS — slide on tilt, friction, collision, edges
 // ============================================================
 function updateFigures(dt) {
-  const ax = S.tilt.x * CFG.slideForce;
-  const az = S.tilt.z * CFG.slideForce;
+  // Positions come from server snapshots (see netReconcile). This
+  // function only owns the render side: death animations, mesh sync,
+  // HP emissive, animation mixers, player marker, danger ring.
 
+  // Death animations (drain / drop / picked) stay on the client — they're
+  // visual flourishes coupled to mesh transforms, not gameplay.
   for (const f of S.figs) {
-    if (f.invulnT > 0) f.invulnT = Math.max(0, f.invulnT - dt);
-
     if (f.picked) continue;
 
     if (f.draining) {
@@ -2308,86 +2464,15 @@ function updateFigures(dt) {
       continue;
     }
 
-    if (!f.alive) continue;
-
-    let dx, dz;
-    if (f.isPlayer) {
-      [dx, dz] = playerIntent(f);
-    } else {
-      [dx, dz] = botIntent(f, dt);
-    }
-
-    const accel = f.isPlayer ? CFG.playerAccel : CFG.botAccel;
-    f.vx += (dx - f.vx) * Math.min(1, accel * dt);
-    f.vz += (dz - f.vz) * Math.min(1, accel * dt);
-
-    f.vx += ax * dt;
-    f.vz += az * dt;
-
-    const fr = 1 - Math.min(1, CFG.friction * dt);
-    f.vx *= fr;
-    f.vz *= fr;
-
-    f.x += f.vx * dt;
-    f.z += f.vz * dt;
+    // Live figures: movement integration already happened in tickMovement
+    // above. Nothing more to do in this loop for them.
   }
 
-  // figure-figure collision + contact damage — per-figure radii
-  for (let i = 0; i < S.figs.length; i++) {
-    const a = S.figs[i];
-    if (!a.alive || a.picked || a.dropping || a.draining) continue;
-    for (let j = i + 1; j < S.figs.length; j++) {
-      const b = S.figs[j];
-      if (!b.alive || b.picked || b.dropping || b.draining) continue;
-      const dx = b.x - a.x, dz = b.z - a.z;
-      const d2 = dx * dx + dz * dz;
-      const min = a.collidR + b.collidR;
-      if (d2 < min * min && d2 > 0.0001) {
-        const d = Math.sqrt(d2);
-        const overlap = (min - d) * 0.5;
-        const nx = dx / d, nz = dz / d;
-        a.x -= nx * overlap; a.z -= nz * overlap;
-        b.x += nx * overlap; b.z += nz * overlap;
-        const va = a.vx * nx + a.vz * nz;
-        const vb = b.vx * nx + b.vz * nz;
-        const exch = (vb - va) * 0.3;
-        a.vx += nx * exch; a.vz += nz * exch;
-        b.vx -= nx * exch; b.vz -= nz * exch;
 
-        if (a.invulnT <= 0 && b.invulnT <= 0) {
-          a.hp -= CFG.contactDmg;
-          b.hp -= CFG.contactDmg;
-          a.invulnT = CFG.iframeMs / 1000;
-          b.invulnT = CFG.iframeMs / 1000;
-          a.vx -= nx * CFG.bumpForce;
-          a.vz -= nz * CFG.bumpForce;
-          b.vx += nx * CFG.bumpForce;
-          b.vz += nz * CFG.bumpForce;
-          if (a.hp <= 0 && !a.draining) {
-            a.draining = true; a.drainT = 0;
-            eliminate(a, 'drained');
-          }
-          if (b.hp <= 0 && !b.draining) {
-            b.draining = true; b.drainT = 0;
-            eliminate(b, 'drained');
-          }
-        }
-      }
-    }
-  }
 
-  // edge check + mesh transforms
+  // Mesh transform sync for still-alive figures.
   for (const f of S.figs) {
     if (!f.alive || f.picked || f.dropping || f.draining) continue;
-    const d = Math.hypot(f.x, f.z);
-    if (d > S.plateR + CFG.edgePadFall) {
-      f.dropping = true;
-      f.dropT = 0;
-      f.dropY = 0;
-      f.dropVy = 0;
-      eliminate(f, 'fell');
-      continue;
-    }
     f.mesh.position.x = f.x;
     f.mesh.position.z = f.z;
     f.mesh.position.y = CFG.plateThick / 2;
@@ -2497,28 +2582,33 @@ function updateFigures(dt) {
   }
 }
 
-function lerp(a, b, t) { return a + (b - a) * t; }
+// lerp / clamp now live in sim/util.js — destructured at the top of this
+// script so they're available everywhere below.
 
 // ============================================================
-// PLAYER INPUT
+// PLAYER INPUT — keyboard + touch stick both write into S.input.dx/dy,
+// which gets shipped to the server in netSendInput (50 ms cadence).
 // ============================================================
 const keys = {};
 window.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
 window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 
-function playerIntent(f) {
+// Called every animation frame. Keyboard overrides touch when any
+// movement key is held; when neither is active, zero out so the
+// figure decelerates.
+function tickInputFromKeys() {
   let dx = 0, dz = 0;
   if (keys['w'] || keys['arrowup']) dz -= 1;
   if (keys['s'] || keys['arrowdown']) dz += 1;
   if (keys['a'] || keys['arrowleft']) dx -= 1;
   if (keys['d'] || keys['arrowright']) dx += 1;
-  if (Math.abs(S.input.dx) + Math.abs(S.input.dy) > 0.05) {
-    dx += S.input.dx;
-    dz += S.input.dy;
+  if (dx !== 0 || dz !== 0) {
+    const len = Math.hypot(dx, dz);
+    S.input.dx = dx / len;
+    S.input.dy = dz / len;
+  } else if (!stickActive) {
+    S.input.dx = 0; S.input.dy = 0;
   }
-  const len = Math.hypot(dx, dz);
-  if (len > 1) { dx /= len; dz /= len; }
-  return [dx * CFG.playerSpeed, dz * CFG.playerSpeed];
 }
 
 // touch stick
@@ -2565,211 +2655,11 @@ window.addEventListener('touchend', (e) => {
   }
 });
 
-// ============================================================
-// BOT AI
-// ============================================================
-function botIntent(f, dt) {
-  let dx = 0, dz = 0;
-
-  f.wanderTimer -= dt;
-  if (f.wanderTimer <= 0) {
-    f.wanderAng = Math.random() * Math.PI * 2;
-    f.wanderTimer = 1.2 + Math.random() * 1.5;
-  }
-  const wanderW = 0.5;
-  dx += Math.cos(f.wanderAng) * wanderW;
-  dz += Math.sin(f.wanderAng) * wanderW;
-
-  if (S.hand.phase === 'telegraph' || S.hand.phase === 'approach' || S.hand.phase === 'hover') {
-    const ddx = f.x - S.hand.x, ddz = f.z - S.hand.z;
-    const d = Math.max(0.01, Math.hypot(ddx, ddz));
-    if (d < S.hand.zoneR * 2.6) {
-      const urgency = 1 - (d / (S.hand.zoneR * 2.6));
-      dx += (ddx / d) * urgency * 1.6;
-      dz += (ddz / d) * urgency * 1.6;
-    }
-  }
-
-  const distC = Math.hypot(f.x, f.z);
-  const fromEdge = S.plateR - distC;
-  if (fromEdge < 1.2) {
-    const inward = 1 - Math.max(0, fromEdge / 1.2);
-    if (distC > 0.01) {
-      dx += (-f.x / distC) * inward * 1.8;
-      dz += (-f.z / distC) * inward * 1.8;
-    }
-  }
-
-  dx += -S.tilt.x * 0.6;
-  dz += -S.tilt.z * 0.6;
-
-  const sepBoost = 1 + (1 - f.hp / CFG.hpMax) * 1.4;
-  for (const g of S.figs) {
-    if (g === f || !g.alive || g.picked || g.dropping || g.draining) continue;
-    const ddx = f.x - g.x, ddz = f.z - g.z;
-    const d2 = ddx * ddx + ddz * ddz;
-    const sepR = (f.collidR + g.collidR) * 1.7;
-    if (d2 < sepR * sepR && d2 > 0.001) {
-      const d = Math.sqrt(d2);
-      const w = (sepR - d) / sepR * 0.7 * sepBoost;
-      dx += (ddx / d) * w;
-      dz += (ddz / d) * w;
-    }
-  }
-
-  if (f.boldness > 0.45 && f.hp >= 5 && f.invulnT <= 0 &&
-      S.hand.phase !== 'telegraph' && S.hand.phase !== 'descend') {
-    let best = null, bestScore = -1;
-    for (const g of S.figs) {
-      if (g === f || !g.alive || g.picked || g.dropping || g.draining) continue;
-      const ddx = g.x - f.x, ddz = g.z - f.z;
-      const d = Math.hypot(ddx, ddz);
-      if (d < 0.8 || d > 4.5) continue;
-      const score = (1 / d) + (CFG.hpMax - g.hp) * 0.15;
-      if (score > bestScore) { bestScore = score; best = g; }
-    }
-    if (best) {
-      const ddx = best.x - f.x, ddz = best.z - f.z;
-      const d = Math.max(0.01, Math.hypot(ddx, ddz));
-      const w = (f.boldness - 0.45) * 1.6;
-      dx += (ddx / d) * w;
-      dz += (ddz / d) * w;
-    }
-  }
-
-  const len = Math.hypot(dx, dz);
-  const speed = (S.hand.phase === 'telegraph' || S.hand.phase === 'approach' || S.hand.phase === 'hover') ? CFG.fleeSpeed : CFG.botSpeed;
-  if (len > 0.001) {
-    dx = (dx / len) * speed;
-    dz = (dz / len) * speed;
-  }
-  return [dx, dz];
-}
-
-// ============================================================
-// CLAW state machine — same phases as the original hand
-// ============================================================
-function startHand() {
-  if (!handAnim.ready) {
-    S.nextHandAt = S.t + 500;
-    return;
-  }
-  const aliveFigs = S.figs.filter(f => f.alive && !f.picked && !f.dropping);
-  if (aliveFigs.length === 0) return;
-  const zoneR = currentZoneR();
-  S.hand.zoneR = zoneR;
-
-  let target;
-  if (S.firstHand) {
-    let best = null, bestN = -1;
-    for (const a of aliveFigs) {
-      let n = 0;
-      for (const b of aliveFigs) {
-        if (a === b) continue;
-        const d = Math.hypot(a.x - b.x, a.z - b.z);
-        if (d < zoneR * 2.2) n++;
-      }
-      if (n > bestN) { bestN = n; best = a; }
-    }
-    target = best;
-    S.firstHand = false;
-  } else {
-    const weights = aliveFigs.map(a => {
-      let n = 0;
-      for (const b of aliveFigs) {
-        if (a === b) continue;
-        const d = Math.hypot(a.x - b.x, a.z - b.z);
-        if (d < zoneR * 2) n++;
-      }
-      return 1 + n * 1.5;
-    });
-    const total = weights.reduce((s, w) => s + w, 0);
-    let r = Math.random() * total;
-    target = aliveFigs[aliveFigs.length - 1];
-    for (let i = 0; i < aliveFigs.length; i++) {
-      r -= weights[i];
-      if (r <= 0) { target = aliveFigs[i]; break; }
-    }
-  }
-
-  S.hand.target = target;
-  S.hand.x = target.x;
-  S.hand.z = target.z;
-  S.hand.origX = target.x;
-  S.hand.origZ = target.z;
-  S.hand.aimTarget = null;
-  S.hand.phase = 'telegraph';
-  S.hand.t = 0;
-
-  S.hand.telegraphMs = lerp(700, 3300, Math.random());
-  S.hand.cooldownMs  = CFG.handCooldownMs * (0.70 + Math.random() * 0.60);
-  S.hand.approachMs = CFG.handApproachMs * (0.80 + Math.random() * 0.45);
-  S.hand.hoverMs    = CFG.handHoverMs    * (0.55 + Math.random() * 0.90);
-  S.hand.pinchMs    = CFG.handPinchMs    * (0.85 + Math.random() * 0.40);
-  S.hand.liftMs     = CFG.handLiftMs     * (0.90 + Math.random() * 0.25);
-  S.hand.approachArc = 1.0 + Math.random() * 0.8;
-  S.hand.liftArc     = 0.8 + Math.random() * 0.7;
-  S.hand.approachEaseMix = Math.random();
-  S.hand.hoverDriftAmp = Math.random() * 0.06;
-  S.hand.hoverDriftPhase = Math.random() * Math.PI * 2;
-  // claw test-grip plateau parameters (still applies — the claw hesitates briefly)
-  S.hand.holdStart = 0.36 + Math.random() * 0.10;
-  S.hand.holdEnd   = S.hand.holdStart + 0.10 + Math.random() * 0.10;
-  S.hand.holdLevel = 0.62 + Math.random() * 0.16;
-
-  // No position teleport — the claw was hanging at its idle pose
-  // and the telegraph branch in updateHand will lerp it toward the
-  // new target spot. Leaving its current position untouched here.
-
-  // claw cable hangs straight down; we still vary the assembly's incoming azimuth
-  // so the prong-1 direction varies grab-to-grab and the wrist tilt jitters
-  const azimuth = Math.random() * Math.PI * 2;
-  S.hand.azimuth = azimuth;
-  // (rotation also drifts smoothly via the telegraph aim wobble math,
-  // not snapped here)
-
-  handAnim.tilt.rotation.x = handAnim.baseTiltX + (Math.random() - 0.5) * 0.08;
-  handAnim.tilt.rotation.z = handAnim.baseTiltZ + (Math.random() - 0.5) * 0.08;
-
-  // open all prongs
-  setAllProngs(0);
-
-  reticleGroup.visible = true;
-  reticleGroup.position.set(target.x, 0, target.z);
-}
-
-function currentZoneR() {
-  const a = S.alive;
-  const tt = (CFG.startCount - a) / (CFG.startCount - CFG.podiumCount);
-  const frac = lerp(CFG.zoneMinFrac, CFG.zoneMaxFrac, Math.max(0, Math.min(1, tt)));
-  return S.plateR * frac;
-}
-
-function captureFiguresInZone() {
-  const captured = [];
-  for (const f of S.figs) {
-    if (!f.alive || f.picked || f.dropping || f.draining) continue;
-    const d = Math.hypot(f.x - S.hand.x, f.z - S.hand.z);
-    if (d < S.hand.zoneR) captured.push(f);
-  }
-  for (const f of captured) {
-    f.picked = true;
-    f.pickT = 0;
-    const wp = new THREE.Vector3();
-    const wq = new THREE.Quaternion();
-    f.mesh.getWorldPosition(wp);
-    f.mesh.getWorldQuaternion(wq);
-    f.pickStartX = wp.x;
-    f.pickStartY = wp.y;
-    f.pickStartZ = wp.z;
-    if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
-    scene.add(f.mesh);
-    f.mesh.position.copy(wp);
-    f.mesh.quaternion.copy(wq);
-    eliminate(f, 'picked');
-  }
-  S.hand.captured = captured;
-}
+// Claw cycle start, per-frame phase progression, and capture detection
+// all live server-side (see server/src/GameRoom.js + sim/hand.js).
+// netReconcile detects the resulting state transitions to drive the
+// client-side mesh side-effects (detaching captured figures from the
+// plate group, hiding the reticle when phase returns to idle).
 
 function updateHand(dt) {
   if (S.hand.phase === 'idle') {
@@ -2791,72 +2681,12 @@ function updateHand(dt) {
     setAllProngs(0);
     return;
   }
-  S.hand.t += dt * 1000;
+  // S.hand.t comes from snapshots; we just read it.
   const tSec = S.hand.t / 1000;
 
-  // predator auto-aim — same logic, just feeding the claw position
+  // Server has already drifted S.hand.x/z for us via tickPredatorAim;
+  // we just sync the reticle mesh.
   if (S.hand.phase === 'telegraph' || S.hand.phase === 'approach') {
-    let progress;
-    if (S.hand.phase === 'telegraph') {
-      const tp = Math.min(1, S.hand.t / S.hand.telegraphMs);
-      progress = tp * 0.40;
-    } else {
-      const ap = Math.min(1, S.hand.t / S.hand.approachMs);
-      progress = 0.40 + ap * 0.60;
-    }
-
-    const driftProgress = Math.pow(progress, 1.8);
-    const respProgress  = Math.pow(progress, 1.5);
-
-    const scanR = Math.max(S.plateR * 0.55, S.hand.zoneR * 3.0);
-    const maxDrift = lerp(S.plateR * 0.07, S.plateR * 0.26, driftProgress);
-
-    const moveBias   = lerp(0.4, 1.5, driftProgress);
-    const closenessW = lerp(1.0, 0.5, driftProgress);
-
-    let bestScore = -Infinity, bestX = S.hand.origX, bestZ = S.hand.origZ;
-    for (const f of S.figs) {
-      if (!f.alive || f.picked || f.dropping || f.draining) continue;
-      const dx = f.x - S.hand.origX;
-      const dz = f.z - S.hand.origZ;
-      const d = Math.hypot(dx, dz);
-      if (d > scanR) continue;
-
-      const speed = Math.hypot(f.vx, f.vz);
-      const closeness = 1 - d / scanR;
-
-      let approachDot = 0;
-      if (d > 0.1 && speed > 0.3) {
-        approachDot = -(f.vx * dx + f.vz * dz) / (speed * d);
-        approachDot = Math.max(0, approachDot);
-      }
-
-      const score = closeness * closenessW
-                  + (speed * 0.28) * moveBias
-                  + (approachDot * speed * 0.15) * moveBias;
-      if (score > bestScore) {
-        bestScore = score;
-        bestX = f.x;
-        bestZ = f.z;
-      }
-    }
-
-    let desX = S.hand.origX, desZ = S.hand.origZ;
-    if (bestScore > -Infinity) {
-      const dx = bestX - S.hand.origX;
-      const dz = bestZ - S.hand.origZ;
-      const d = Math.hypot(dx, dz);
-      if (d > 0.001) {
-        const driftMag = Math.min(d, maxDrift);
-        desX = S.hand.origX + (dx / d) * driftMag;
-        desZ = S.hand.origZ + (dz / d) * driftMag;
-      }
-    }
-
-    const respRate = lerp(1.3, 6.0, respProgress);
-    const respK = 1 - Math.exp(-respRate * dt);
-    S.hand.x += (desX - S.hand.x) * respK;
-    S.hand.z += (desZ - S.hand.z) * respK;
     reticleGroup.position.set(S.hand.x, 0, S.hand.z);
   }
 
@@ -2959,10 +2789,6 @@ function updateHand(dt) {
     // ease tilt back toward base before approach takes over
     handAnim.tilt.rotation.x += (handAnim.baseTiltX - handAnim.tilt.rotation.x) * kr;
     handAnim.tilt.rotation.z += (handAnim.baseTiltZ - handAnim.tilt.rotation.z) * kr;
-    if (S.hand.t >= S.hand.telegraphMs) {
-      S.hand.phase = 'approach';
-      S.hand.t = 0;
-    }
   } else if (S.hand.phase === 'approach') {
     const k = Math.min(1, S.hand.t / S.hand.approachMs);
     const wob = Math.sin(tSec * 7.3) * 0.04 * (1 - k);
@@ -2972,20 +2798,11 @@ function updateHand(dt) {
     handGroup.rotation.y = S.hand.azimuth + aim;
     // hold prongs open during descent
     setAllProngs(0);
-    if (S.hand.t >= S.hand.approachMs) {
-      S.hand.phase = 'hover';
-      S.hand.t = 0;
-      captureFiguresInZone();
-    }
   } else if (S.hand.phase === 'hover') {
     // micro mechanical "breath" — prongs twitch slightly inward as the claw decides
     const k = Math.min(1, S.hand.t / S.hand.hoverMs);
     const breath = Math.sin(k * Math.PI) * 0.18;
     setAllProngs(breath);
-    if (S.hand.t >= S.hand.hoverMs) {
-      S.hand.phase = 'pinch';
-      S.hand.t = 0;
-    }
   } else if (S.hand.phase === 'pinch') {
     // Two-stage pinch with test-grip plateau, applied to all three prongs
     // with tiny per-prong delays so it reads as mechanical, not robotic.
@@ -3005,10 +2822,6 @@ function updateHand(dt) {
       const localT = Math.max(0, Math.min(1, (k - delays[i]) / (1 - delays[i])));
       setProng(i, pinchCurve(localT));
     }
-    if (S.hand.t >= S.hand.pinchMs) {
-      S.hand.phase = 'lift';
-      S.hand.t = 0;
-    }
   } else if (S.hand.phase === 'lift') {
     const k = Math.min(1, S.hand.t / S.hand.liftMs);
     // slight twist on the cable assembly as it draws up
@@ -3019,74 +2832,21 @@ function updateHand(dt) {
     const fade = 1 - k;
     retFill.material.opacity = 0.38 * fade;
     retOutline.material.opacity = fade;
-    if (S.hand.t >= S.hand.liftMs) {
-      S.hand.phase = 'idle';
-      // Claw stays visible — it drifts back to its idle hang in
-      // the idle branch above.
-      reticleGroup.visible = false;
-      S.nextHandAt = S.t + S.hand.cooldownMs;
-    }
   }
+
+  // Server runs advanceHandPhase; netReconcile detects approach→hover
+  // and runs the freshly-picked mesh detach there. Here we just track
+  // reticle visibility from the current phase.
+  reticleGroup.visible = (S.hand.phase !== 'idle');
 }
 
 // ============================================================
 // ELIMINATION + GAME PROGRESS
 // ============================================================
-function eliminate(f, reason) {
-  if (!f.alive) return;
-  f.alive = false;
-  S.alive--;
-  S.eliminated.push({ id: f.id, isPlayer: f.isPlayer, reason, atMs: S.t });
-  if (f.isPlayer) {
-    const msg = reason === 'fell' ? 'you fell'
-              : reason === 'drained' ? 'you cracked'
-              : 'you were taken';
-    showHint(msg);
-  }
-  if (f.isPlayer) {
-    // Defer the end-of-game overlay so the player gets to see their
-    // figure go down (drop / drain / lift) before the screen takes
-    // over. Delay matches the longest death animation.
-    let delayMs;
-    if (reason === 'fell')         delayMs = 1700; // drop physics ~1.4s
-    else if (reason === 'drained') delayMs = 1000; // drainMs 0.55s + buffer
-    else                            delayMs = 1500; // pick / lift
-    S.deferredEndGameAt = S.t + delayMs;
-    return;
-  }
-  // Last survivor wins → end immediately when alive falls to 1.
-  if (S.alive <= CFG.podiumCount) {
-    endGame();
-  }
-}
-
-function endGame() {
-  if (S.phase === 'over') return;
-  // In demo mode (title screen), don't show the placement overlay —
-  // just loop back into a fresh demo round so the menu stays alive.
-  if (S.demo) {
-    reset(true);
-    return;
-  }
-  S.phase = 'over';
-  const survivors = S.figs.filter(f => f.alive);
-  S.podium = survivors.map(f => f.id);
-
-  // Placement by elimination order. With 10 figures:
-  //   eliminated idx 0 → placed 10th (first out)
-  //   eliminated idx 7 → placed 3rd  (would win 2x prize)
-  //   eliminated idx 8 → placed 2nd  (3x prize)
-  //   alive at end     → placed 1st  (5x prize)
-  let placement;
-  if (S.player.alive) {
-    placement = 1;
-  } else {
-    const idx = S.eliminated.findIndex(e => e.isPlayer);
-    placement = CFG.startCount - idx;
-  }
-
-  showOverlay(placement);
-}
+// Elimination and end-game state mutations are server-authoritative.
+// netConnect handles the `end` message: it builds S.eliminated from
+// the server's authoritative order and calls showOverlay with the
+// computed placement.
 
 function showHint(text) {
   const h = document.getElementById('hint');
@@ -3114,13 +2874,14 @@ function showOverlay(placement) {
 // SHRINK
 // ============================================================
 function maybeShrink(dt) {
-  if (S.t < S.nextShrinkAt) return;
-  const newR = Math.max(CFG.shrinkMin, S.plateR * CFG.shrinkFactor);
-  S.plateR = newR;
-  const targetScale = newR / CFG.plateR0;
-  shrinkTween = { from: plateMesh.scale.x, to: targetScale, t: 0, dur: 0.6 };
-  S.nextShrinkAt = S.t + CFG.shrinkEveryMs;
-  showHint('the shape shrinks');
+  // Server owns S.plateR; we animate the mesh toward each snapshot's
+  // value with a 0.6s tween so the shrink reads as a beat instead of
+  // a jump.
+  const targetScale = S.plateR / CFG.plateR0;
+  if (!shrinkTween && Math.abs(plateMesh.scale.x - targetScale) > 1e-3) {
+    shrinkTween = { from: plateMesh.scale.x, to: targetScale, t: 0, dur: 0.6 };
+    showHint('the shape shrinks');
+  }
 }
 
 let shrinkTween = null;
@@ -3235,27 +2996,12 @@ function loop(now) {
   last = now;
   const tSec = now / 1000;
 
-  if (S.phase === 'play') {
-    S.t = now - S.startedAt;
+  if (S.phase === 'play' || S.phase === 'over') {
+    if (S.phase === 'play') tickInputFromKeys();
     updateTilt(dt);
     updateFigures(dt);
-    if (S.hand.phase === 'idle' && S.t >= S.nextHandAt && S.alive > CFG.podiumCount) {
-      startHand();
-    }
     updateHand(dt);
     maybeShrink(dt);
-    tickShrinkTween(dt);
-    updateHud();
-    // Deferred end-game: after the player dies, let their death
-    // animation play out before the overlay takes over.
-    if (S.deferredEndGameAt != null && S.t >= S.deferredEndGameAt) {
-      S.deferredEndGameAt = null;
-      endGame();
-    }
-  } else if (S.phase === 'over') {
-    updateTilt(dt);
-    updateFigures(dt);
-    updateHand(dt);
     tickShrinkTween(dt);
     updateHud();
   }
@@ -3272,31 +3018,20 @@ function loop(now) {
 // ============================================================
 // START / RESET
 // ============================================================
-function reset(demoMode = false) {
-  S.demo = !!demoMode;
+// Tear down render-side objects + reset state so a fresh round can
+// start. The actual figure list gets repopulated lazily from server
+// snapshots once the round begins.
+function reset() {
   for (const f of S.figs) {
     if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
   }
-  S.figs = [];
-  S.player = null;
-  // Remove any leftover player marker from a previous round — in
-  // demo mode no new marker is created.
   if (playerMarker && playerMarker.parent) playerMarker.parent.remove(playerMarker);
   playerMarker = null;
-  S.alive = 0;
-  S.eliminated = [];
-  S.podium = [];
-  S.t = 0;
-  S.startedAt = performance.now();
-  S.plateR = CFG.plateR0;
+
+  window.SIM.resetState(S);
+
   plateMesh.scale.set(1, 1, 1);
   plateCollar.scale.set(1, 1, 1);
-  S.nextShrinkAt = CFG.shrinkEveryMs;
-  S.nextHandAt = 4500;
-  S.deferredEndGameAt = null;
-  S.firstHand = true;
-  S.hand = { phase: 'idle', t: 0, x: 0, z: 0, zoneR: 0, target: null, captured: [] };
-  S.tilt = { x: 0, z: 0 };
   // Claw stays visible across resets — idle hang above the plate.
   handGroup.visible = true;
   handGroup.position.set(0, CFG.handIdleY, 0);
@@ -3304,23 +3039,96 @@ function reset(demoMode = false) {
   reticleGroup.visible = false;
   shrinkTween = null;
   camInitialized = false;
-  spawnFigures(demoMode);
-  S.phase = 'play';
-  // Wall explosion only fires on the REAL game start — gives the
-  // user a satisfying transition from demo (walls intact) to game
-  // (walls scatter). Idempotent: only runs once per page load.
-  if (!demoMode) explodeRoom();
   document.getElementById('over').classList.remove('show');
 }
 
 document.getElementById('start').addEventListener('click', () => {
   document.getElementById('title').classList.add('gone');
   setTimeout(() => document.getElementById('title').remove(), 700);
-  reset();
+  document.getElementById('lobby').classList.add('show');
 });
 document.getElementById('again').addEventListener('click', () => {
-  reset();
+  // Cleanest reset path for v0 multiplayer: reload so we land on the
+  // lobby chooser with a fresh WS and a fresh client state.
+  location.reload();
 });
+
+// ============================================================
+// LOBBY UI — only shown in network mode. Drives the create/join flow
+// and the in-room roster + countdown view.
+// ============================================================
+(function wireLobby() {
+  const lobby = document.getElementById('lobby');
+  const pre = document.getElementById('lobby-pre');
+  const inRoom = document.getElementById('lobby-in');
+  const codeShow = document.getElementById('lobby-code-show');
+  const rosterEl = document.getElementById('lobby-roster');
+  const countdownEl = document.getElementById('lobby-countdown');
+  const startBtn = document.getElementById('lobby-start');
+  const statusEl = document.getElementById('lobby-status');
+  const errEl = document.getElementById('lobby-err');
+
+  // Local countdown tick: server tells us countdownMs in each roster
+  // update, we lerp it down from receipt time so the timer reads live.
+  let countdownDeadline = 0;
+  const tickCountdown = setInterval(() => {
+    if (!lobby.classList.contains('show') || inRoom.style.display === 'none') return;
+    const ms = Math.max(0, countdownDeadline - Date.now());
+    countdownEl.textContent = `starts in ${Math.ceil(ms / 1000)}s`;
+  }, 250);
+
+  // Plug into the existing NET message stream by wrapping its onmessage
+  // setup. The simplest hook: expose handlers on NET that netConnect's
+  // own listener fans out to.
+  NET.onJoined = (msg) => {
+    pre.style.display = 'none';
+    inRoom.style.display = 'flex';
+    codeShow.textContent = msg.code;
+    statusEl.textContent = msg.host === NET.playerId ? 'you are the host' : 'waiting for host...';
+  };
+  NET.onRoster = (msg) => {
+    rosterEl.textContent = `${msg.count} / ${msg.max} players`;
+    countdownDeadline = Date.now() + (msg.countdownMs || 0);
+    startBtn.style.display = (msg.host === NET.playerId) ? 'inline' : 'none';
+    statusEl.textContent = (msg.host === NET.playerId) ? 'you are the host' : 'waiting for host...';
+  };
+  NET.onStart = () => {
+    lobby.classList.remove('show');
+  };
+  NET.onError = (msg) => {
+    errEl.textContent = msg.message || 'unknown error';
+    // Drop back to chooser if we never got into a room.
+    if (inRoom.style.display !== 'flex') {
+      pre.style.display = 'flex';
+    }
+  };
+
+  document.getElementById('lobby-create').addEventListener('click', () => {
+    errEl.textContent = '';
+    NET.joinMode = 'create';
+    netConnect();
+  });
+  document.getElementById('lobby-join').addEventListener('click', () => {
+    const code = (document.getElementById('lobby-code').value || '').trim().toUpperCase();
+    if (!code) { errEl.textContent = 'enter a code'; return; }
+    errEl.textContent = '';
+    NET.joinMode = 'join';
+    NET.joinCode = code;
+    netConnect();
+  });
+  // Solo = create + auto-start. netConnect's onJoined handler fires
+  // start immediately if NET.joinMode === 'solo'.
+  document.getElementById('lobby-solo').addEventListener('click', () => {
+    errEl.textContent = '';
+    NET.joinMode = 'solo';
+    netConnect();
+  });
+  startBtn.addEventListener('click', () => {
+    if (NET.ws && NET.ws.readyState === WebSocket.OPEN) {
+      NET.ws.send(JSON.stringify({ type: 'start' }));
+    }
+  });
+})();
 
 requestAnimationFrame(loop);
 
