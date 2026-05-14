@@ -462,20 +462,32 @@
   .wd-actions { margin-top: 4px; }
   .wd-actions-row { flex-direction: row !important; gap: 8px; }
   /* Inputs: compact system monospace so a 44-char Solana address
-     fits inside the 360 px drawer without overflowing. Same family
-     for the amount input keeps the form unified. */
-  .wd-input {
+     fits inside the 360 px drawer without overflowing. Selector is
+     scoped under #lobby because the lobby's "#lobby input[type=text]"
+     rule (28 px VT323, uppercase, yellow underline on focus) would
+     otherwise win specificity and leak into the wallet drawer. */
+  #lobby .wallet-drawer .wd-input {
     background: rgba(255,255,255,0.04);
     border: 1px dashed #f1e5cd22;
+    border-bottom: 1px dashed #f1e5cd22;
     color: #f1e5cd;
     padding: 10px 12px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 12px;
     letter-spacing: 0;
+    text-transform: none;
+    text-align: left;
     width: 100%; box-sizing: border-box;
     outline: none;
   }
-  .wd-input:focus { border-color: #ff1a1a; }
+  #lobby .wallet-drawer .wd-input:focus {
+    border-color: #ff1a1a;
+    border-bottom-color: #ff1a1a;
+  }
+  #lobby .wallet-drawer .wd-input::placeholder {
+    color: #f1e5cd55;
+    text-transform: none;
+  }
   .wd-error {
     color: #ff5555; font-size: 14px;
     background: rgba(255,26,26,0.08);
