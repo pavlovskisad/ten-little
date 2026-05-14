@@ -82,9 +82,40 @@ function serveStatic(req, res) {
     // Don't cache the HTML or sim modules during dev so reloads pick
     // up changes immediately. Long-cache the assets that don't change.
     const noCache = ext === '.html' || ext === '.js' || ext === '.json';
+    const cacheCtl = noCache ? 'no-store' : 'public, max-age=300';
+    const total = stat.size;
+    // HTTP Range support. Required for HTMLAudioElement.currentTime
+    // seeking on the mp3 score: setting currentTime triggers a Range
+    // request for the byte offset of the new playhead, and if the
+    // server can't honor it the browser silently bails to byte 0.
+    const range = req.headers.range;
+    if (range) {
+      const m = /^bytes=(\d+)-(\d*)$/.exec(range);
+      if (!m) {
+        res.writeHead(416, { 'Content-Range': `bytes */${total}` }).end();
+        return;
+      }
+      const start = parseInt(m[1], 10);
+      const end = m[2] ? Math.min(parseInt(m[2], 10), total - 1) : total - 1;
+      if (start >= total || start > end) {
+        res.writeHead(416, { 'Content-Range': `bytes */${total}` }).end();
+        return;
+      }
+      res.writeHead(206, {
+        'Content-Type': ct,
+        'Content-Range': `bytes ${start}-${end}/${total}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': end - start + 1,
+        'Cache-Control': cacheCtl,
+      });
+      fs.createReadStream(filePath, { start, end }).pipe(res);
+      return;
+    }
     res.writeHead(200, {
       'Content-Type': ct,
-      'Cache-Control': noCache ? 'no-store' : 'public, max-age=300',
+      'Content-Length': total,
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': cacheCtl,
     });
     fs.createReadStream(filePath).pipe(res);
   });
