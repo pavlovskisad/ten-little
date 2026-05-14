@@ -13,7 +13,7 @@ const SIM = Object.assign({},
   require(path.join(__dirname, '..', '..', 'sim', 'headless.js')),
 );
 
-const TICK_MS = 50;   // 20 Hz
+const TICK_MS = 33;   // 30 Hz
 const COUNTDOWN_MS = 60_000;
 const MAX_PLAYERS = 10;
 
@@ -181,7 +181,8 @@ class GameRoom {
   // and hand only — skip internal fields.
   snapshot() {
     const figs = this.state.figs.map(f => ({
-      id: f.id, x: f.x, z: f.z, hp: f.hp, alive: f.alive,
+      id: f.id, x: f.x, z: f.z, vx: f.vx, vz: f.vz,
+      hp: f.hp, alive: f.alive,
       picked: f.picked, dropping: f.dropping, draining: f.draining,
       isPlayer: f.isPlayer,
     }));

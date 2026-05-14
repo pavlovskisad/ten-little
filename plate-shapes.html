@@ -2085,6 +2085,10 @@ function spawnNetFigure(snap) {
   const f = {
     id: snap.id,
     x: snap.x, z: snap.z, vx: 0, vz: 0,
+    // Render-smoothed positions: each frame the mesh lerps from
+    // (renderX, renderZ) toward the latest snapshot (x, z) so the
+    // motion looks continuous between snapshots instead of stepping.
+    renderX: snap.x, renderZ: snap.z,
     alive: true, isPlayer, mesh,
     shapeMesh: built.shapeMesh, shapeMat: built.shapeMat,
     def: built.def, dangerRing: built.dangerRing, mixer: built.mixer,
@@ -2132,6 +2136,11 @@ function netReconcile(snap) {
     const wasAlive = f.alive;
     f.x = sf.x;
     f.z = sf.z;
+    // Server-authored velocity. Used by the mixer-rate scaler so the
+    // walk loop matches actual movement speed; without it the client
+    // sees vx/vz=0 and pins the mixer at its 0.4 floor (the moonwalk).
+    f.vx = sf.vx || 0;
+    f.vz = sf.vz || 0;
     f.hp = sf.hp;
     f.alive = sf.alive;
     f.picked = !!sf.picked;
@@ -2232,7 +2241,7 @@ function netConnect() {
       document.getElementById('over').classList.remove('show');
       // Begin forwarding joystick input.
       if (NET.inputTimer) clearInterval(NET.inputTimer);
-      NET.inputTimer = setInterval(netSendInput, 50);
+      NET.inputTimer = setInterval(netSendInput, 33);
       if (NET.onStart) NET.onStart(msg);
     } else if (msg.type === 'state') {
       netReconcile(msg.state);
@@ -2470,11 +2479,19 @@ function updateFigures(dt) {
 
 
 
-  // Mesh transform sync for still-alive figures.
+  // Mesh transform sync for still-alive figures. Render position lerps
+  // toward the latest server snapshot so motion looks continuous between
+  // 33 ms snapshot frames. Smoothing factor of 18 reaches ~95% of the
+  // target in ~165 ms, enough to absorb tick + RTT jitter without
+  // adding obvious lag on top of the network round-trip.
+  const SMOOTH_K = 18;
+  const a = Math.min(1, SMOOTH_K * dt);
   for (const f of S.figs) {
     if (!f.alive || f.picked || f.dropping || f.draining) continue;
-    f.mesh.position.x = f.x;
-    f.mesh.position.z = f.z;
+    f.renderX += (f.x - f.renderX) * a;
+    f.renderZ += (f.z - f.renderZ) * a;
+    f.mesh.position.x = f.renderX;
+    f.mesh.position.z = f.renderZ;
     f.mesh.position.y = CFG.plateThick / 2;
     const speed = Math.hypot(f.vx, f.vz);
     if (speed > 0.3) {
@@ -2550,9 +2567,11 @@ function updateFigures(dt) {
   if (playerMarker && S.player && S.player.alive && !S.player.picked && !S.player.dropping && !S.player.draining) {
     playerMarker.visible = true;
     playerMarker.position.set(
-      S.player.x,
+      // Track the smoothed render position so the marker rides with
+      // the mesh; using S.player.x would step every snapshot.
+      S.player.renderX !== undefined ? S.player.renderX : S.player.x,
       CFG.plateThick / 2 + 0.01,
-      S.player.z,
+      S.player.renderZ !== undefined ? S.player.renderZ : S.player.z,
     );
     const star = playerMarker.userData.star;
     const ring = playerMarker.userData.ring;
@@ -2587,7 +2606,7 @@ function updateFigures(dt) {
 
 // ============================================================
 // PLAYER INPUT — keyboard + touch stick both write into S.input.dx/dy,
-// which gets shipped to the server in netSendInput (50 ms cadence).
+// which gets shipped to the server in netSendInput (33 ms cadence).
 // ============================================================
 const keys = {};
 window.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
