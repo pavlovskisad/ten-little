@@ -31,6 +31,19 @@ const escrow = require('./escrow.js');
 // ORACLE_KEYPAIR_JSON is unset (logs a clear "disabled" line).
 escrow.init();
 
+// v0 fixed entry fee. 0.01 SOL — locked-in number from the plan.
+// Phase B5+ will tier this; for now every quickmatch costs the same.
+const ENTRY_FEE_LAMPORTS = 10_000_000n;
+
+// On-chain room id is a u64 distinct from the human-readable
+// R-prefixed WS code. We seed from millisecond timestamp and bump
+// per-room — same process can't issue two ids in the same ms reliably.
+let _roomIdCounter = BigInt(Date.now()) * 1000n;
+function nextRoomIdBigInt() {
+  _roomIdCounter += 1n;
+  return _roomIdCounter;
+}
+
 // Extensions where on-the-fly gzip is a meaningful win. Binary media
 // (glb, mp3, png) is already compressed and gzipping it just burns
 // CPU for no size reduction.
@@ -288,13 +301,43 @@ wss.on('connection', (ws) => {
       if (!room) {
         room = new GameRoom({});
         rooms.set(room.code, room);
+        // First joiner of a fresh quickmatch room → spin up the
+        // on-chain pot. Stays a no-op when escrow is disabled. We
+        // block the joined response until init_pot confirms so the
+        // client doesn't have to handle a delayed pot payload — devnet
+        // finalization is ~1 s, acceptable for v0.
+        if (escrow.isEnabled()) {
+          try {
+            const roomIdBigInt = nextRoomIdBigInt();
+            const entryFee = ENTRY_FEE_LAMPORTS;
+            const { signature, pot } = await escrow.initPot(roomIdBigInt, entryFee);
+            room.escrow = {
+              roomId: String(roomIdBigInt),
+              pot,
+              entryFee: String(entryFee),
+              signature,
+            };
+            console.log('[escrow] init_pot', room.code, 'roomId=' + roomIdBigInt, '→ pot=' + pot);
+          } catch (err) {
+            console.warn('[escrow] init_pot failed for', room.code, ':', err.message);
+            // Tear down the WS room so the next quickjoin doesn't try
+            // to re-join a half-formed pot-less room.
+            rooms.delete(room.code);
+            send(ws, { type: 'error', message: 'pot init failed: ' + err.message });
+            return;
+          }
+        }
       }
       if (!room.addPlayer(playerId, ws)) {
         send(ws, { type: 'error', message: 'could not join room' });
         return;
       }
       roomCode = room.code;
-      send(ws, { type: 'joined', code: room.code, playerId });
+      // Escrow payload is only attached when the room has an on-chain
+      // pot. Practice / unauthenticated rooms send a bare joined.
+      const joinedMsg = { type: 'joined', code: room.code, playerId };
+      if (room.escrow) joinedMsg.escrow = room.escrow;
+      send(ws, joinedMsg);
       return;
     }
     if (msg.type === 'create') {
