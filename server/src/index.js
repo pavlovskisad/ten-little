@@ -44,6 +44,77 @@ function nextRoomIdBigInt() {
   return _roomIdCounter;
 }
 
+// On-chain rake bps must match the program's ProgramConfig.rake_bps
+// (default 500 = 5%). If the admin changes it via set_rake_bps, this
+// constant has to be updated too — or we can fetch ProgramConfig on
+// boot. For v0 we hardcode the default; revisit when the admin
+// instruction sees use.
+const RAKE_BPS = 500n;
+
+// Compute winners + amounts and call escrow.finalizePot. Skips the
+// on-chain call when no eligible human winners exist — the pot
+// account just sits there (admin recovery in Phase C). Reads the
+// authoritative paid list straight from chain to avoid trusting the
+// server's client-claimed wallets.
+async function finalizeRoom(room, roomIdBigInt, survivorFigIds) {
+  if (!room.escrow) return;
+  const pot = await escrow.fetchPot(roomIdBigInt);
+  const paidWallets = pot.players.map(p => p.toBase58());
+  const paidCount = paidWallets.length;
+  if (paidCount === 0) {
+    console.log('[escrow] no paid players in', room.code, '— skipping finalize_pot');
+    return;
+  }
+
+  // Map survivor figure ids back to human players who paid + whose
+  // claimed wallet matches the on-chain pot.players list. Bots and
+  // unpaid humans drop out here.
+  const eligible = [];
+  for (const figId of survivorFigIds) {
+    for (const [pid, p] of room.players) {
+      if (p.figureId === figId && p.wallet && paidWallets.includes(p.wallet)) {
+        eligible.push({ figId, wallet: p.wallet, playerId: pid });
+      }
+    }
+  }
+  // Deterministic placement among survivors: lowest figure id wins.
+  // Arbitrary but consistent — game doesn't yet differentiate among
+  // simultaneous survivors.
+  eligible.sort((a, b) => a.figId - b.figId);
+  if (eligible.length === 0) {
+    console.log('[escrow] no eligible human winners in', room.code, '— skipping finalize_pot');
+    return;
+  }
+
+  // Tier shares in basis points, indexed by paid_count (matches the
+  // prize-tier table from the plan).
+  const tierBps = paidCount >= 10 ? [5000, 3000, 2000]
+                : paidCount >= 5  ? [7000, 3000]
+                                  : [10000];
+
+  const entryFee = BigInt(room.escrow.entryFee);
+  const totalPlayed = BigInt(paidCount) * entryFee;
+  const rake = (totalPlayed * RAKE_BPS) / 10000n;
+  const pool = totalPlayed - rake;
+
+  const numToPay = Math.min(tierBps.length, eligible.length);
+  const amounts = new Array(numToPay);
+  let usedSum = 0n;
+  for (let i = 0; i < numToPay; i++) {
+    const share = (pool * BigInt(tierBps[i])) / 10000n;
+    amounts[i] = share;
+    usedSum += share;
+  }
+  // 1st place absorbs rounding remainder + any unfilled tier slots so
+  // sum(amounts) + on-chain rake == on-chain total_played exactly.
+  amounts[0] += (pool - usedSum);
+
+  const winners = eligible.slice(0, numToPay).map(w => w.wallet);
+  const { signature } = await escrow.finalizePot(roomIdBigInt, winners, amounts);
+  console.log('[escrow] finalize_pot', room.code, 'sig=' + signature,
+              'winners=' + winners.length, 'pool=' + pool, 'rake=' + rake);
+}
+
 // Extensions where on-the-fly gzip is a meaningful win. Binary media
 // (glb, mp3, png) is already compressed and gzipping it just burns
 // CPU for no size reduction.
@@ -329,7 +400,13 @@ wss.on('connection', (ws) => {
                 console.warn('[escrow] start_pot failed', room.code, err.message);
               }
             };
-            // onRoundEnd left unset for now — B2.5c-ii fills it in.
+            room.onRoundEnd = async ({ eliminated, survivors }) => {
+              try {
+                await finalizeRoom(room, roomIdBigInt, survivors);
+              } catch (err) {
+                console.warn('[escrow] finalize_pot failed', room.code, ':', err.message || err);
+              }
+            };
           } catch (err) {
             console.warn('[escrow] init_pot failed for', room.code, ':', err.message);
             // Tear down the WS room so the next quickjoin doesn't try
