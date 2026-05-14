@@ -23,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const { GameRoom, MAX_PLAYERS } = require('./GameRoom.js');
+const { verifyAccessToken } = require('./privy.js');
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 2570;
 // Repo root: server/src/index.js → ../../
@@ -143,12 +144,26 @@ const wss = new WebSocketServer({ server: httpServer });
 wss.on('connection', (ws) => {
   const playerId = nextPlayerId();
   let roomCode = null;
-  ws.on('message', (data) => {
+  // Privy identity bound by quickjoin (when the client includes a
+  // token). Practice ('create' for solo) leaves this null.
+  let privyUserId = null;
+  ws.on('message', async (data) => {
     let msg;
     try { msg = JSON.parse(data.toString()); }
     catch { send(ws, { type: 'error', message: 'invalid json' }); return; }
 
     if (msg.type === 'quickjoin') {
+      // Quickmatch is gated on a verified Privy identity. The token
+      // is bundled in the quickjoin message itself (atomic — no race
+      // between separate 'auth' and 'quickjoin' messages).
+      try {
+        const { userId } = await verifyAccessToken(msg.token);
+        privyUserId = userId;
+      } catch (err) {
+        console.warn('[auth] verify failed:', err.message);
+        send(ws, { type: 'error', message: 'auth failed: ' + err.message });
+        return;
+      }
       // Smart matchmaking: pick the first lobby-phase room with
       // capacity; if none exists, spin up a fresh one. Friends who
       // both tap "join" within the same lobby window land together

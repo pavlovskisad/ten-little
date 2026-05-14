@@ -356,6 +356,33 @@
   }
   #hint.on { opacity: 1; }
 
+  /* Auth island — Privy login + wallet badge inside the lobby panel.
+     Styled to match the rest of the lobby (lowercase, monospace, dim
+     background, red accent). */
+  #auth-root { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  #auth-root .auth-loading { font-family: 'VT323', monospace; font-size: 14px; opacity: 0.6; }
+  #auth-root #auth-login,
+  #auth-root #auth-join {
+    font-family: 'VT323', monospace; font-size: 22px;
+    letter-spacing: 0.08em; text-transform: lowercase;
+    background: #ff1a1a; color: #f1e5cd; border: none;
+    padding: 10px 28px; cursor: pointer;
+  }
+  #auth-root #auth-login:hover,
+  #auth-root #auth-join:hover { background: #ff3030; }
+  #auth-root #auth-join:disabled { opacity: 0.4; cursor: default; }
+  #auth-root .auth-loggedin { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  #auth-root .wallet-badge {
+    font-family: 'VT323', monospace; font-size: 14px;
+    color: #f1e5cd; opacity: 0.7; letter-spacing: 0.1em;
+  }
+  #auth-root .logout {
+    background: transparent; color: #f1e5cd; border: 1px solid #f1e5cd33;
+    font-size: 12px; padding: 2px 8px; cursor: pointer;
+    font-family: 'VT323', monospace;
+  }
+  #auth-root .logout:hover { border-color: #ff1a1a; color: #ff1a1a; }
+
   /* Spectator caption — shown once the local player is eliminated.
      Sits where the joystick used to be, dims everything else. */
   #spectator {
@@ -413,6 +440,25 @@
     #over button { font-size: 18px; }
   }
 </style>
+
+<!-- Preact island for Privy login + wallet UI. The game stays vanilla
+     three.js; only auth lives inside React-API code, with Preact
+     standing in for React (~3 KB instead of ~45 KB). esm.sh bundles
+     @privy-io/react-auth with react/react-dom aliased to preact/compat
+     so the SDK runs on top of Preact without a build step. -->
+<script type="importmap">
+{
+  "imports": {
+    "preact": "https://esm.sh/preact@10.22.0",
+    "preact/hooks": "https://esm.sh/preact@10.22.0/hooks",
+    "preact/compat": "https://esm.sh/preact@10.22.0/compat",
+    "preact/jsx-runtime": "https://esm.sh/preact@10.22.0/jsx-runtime",
+    "@privy-io/react-auth": "https://esm.sh/@privy-io/react-auth?bundle&alias=react:preact/compat,react-dom:preact/compat",
+    "@privy-io/react-auth/solana": "https://esm.sh/@privy-io/react-auth/solana?bundle&alias=react:preact/compat,react-dom:preact/compat",
+    "@solana/web3.js": "https://esm.sh/@solana/web3.js@1.95.3?bundle"
+  }
+}
+</script>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -457,7 +503,12 @@
 <div id="lobby">
   <div class="panel" id="lobby-pre">
     <h2>multiplayer</h2>
-    <button id="lobby-join">join</button>
+    <!-- Preact mounts the auth UI (login button, wallet drawer) here.
+         Until the user is logged in we render a "log in to join"
+         button; once authed, we render the wallet badge + the real
+         "join" button. The solo button below is vanilla and always
+         clickable. -->
+    <div id="auth-root"></div>
     <button id="lobby-solo">solo (bots)</button>
     <div class="err" id="lobby-err"></div>
   </div>
@@ -2246,11 +2297,12 @@ function netConnect() {
     console.log('[net] open', NET.url);
     const mode = NET.joinMode || 'quickjoin';
     if (mode === 'quickjoin') {
-      // Find an open lobby or spin up a new one — no code typing.
-      ws.send(JSON.stringify({ type: 'quickjoin' }));
+      // Token is bundled into the quickjoin message itself so server
+      // validation + matchmaking happen atomically (no race between
+      // separate auth and quickjoin messages).
+      ws.send(JSON.stringify({ type: 'quickjoin', token: NET.privyToken }));
     } else {
-      // 'solo' (and any future 'create' callers) always get a fresh
-      // empty room. Solo also fires 'start' on the joined ack.
+      // 'solo' (practice) — no auth, no on-chain side effects.
       ws.send(JSON.stringify({ type: 'create' }));
     }
   });
@@ -3169,19 +3221,24 @@ document.getElementById('again').addEventListener('click', () => {
     }
   };
 
-  // Single matchmaking button: server finds an open lobby with
-  // capacity or spins up a fresh one. No room code coordination.
-  document.getElementById('lobby-join').addEventListener('click', () => {
+  // Bridge from the Preact auth island (auth.js) to the vanilla net
+  // layer. The island calls this with a Privy access token once the
+  // user is logged in and clicks "join". We stash the token on NET
+  // so netConnect's open handler can send an 'auth' message before
+  // 'quickjoin'.
+  window.startQuickjoin = (token) => {
     errEl.textContent = '';
     NET.joinMode = 'quickjoin';
+    NET.privyToken = token;
     netConnect();
-  });
-  // Solo = create a fresh room + auto-start. netConnect's onJoined
-  // handler fires start immediately if NET.joinMode === 'solo' so the
-  // round begins with bot-fill the moment the WS opens.
+  };
+  // Solo = create a fresh room + auto-start. No auth required;
+  // practice rounds bypass the on-chain layer entirely (see Phase B5
+  // in the plan).
   document.getElementById('lobby-solo').addEventListener('click', () => {
     errEl.textContent = '';
     NET.joinMode = 'solo';
+    NET.privyToken = null;
     netConnect();
   });
   startBtn.addEventListener('click', () => {
@@ -3194,5 +3251,9 @@ document.getElementById('again').addEventListener('click', () => {
 requestAnimationFrame(loop);
 
 </script>
+<!-- Preact auth island. Loaded as a module so esm.sh imports resolve
+     through the import map at the top of the page. Defer-equivalent
+     by virtue of being a module — no need to wait for window.load. -->
+<script type="module" src="./auth.js"></script>
 </body>
 </html>
