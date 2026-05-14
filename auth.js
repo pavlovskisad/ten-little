@@ -58,12 +58,13 @@ async function fetchBalance(address) {
         jsonrpc: '2.0', id: 1, method: 'getBalance', params: [address],
       }),
     });
+    if (!res.ok) throw new Error('rpc ' + res.status);
     const data = await res.json();
     if (data.error) throw new Error(data.error.message);
-    return (data.result?.value ?? 0) / LAMPORTS_PER_SOL;
+    return { ok: true, sol: (data.result?.value ?? 0) / LAMPORTS_PER_SOL };
   } catch (err) {
     console.warn('[wallet] balance fetch failed:', err.message);
-    return null;
+    return { ok: false, error: err.message };
   }
 }
 
@@ -153,6 +154,7 @@ function SendForm({ fromAddress, wallet, onDone, onCancel }) {
 }
 
 function WalletDrawer({ address, onClose }) {
+  // balance: { ok: true, sol } | { ok: false, error } | null (still loading)
   const [balance, setBalance] = useState(null);
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
@@ -196,8 +198,12 @@ function WalletDrawer({ address, onClose }) {
       ]),
       h('div', { className: 'wd-row' }, [
         h('div', { className: 'wd-label' }, 'balance'),
-        h('div', { className: 'wd-balance' },
-          balance == null ? '…' : balance.toFixed(4) + ' SOL'
+        h('div', {
+          className: 'wd-balance' + (balance && balance.ok === false ? ' wd-balance-err' : ''),
+        },
+          balance == null ? '…'
+            : balance.ok ? balance.sol.toFixed(4) + ' SOL'
+            : 'rpc error: ' + (balance.error || 'unknown')
         ),
       ]),
       !sending && h('div', { className: 'wd-row wd-actions' }, [
