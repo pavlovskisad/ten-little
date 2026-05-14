@@ -35,6 +35,32 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 2570;
 // Repo root: server/src/index.js → ../../
 const STATIC_ROOT = path.resolve(__dirname, '..', '..');
 
+// Cache-buster for auth.bundle.js. Mobile Safari sometimes holds on
+// to an old bundle even with no-store headers; bumping the URL on
+// every deploy forces a fresh fetch because the browser hasn't seen
+// the new query string before. We rewrite plate-shapes.html on the
+// fly to inject this version.
+const BUNDLE_VERSION = (() => {
+  try {
+    const stat = fs.statSync(path.join(STATIC_ROOT, 'auth.bundle.js'));
+    return String(Math.floor(stat.mtimeMs));
+  } catch {
+    return String(Date.now());
+  }
+})();
+console.log('[static] bundle version =', BUNDLE_VERSION);
+
+// Read plate-shapes.html once on startup, inject the cache-buster on
+// every "./auth.bundle.js" reference, cache the result in memory.
+// The gzip path uses the buffer directly via createGzip().pipe; the
+// uncompressed path needs Content-Length so we keep both around.
+const PLATE_HTML = (() => {
+  const raw = fs.readFileSync(path.join(STATIC_ROOT, 'plate-shapes.html'), 'utf8');
+  return Buffer.from(
+    raw.replace(/\.\/auth\.bundle\.js(?:\?[^"'\s]*)?/g, './auth.bundle.js?v=' + BUNDLE_VERSION)
+  );
+})();
+
 const rooms = new Map();  // code → GameRoom
 let playerSeq = 0;
 
@@ -65,6 +91,36 @@ const MIME = {
   '.md':   'text/markdown; charset=utf-8',
 };
 
+// Serve the cache-busted in-memory plate-shapes.html. Honours
+// Accept-Encoding: gzip the same as the file-streaming path so we
+// keep the ~70% bandwidth win.
+function servePlateHtml(req, res) {
+  const noCacheHeaders = {
+    'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+  };
+  const acceptsGzip = (req.headers['accept-encoding'] || '').includes('gzip');
+  if (acceptsGzip) {
+    const gz = zlib.gzipSync(PLATE_HTML);
+    res.writeHead(200, {
+      'Content-Type': MIME['.html'],
+      'Content-Encoding': 'gzip',
+      'Content-Length': gz.length,
+      'Vary': 'Accept-Encoding',
+      ...noCacheHeaders,
+    });
+    res.end(gz);
+    return;
+  }
+  res.writeHead(200, {
+    'Content-Type': MIME['.html'],
+    'Content-Length': PLATE_HTML.length,
+    ...noCacheHeaders,
+  });
+  res.end(PLATE_HTML);
+}
+
 function serveStatic(req, res) {
   let urlPath = req.url.split('?')[0];
   if (urlPath === '/' || urlPath === '') urlPath = '/plate-shapes.html';
@@ -75,6 +131,15 @@ function serveStatic(req, res) {
     res.writeHead(403).end('forbidden');
     return;
   }
+
+  // Special case: plate-shapes.html is served from an in-memory buffer
+  // with the auth.bundle.js URL cache-busted. We could read the file
+  // every time, but this keeps the rewrite cost off the hot path.
+  if (filePath === path.join(STATIC_ROOT, 'plate-shapes.html')) {
+    servePlateHtml(req, res);
+    return;
+  }
+
   fs.stat(filePath, (err, stat) => {
     if (err || !stat.isFile()) {
       res.writeHead(404, { 'Content-Type': 'text/plain' }).end('not found');
