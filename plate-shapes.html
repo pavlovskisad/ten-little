@@ -388,31 +388,23 @@
   #auth-root #auth-join:hover { background: #ff3030; }
   #auth-root #auth-join:disabled { opacity: 0.4; cursor: default; }
 
-  /* Top-right corner: wallet + logout. Detached from the lobby panel
-     so it travels across screens. Grey palette — chrome, not action. */
+  /* Top-right corner: wallet + logout. Inherits the lobby's classic
+     #0000ee link-blue from #lobby button (which auto-applies because
+     the corner is a DOM descendant of #lobby). We bump our own
+     specificity with #lobby in the selector to win the size override. */
   .auth-corner {
     position: fixed;
     top: calc(env(safe-area-inset-top) + 12px);
     right: calc(env(safe-area-inset-right) + 12px);
     z-index: 60;
-    display: flex; gap: 8px; align-items: center;
+    display: flex; gap: 14px; align-items: center;
   }
-  .auth-corner .wallet-badge {
-    font-family: 'VT323', monospace; font-size: 14px;
-    color: #9a9a9a; letter-spacing: 0.1em;
-    background: rgba(20,17,13,0.6); border: 1px dashed #555;
-    padding: 4px 12px; cursor: pointer;
-    text-transform: lowercase;
+  #lobby .auth-corner .wallet-badge,
+  #lobby .auth-corner .logout {
+    font-family: 'VT323', monospace;
+    font-size: 16px;
+    padding: 2px 0;
   }
-  .auth-corner .wallet-badge:hover { color: #ccc; border-color: #888; }
-  .auth-corner .logout {
-    background: rgba(20,17,13,0.6); color: #9a9a9a;
-    border: 1px solid #555;
-    font-size: 14px; padding: 2px 14px; cursor: pointer;
-    font-family: 'VT323', monospace; letter-spacing: 0.1em;
-    text-transform: lowercase;
-  }
-  .auth-corner .logout:hover { color: #ccc; border-color: #888; }
 
   /* Wallet drawer — modal overlay anchored center, backdrop dims the
      game beneath. Tap backdrop or × to close. */
