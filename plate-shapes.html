@@ -281,6 +281,28 @@
     color: #f1e5cd;
   }
   #lobby .countdown { color: #ff7a10; }
+  /* Pot block — visible only when the server's roster broadcast
+     carries an escrow payload (quickmatch rooms). Practice rooms
+     leave it hidden. */
+  #lobby .lobby-pot {
+    display: flex; flex-direction: column; gap: 4px;
+    margin-top: 4px;
+    font-family: 'VT323', monospace;
+  }
+  #lobby .lobby-pot-line {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 16px;
+  }
+  #lobby .lobby-pot-label {
+    font-size: 12px; opacity: 0.55; letter-spacing: 0.15em;
+    text-transform: lowercase; color: #f1e5cd;
+  }
+  #lobby .lobby-pot-value {
+    font-size: 28px; color: #ffd000; letter-spacing: 0.04em;
+  }
+  #lobby .lobby-pot-sub {
+    font-size: 14px; color: #f1e5cd; opacity: 0.7;
+  }
   #lobby .err {
     font-size: 18px; color: #ff1a1a;
     min-height: 22px;
@@ -650,6 +672,16 @@
     <h2>lobby</h2>
     <div class="code" id="lobby-code-show">----</div>
     <div class="roster" id="lobby-roster">1 / 10 players</div>
+    <div class="lobby-pot" id="lobby-pot" style="display:none;">
+      <div class="lobby-pot-line">
+        <span class="lobby-pot-label">pot</span>
+        <span class="lobby-pot-value" id="lobby-pot-value">0.00 SOL</span>
+      </div>
+      <div class="lobby-pot-line lobby-pot-sub">
+        <span id="lobby-pot-paid">0 paid</span>
+        <span id="lobby-pot-prize">winner take 0.00</span>
+      </div>
+    </div>
     <div class="meta countdown" id="lobby-countdown">starts in 60s</div>
     <button id="lobby-start" style="display:none;">skip timer</button>
     <div class="meta" id="lobby-status">waiting for host...</div>
@@ -3425,7 +3457,40 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
     countdownDeadline = Date.now() + (msg.countdownMs || 0);
     startBtn.style.display = (msg.host === NET.playerId) ? 'inline' : 'none';
     statusEl.textContent = (msg.host === NET.playerId) ? 'you are the host' : 'waiting for host...';
+    renderLobbyPot(msg.escrow);
   };
+
+  // Pot UI — visible only when the server's roster carries an escrow
+  // payload. Tier math mirrors the server's prize-tier table so the
+  // "you could win" preview is accurate.
+  const potBox = document.getElementById('lobby-pot');
+  const potValue = document.getElementById('lobby-pot-value');
+  const potPaidEl = document.getElementById('lobby-pot-paid');
+  const potPrizeEl = document.getElementById('lobby-pot-prize');
+  const LAMPORTS_PER_SOL = 1_000_000_000;
+  const POT_RAKE_BPS = 500; // mirrors RAKE_BPS in the server.
+  function lamportsToSol(lam) {
+    const n = Number(lam) / LAMPORTS_PER_SOL;
+    return (n < 0.0001 && n > 0) ? n.toFixed(6) : n.toFixed(4);
+  }
+  function firstPlaceLamports(paidCount, entryFee) {
+    if (paidCount <= 0) return 0;
+    const total = Number(entryFee) * paidCount;
+    const pool = total * (10000 - POT_RAKE_BPS) / 10000;
+    const firstBps = paidCount >= 10 ? 5000 : (paidCount >= 5 ? 7000 : 10000);
+    return pool * firstBps / 10000;
+  }
+  function renderLobbyPot(escrow) {
+    if (!escrow) { potBox.style.display = 'none'; return; }
+    potBox.style.display = 'flex';
+    const paidCount = escrow.paidCount || 0;
+    const entryFee = Number(escrow.entryFee || 0);
+    const potLam = entryFee * paidCount;
+    potValue.textContent = lamportsToSol(potLam) + ' SOL';
+    potPaidEl.textContent = `${paidCount} paid`;
+    const firstLam = firstPlaceLamports(paidCount, entryFee);
+    potPrizeEl.textContent = `1st: ${lamportsToSol(firstLam)} SOL`;
+  }
   NET.onStart = () => {
     lobby.classList.remove('show');
   };

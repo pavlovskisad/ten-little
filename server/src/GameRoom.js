@@ -47,16 +47,28 @@ class GameRoom {
   }
 
   // Roster broadcast carries countdown so clients can render a live timer
-  // without polling.
+  // without polling. Escrow payload (pot address, entry fee, paid count)
+  // ships only when the room has an on-chain pot; the lobby UI uses
+  // paid count to show "pot: X SOL" without hitting RPC every second.
   broadcastRoster() {
-    this.broadcast({
+    const msg = {
       type: 'roster',
       code: this.code,
       count: this.players.size,
       max: MAX_PLAYERS,
       host: this.host,
       countdownMs: Math.max(0, this.lobbyDeadline - Date.now()),
-    });
+    };
+    if (this.escrow) {
+      let paidCount = 0;
+      for (const p of this.players.values()) if (p.paidSig) paidCount += 1;
+      msg.escrow = {
+        pot: this.escrow.pot,
+        entryFee: this.escrow.entryFee,
+        paidCount,
+      };
+    }
+    this.broadcast(msg);
   }
 
   isHost(playerId) {
