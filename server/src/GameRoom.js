@@ -190,38 +190,63 @@ class GameRoom {
       }
     }
 
-    // End round when only the last figure remains (podiumCount=1).
-    // Top-3 placement uses survival order:
-    //   1st = the lone survivor
-    //   2nd = last figure eliminated (eliminated[-1])
-    //   3rd = second-to-last eliminated (eliminated[-2])
-    if (S.alive <= SIM.CFG.podiumCount) {
+    // End condition: last human standing.
+    //   - Multi-human room (humansAtStart >= 2): end when ≤1 humans
+    //     alive. Bots that are still alive get cut off — the round
+    //     is over the moment human competition is decided.
+    //   - Solo room (1 human + bots): end at full last-figure-standing,
+    //     either the human survives to the end or dies along the way.
+    //   - Practice mode: same as solo — total field reduces to 1.
+    const aliveHumans = S.figs.filter(f => f.isPlayer && f.alive).length;
+    const shouldEnd = this.humansAtStart >= 2
+      ? (aliveHumans <= 1)
+      : (S.alive <= SIM.CFG.podiumCount);
+    if (shouldEnd) {
       S.phase = 'over';
-      const survivor = S.figs.find(f => f.alive);
-      const lastElim = S.eliminated[S.eliminated.length - 1];
-      const secondLastElim = S.eliminated[S.eliminated.length - 2];
-      // Top 3 figIds in placement order. Null entries are filtered so
-      // small rooms (fewer than 3 figures ever played) don't crash.
-      const topFigIds = [
-        survivor ? survivor.id : null,
-        lastElim ? lastElim.id : null,
-        secondLastElim ? secondLastElim.id : null,
-      ].filter(id => id != null);
-      // Enrich each placement with the human player's wallet so the
-      // placement overlay shows truncated podium addresses without a
-      // chain read. Bots come through as { figId, isBot: true }.
+      // Build top-3 from HUMAN survival order only. Bots that
+      // happen to be in the survivor list or top of eliminated[]
+      // don't appear on the podium and aren't eligible for payouts.
+      const allHumanFigIds = S.figs.filter(f => f.isPlayer).map(f => f.id);
+      const eliminatedHumanFigIds = S.eliminated
+        .filter(e => allHumanFigIds.includes(e.id))
+        .map(e => e.id);
+      const survivingHumanFigIds = allHumanFigIds.filter(
+        id => !eliminatedHumanFigIds.includes(id)
+      );
+      // Placement order: surviving humans first, then humans from
+      // eliminated[] in reverse (most-recently-eliminated = best
+      // placement among the dead). Slice to top 3.
+      const humansByPlacement = [
+        ...survivingHumanFigIds,
+        ...eliminatedHumanFigIds.slice().reverse(),
+      ];
+      const topFigIds = humansByPlacement.slice(0, 3);
+
+      // Per-figure placement map (1-indexed): used by the client
+      // to render "you placed Nth" against humans only.
+      const placements = {};
+      humansByPlacement.forEach((figId, i) => { placements[figId] = i + 1; });
+
+      // Podium with truncated-address payload for the placement
+      // overlay. Bots can't show up here by construction.
       const podium = topFigIds.map(figId => {
         const human = [...this.players.values()].find(p => p.figureId === figId);
         return human
           ? { figId, wallet: human.wallet || null, isBot: false }
           : { figId, wallet: null, isBot: true };
       });
-      // Survivors retained as the old single-element array so existing
-      // clients that only render the survivor (pre-B4) keep working.
-      const survivors = survivor ? [survivor.id] : [];
-      this.broadcast({ type: 'end', eliminated: S.eliminated, survivors, podium });
-      // Pass topFigIds (not just survivors) so onRoundEnd can pay 2nd
-      // and 3rd in the 5+ and 10-player tiers.
+
+      // Survivors retained for legacy clients (pre-B4) — includes
+      // bots that may still be alive on the plate when round ends.
+      const survivors = S.figs.filter(f => f.alive).map(f => f.id);
+      this.broadcast({
+        type: 'end',
+        eliminated: S.eliminated,
+        survivors,
+        podium,
+        placements,
+        humansAtStart: this.humansAtStart,
+      });
       if (typeof this.onRoundEnd === 'function') {
         Promise.resolve(this.onRoundEnd({ eliminated: S.eliminated, topFigIds })).catch(err => {
           console.warn('[room] onRoundEnd failed', this.code, err.message || err);

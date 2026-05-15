@@ -2599,15 +2599,22 @@ function netConnect() {
       NET.spawned = true;
     } else if (msg.type === 'end') {
       console.log('[net] end', msg);
-      if (NET.inputTimer) { clearInterval(NET.inputTimer); NET.inputTimer = null; }
+      if (NET.inputTimer) { clearInterval(NET.inputTimer); NET.inputTimer = null;
+      }
       S.phase = 'over';
       S.eliminated = msg.eliminated || [];
-      const idx = S.eliminated.findIndex(e => e.id === NET.myFigureId);
+      // Placement is ranked among humans only — server sends the
+      // per-figure place. Fall back to figure-count-minus-elim-index
+      // only if the server didn't include placements (older protocol).
       let placement;
-      if (idx === -1) placement = 1;
-      else placement = CFG.startCount - idx;
-      // Stash podium for showOverlay to render below the placement.
+      if (msg.placements && msg.placements[NET.myFigureId] != null) {
+        placement = msg.placements[NET.myFigureId];
+      } else {
+        const idx = S.eliminated.findIndex(e => e.id === NET.myFigureId);
+        placement = (idx === -1) ? 1 : (CFG.startCount - idx);
+      }
       NET.podium = Array.isArray(msg.podium) ? msg.podium : null;
+      NET.humansAtStart = msg.humansAtStart || null;
       showOverlay(placement);
     } else if (msg.type === 'error') {
       console.error('[net] error', msg.message);
@@ -3240,7 +3247,13 @@ function showOverlay(placement) {
   const ord = document.getElementById('ord');
   const stat = document.getElementById('overStat');
   const ords = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th'];
-  ord.textContent = ords[placement - 1] || (placement + 'th');
+  let label = ords[placement - 1] || (placement + 'th');
+  // Show "1st of 3" so the player knows the field size — placement
+  // is among humans only, not total figures.
+  if (NET.humansAtStart && NET.humansAtStart > 1) {
+    label += ` of ${NET.humansAtStart}`;
+  }
+  ord.textContent = label;
   ord.className = 'ord' + (placement <= 2 ? ' win' : '');
   const sec = Math.floor(S.t / 1000);
   const mm = String(Math.floor(sec / 60)).padStart(2, '0');
