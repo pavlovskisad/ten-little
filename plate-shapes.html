@@ -3260,11 +3260,9 @@ function renderPodium(podium) {
   if (!podium || !podium.length) { host.innerHTML = ''; host.style.display = 'none'; return; }
   host.style.display = 'flex';
   const labels = ['1st', '2nd', '3rd'];
-  // Use figId ordering for deterministic placement among survivors —
-  // matches the server's finalize logic so the on-chain winners list
-  // visually aligns with the podium positions.
-  const sorted = [...podium].sort((a, b) => a.figId - b.figId);
-  host.innerHTML = sorted.map((p, i) => {
+  // Server sends podium in placement order: [survivor, lastElim,
+  // secondLastElim]. Honor that order — don't re-sort.
+  host.innerHTML = podium.map((p, i) => {
     const lbl = labels[i] || (i + 1) + 'th';
     const who = p.isBot ? 'bot'
               : (p.wallet ? shortAddr(p.wallet) : 'human');

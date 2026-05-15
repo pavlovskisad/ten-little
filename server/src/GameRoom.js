@@ -190,24 +190,40 @@ class GameRoom {
       }
     }
 
-    // End round when only the podium remains.
+    // End round when only the last figure remains (podiumCount=1).
+    // Top-3 placement uses survival order:
+    //   1st = the lone survivor
+    //   2nd = last figure eliminated (eliminated[-1])
+    //   3rd = second-to-last eliminated (eliminated[-2])
     if (S.alive <= SIM.CFG.podiumCount) {
       S.phase = 'over';
-      const survivors = S.figs.filter(f => f.alive).map(f => f.id);
-      // Enrich the survivors list with the human player's wallet so
-      // the placement overlay can show truncated podium addresses
-      // without a chain read. Bots come through as { figId, isBot: true }.
-      const podium = S.figs.filter(f => f.alive).map(f => {
-        const human = [...this.players.values()].find(p => p.figureId === f.id);
+      const survivor = S.figs.find(f => f.alive);
+      const lastElim = S.eliminated[S.eliminated.length - 1];
+      const secondLastElim = S.eliminated[S.eliminated.length - 2];
+      // Top 3 figIds in placement order. Null entries are filtered so
+      // small rooms (fewer than 3 figures ever played) don't crash.
+      const topFigIds = [
+        survivor ? survivor.id : null,
+        lastElim ? lastElim.id : null,
+        secondLastElim ? secondLastElim.id : null,
+      ].filter(id => id != null);
+      // Enrich each placement with the human player's wallet so the
+      // placement overlay shows truncated podium addresses without a
+      // chain read. Bots come through as { figId, isBot: true }.
+      const podium = topFigIds.map(figId => {
+        const human = [...this.players.values()].find(p => p.figureId === figId);
         return human
-          ? { figId: f.id, wallet: human.wallet || null, isBot: false }
-          : { figId: f.id, wallet: null, isBot: true };
+          ? { figId, wallet: human.wallet || null, isBot: false }
+          : { figId, wallet: null, isBot: true };
       });
+      // Survivors retained as the old single-element array so existing
+      // clients that only render the survivor (pre-B4) keep working.
+      const survivors = survivor ? [survivor.id] : [];
       this.broadcast({ type: 'end', eliminated: S.eliminated, survivors, podium });
-      // Lifecycle hook — index.js wires this to escrow.finalizePot
-      // with the computed winners + amounts.
+      // Pass topFigIds (not just survivors) so onRoundEnd can pay 2nd
+      // and 3rd in the 5+ and 10-player tiers.
       if (typeof this.onRoundEnd === 'function') {
-        Promise.resolve(this.onRoundEnd({ eliminated: S.eliminated, survivors })).catch(err => {
+        Promise.resolve(this.onRoundEnd({ eliminated: S.eliminated, topFigIds })).catch(err => {
           console.warn('[room] onRoundEnd failed', this.code, err.message || err);
         });
       }
