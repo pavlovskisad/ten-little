@@ -26,6 +26,7 @@ declare_id!("DsFoEFQw6uPGgXDztmuPUozi1AqP9KWC6N71H2MLVG5z");
 
 const MAX_PLAYERS: usize = 10;
 const RAKE_BPS_DEFAULT: u16 = 500; // 5%
+const BUYBACK_BPS: u64 = 2000;     // 20% of every rake drain
 
 #[program]
 pub mod escrow {
@@ -260,6 +261,138 @@ pub mod escrow {
         // lamports remain on the pot (rent-exempt minimum) to the oracle.
         Ok(())
     }
+
+    // --------------------------------------------------------------
+    // Phase C: rake distribution
+    // --------------------------------------------------------------
+
+    /// One-time setup for rake distribution. Creates the singleton
+    /// RevShareState (with the configured NFT collection's supply)
+    /// and BuybackVault PDAs. Admin specifies the buyback receiver
+    /// wallet at init time; can be updated later via
+    /// set_buyback_receiver.
+    pub fn init_rev_share(
+        ctx: Context<InitRevShare>,
+        nft_supply: u64,
+        buyback_receiver: Pubkey,
+    ) -> Result<()> {
+        require!(nft_supply > 0, EscrowError::InvalidNftSupply);
+        let rs = &mut ctx.accounts.rev_share;
+        rs.total_accrued_per_unit = 0;
+        rs.nft_supply = nft_supply;
+        rs.bump = ctx.bumps.rev_share;
+
+        let bv = &mut ctx.accounts.buyback_vault;
+        bv.receiver = buyback_receiver;
+        bv.bump = ctx.bumps.buyback_vault;
+        Ok(())
+    }
+
+    /// Admin can adjust the NFT supply count (e.g., if the collection
+    /// expands or contracts before public claims open).
+    pub fn set_nft_supply(ctx: Context<AdminUpdateRevShare>, new_supply: u64) -> Result<()> {
+        require!(new_supply > 0, EscrowError::InvalidNftSupply);
+        ctx.accounts.rev_share.nft_supply = new_supply;
+        Ok(())
+    }
+
+    /// Admin can rotate the buyback receiver wallet without
+    /// touching anything else.
+    pub fn set_buyback_receiver(
+        ctx: Context<AdminUpdateBuyback>,
+        new_receiver: Pubkey,
+    ) -> Result<()> {
+        ctx.accounts.buyback_vault.receiver = new_receiver;
+        Ok(())
+    }
+
+    /// Oracle drains the rake_vault: 20% lands in buyback_vault, 80%
+    /// stays as SOL in the rev_share account AND bumps the accumulator
+    /// so NFT holders can later claim their share. The split is fixed
+    /// at the program level (2000/8000 bps); Phase D could make it
+    /// admin-configurable.
+    pub fn drain_rake_vault(ctx: Context<DrainRakeVault>) -> Result<()> {
+        let rake_info = ctx.accounts.rake_vault.to_account_info();
+        let rent = Rent::get()?.minimum_balance(rake_info.data_len());
+        let drainable = rake_info.lamports().saturating_sub(rent);
+        require!(drainable > 0, EscrowError::NothingToDrain);
+
+        // 20% to buyback, 80% to rev-share. Integer math; the
+        // remainder (after rounding) lands on rev-share which is
+        // where most of the distribution goes anyway.
+        let buyback_amount = drainable
+            .checked_mul(BUYBACK_BPS)
+            .ok_or(EscrowError::Overflow)?
+            / 10_000;
+        let rev_share_amount = drainable
+            .checked_sub(buyback_amount)
+            .ok_or(EscrowError::Overflow)?;
+
+        // Move buyback share.
+        **rake_info.try_borrow_mut_lamports()? = rake_info
+            .lamports()
+            .checked_sub(buyback_amount)
+            .ok_or(EscrowError::Overflow)?;
+        let bv_info = ctx.accounts.buyback_vault.to_account_info();
+        **bv_info.try_borrow_mut_lamports()? = bv_info
+            .lamports()
+            .checked_add(buyback_amount)
+            .ok_or(EscrowError::Overflow)?;
+
+        // Move rev-share SOL onto the rev_share account itself; the
+        // account holds the lamports until claim_rev_share pays them
+        // out per NFT.
+        let rs_info = ctx.accounts.rev_share.to_account_info();
+        **rake_info.try_borrow_mut_lamports()? = rake_info
+            .lamports()
+            .checked_sub(rev_share_amount)
+            .ok_or(EscrowError::Overflow)?;
+        **rs_info.try_borrow_mut_lamports()? = rs_info
+            .lamports()
+            .checked_add(rev_share_amount)
+            .ok_or(EscrowError::Overflow)?;
+
+        // Accumulator: per-NFT delta added with PRECISION scaling
+        // so small drains against a large supply don't round to 0.
+        let rs = &mut ctx.accounts.rev_share;
+        let added = (rev_share_amount as u128)
+            .checked_mul(RevShareState::PRECISION)
+            .ok_or(EscrowError::Overflow)?
+            .checked_div(rs.nft_supply as u128)
+            .ok_or(EscrowError::Overflow)?;
+        rs.total_accrued_per_unit = rs
+            .total_accrued_per_unit
+            .checked_add(added)
+            .ok_or(EscrowError::Overflow)?;
+        Ok(())
+    }
+
+    /// Admin moves SOL out of the buyback_vault to the configured
+    /// receiver wallet. The receiver is the off-chain pipeline that
+    /// swaps SOL → buyback SPL token and burns it. This is the only
+    /// instruction that exits SOL from buyback_vault.
+    pub fn execute_buyback(ctx: Context<ExecuteBuyback>) -> Result<()> {
+        let bv_info = ctx.accounts.buyback_vault.to_account_info();
+        let rent = Rent::get()?.minimum_balance(bv_info.data_len());
+        let amount = bv_info.lamports().saturating_sub(rent);
+        require!(amount > 0, EscrowError::NothingToDrain);
+        require!(
+            ctx.accounts.receiver.key() == ctx.accounts.buyback_vault.receiver,
+            EscrowError::BuybackReceiverMismatch
+        );
+
+        **bv_info.try_borrow_mut_lamports()? = bv_info
+            .lamports()
+            .checked_sub(amount)
+            .ok_or(EscrowError::Overflow)?;
+        **ctx.accounts.receiver.try_borrow_mut_lamports()? = ctx
+            .accounts
+            .receiver
+            .lamports()
+            .checked_add(amount)
+            .ok_or(EscrowError::Overflow)?;
+        Ok(())
+    }
 }
 
 // ------------------------------------------------------------------
@@ -302,6 +435,51 @@ impl RakeVault {
     pub const SPACE: usize = 8 + 1;
 }
 
+/// Synthetix-style accumulator for NFT-holder revenue share. Every
+/// drain_rake_vault adds (rev_share_amount * PRECISION / nft_supply)
+/// to `total_accrued_per_unit`. Each NFT-holder's claim equals
+/// (total_accrued_per_unit - their last_claimed_per_unit) / PRECISION.
+/// The PRECISION scaler (1e12) keeps division loss < 1 lamport per NFT
+/// per drain even for small drains against a 10k-supply collection.
+#[account]
+pub struct RevShareState {
+    pub total_accrued_per_unit: u128,
+    pub nft_supply: u64,
+    pub bump: u8,
+}
+impl RevShareState {
+    // 8 disc + 16 u128 + 8 u64 + 1 bump
+    pub const SPACE: usize = 8 + 16 + 8 + 1;
+    pub const PRECISION: u128 = 1_000_000_000_000;
+}
+
+/// Buyback SOL bag. Holds 20% of every rake drain. `receiver` is the
+/// wallet that's authorized to pull funds out (admin sets it via
+/// set_buyback_receiver). The off-chain pipeline behind that wallet
+/// swaps SOL for the configured buyback SPL token and burns it.
+#[account]
+pub struct BuybackVault {
+    pub receiver: Pubkey,
+    pub bump: u8,
+}
+impl BuybackVault {
+    // 8 disc + 32 pubkey + 1 bump
+    pub const SPACE: usize = 8 + 32 + 1;
+}
+
+/// Per-NFT claim cursor. Records the holder's last seen
+/// total_accrued_per_unit so future claims pay only the delta. PDA
+/// keyed on the NFT mint so the program enforces uniqueness without
+/// trusting the caller's account.
+#[account]
+pub struct ClaimState {
+    pub last_claimed_per_unit: u128,
+    pub bump: u8,
+}
+impl ClaimState {
+    pub const SPACE: usize = 8 + 16 + 1;
+}
+
 #[repr(u8)]
 pub enum PotState {
     Waiting = 0,
@@ -341,6 +519,18 @@ pub enum EscrowError {
     InvalidRake,
     #[msg("arithmetic overflow")]
     Overflow,
+    #[msg("nft_supply must be greater than zero")]
+    InvalidNftSupply,
+    #[msg("nothing left to drain in this vault")]
+    NothingToDrain,
+    #[msg("provided receiver doesn't match the configured buyback receiver")]
+    BuybackReceiverMismatch,
+    #[msg("rev_share or buyback vault is not initialized")]
+    RevShareNotInitialized,
+    #[msg("nft does not belong to the configured collection")]
+    NotInCollection,
+    #[msg("caller does not hold the NFT being claimed")]
+    NotNftHolder,
 }
 
 // ------------------------------------------------------------------
@@ -498,4 +688,137 @@ pub struct RefundPot<'info> {
     pub oracle: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+}
+
+// --------------------------------------------------------------
+// Phase C contexts: rake distribution
+// --------------------------------------------------------------
+
+#[derive(Accounts)]
+pub struct InitRevShare<'info> {
+    #[account(
+        seeds = [b"config"],
+        bump = config.bump,
+        has_one = admin @ EscrowError::AdminOnly,
+    )]
+    pub config: Account<'info, ProgramConfig>,
+
+    #[account(
+        init,
+        payer = admin,
+        seeds = [b"rev_share"],
+        bump,
+        space = RevShareState::SPACE,
+    )]
+    pub rev_share: Account<'info, RevShareState>,
+
+    #[account(
+        init,
+        payer = admin,
+        seeds = [b"buyback_vault"],
+        bump,
+        space = BuybackVault::SPACE,
+    )]
+    pub buyback_vault: Account<'info, BuybackVault>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct AdminUpdateRevShare<'info> {
+    #[account(
+        seeds = [b"config"],
+        bump = config.bump,
+        has_one = admin @ EscrowError::AdminOnly,
+    )]
+    pub config: Account<'info, ProgramConfig>,
+
+    #[account(
+        mut,
+        seeds = [b"rev_share"],
+        bump = rev_share.bump,
+    )]
+    pub rev_share: Account<'info, RevShareState>,
+
+    pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct AdminUpdateBuyback<'info> {
+    #[account(
+        seeds = [b"config"],
+        bump = config.bump,
+        has_one = admin @ EscrowError::AdminOnly,
+    )]
+    pub config: Account<'info, ProgramConfig>,
+
+    #[account(
+        mut,
+        seeds = [b"buyback_vault"],
+        bump = buyback_vault.bump,
+    )]
+    pub buyback_vault: Account<'info, BuybackVault>,
+
+    pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct DrainRakeVault<'info> {
+    #[account(
+        seeds = [b"config"],
+        bump = config.bump,
+        has_one = oracle @ EscrowError::OracleOnly,
+    )]
+    pub config: Account<'info, ProgramConfig>,
+
+    #[account(
+        mut,
+        seeds = [b"rake_vault"],
+        bump = rake_vault.bump,
+    )]
+    pub rake_vault: Account<'info, RakeVault>,
+
+    #[account(
+        mut,
+        seeds = [b"rev_share"],
+        bump = rev_share.bump,
+    )]
+    pub rev_share: Account<'info, RevShareState>,
+
+    #[account(
+        mut,
+        seeds = [b"buyback_vault"],
+        bump = buyback_vault.bump,
+    )]
+    pub buyback_vault: Account<'info, BuybackVault>,
+
+    pub oracle: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct ExecuteBuyback<'info> {
+    #[account(
+        seeds = [b"config"],
+        bump = config.bump,
+        has_one = admin @ EscrowError::AdminOnly,
+    )]
+    pub config: Account<'info, ProgramConfig>,
+
+    #[account(
+        mut,
+        seeds = [b"buyback_vault"],
+        bump = buyback_vault.bump,
+    )]
+    pub buyback_vault: Account<'info, BuybackVault>,
+
+    /// CHECK: address verified against buyback_vault.receiver inside
+    /// the instruction. Only matters that it's writable so we can
+    /// credit it lamports.
+    #[account(mut)]
+    pub receiver: UncheckedAccount<'info>,
+
+    pub admin: Signer<'info>,
 }
