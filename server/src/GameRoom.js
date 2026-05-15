@@ -190,7 +190,16 @@ class GameRoom {
     if (S.alive <= SIM.CFG.podiumCount) {
       S.phase = 'over';
       const survivors = S.figs.filter(f => f.alive).map(f => f.id);
-      this.broadcast({ type: 'end', eliminated: S.eliminated, survivors });
+      // Enrich the survivors list with the human player's wallet so
+      // the placement overlay can show truncated podium addresses
+      // without a chain read. Bots come through as { figId, isBot: true }.
+      const podium = S.figs.filter(f => f.alive).map(f => {
+        const human = [...this.players.values()].find(p => p.figureId === f.id);
+        return human
+          ? { figId: f.id, wallet: human.wallet || null, isBot: false }
+          : { figId: f.id, wallet: null, isBot: true };
+      });
+      this.broadcast({ type: 'end', eliminated: S.eliminated, survivors, podium });
       // Lifecycle hook — index.js wires this to escrow.finalizePot
       // with the computed winners + amounts.
       if (typeof this.onRoundEnd === 'function') {

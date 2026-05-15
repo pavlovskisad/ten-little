@@ -348,6 +348,22 @@
   }
   #over button:hover { color: #551a8b; }
   #over button:active { color: #ff0000; }
+
+  /* Podium under the placement count. Shows the 3 survivors with
+     truncated wallets (humans) or "bot" labels. Your row is
+     highlighted. */
+  #over .podium {
+    margin-top: 18px;
+    display: flex; flex-direction: column; gap: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  #over .podium-row {
+    display: flex; justify-content: center; gap: 14px;
+    font-size: 14px; color: #f1e5cd; opacity: 0.75;
+  }
+  #over .podium-row.mine { color: #ffd000; opacity: 1; }
+  #over .podium-rank { color: #ff7a10; min-width: 36px; text-align: right; }
+  #over .podium-who { letter-spacing: 0.04em; }
   /* Two buttons side-by-side: "again" + "back to menu". Flex row
      so they sit naturally; #over button keeps the link styling. */
   #over .over-actions {
@@ -692,6 +708,7 @@
   <div class="place">you placed</div>
   <div class="ord" id="ord">3rd</div>
   <div class="stat" id="overStat">survived 00:00</div>
+  <div id="podium" class="podium" style="display:none;"></div>
   <div class="over-actions">
     <button id="again">again</button>
     <button id="back-to-menu">back to menu</button>
@@ -2589,6 +2606,8 @@ function netConnect() {
       let placement;
       if (idx === -1) placement = 1;
       else placement = CFG.startCount - idx;
+      // Stash podium for showOverlay to render below the placement.
+      NET.podium = Array.isArray(msg.podium) ? msg.podium : null;
       showOverlay(placement);
     } else if (msg.type === 'error') {
       console.error('[net] error', msg.message);
@@ -3227,7 +3246,39 @@ function showOverlay(placement) {
   const mm = String(Math.floor(sec / 60)).padStart(2, '0');
   const ss = String(sec % 60).padStart(2, '0');
   stat.textContent = `survived ${mm}:${ss}`;
+  renderPodium(NET.podium);
   o.classList.add('show');
+}
+
+// Podium block under the placement count. Server's 'end' message
+// carries the surviving figures with their wallet (when present)
+// and an isBot flag. Truncated addresses only — never the full
+// pubkey on screen — keeps the reveal minimal.
+function renderPodium(podium) {
+  const host = document.getElementById('podium');
+  if (!host) return;
+  if (!podium || !podium.length) { host.innerHTML = ''; host.style.display = 'none'; return; }
+  host.style.display = 'flex';
+  const labels = ['1st', '2nd', '3rd'];
+  // Use figId ordering for deterministic placement among survivors —
+  // matches the server's finalize logic so the on-chain winners list
+  // visually aligns with the podium positions.
+  const sorted = [...podium].sort((a, b) => a.figId - b.figId);
+  host.innerHTML = sorted.map((p, i) => {
+    const lbl = labels[i] || (i + 1) + 'th';
+    const who = p.isBot ? 'bot'
+              : (p.wallet ? shortAddr(p.wallet) : 'human');
+    const mine = (NET.myFigureId != null && p.figId === NET.myFigureId);
+    return `<div class="podium-row${mine ? ' mine' : ''}">`
+         + `<span class="podium-rank">${lbl}</span>`
+         + `<span class="podium-who">${who}</span>`
+         + `</div>`;
+  }).join('');
+}
+
+function shortAddr(addr) {
+  if (!addr || addr.length < 9) return addr || '';
+  return addr.slice(0, 4) + '…' + addr.slice(-4);
 }
 
 // ============================================================
