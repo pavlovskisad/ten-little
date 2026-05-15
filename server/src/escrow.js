@@ -80,6 +80,21 @@ function rakeVaultPda() {
   return PublicKey.findProgramAddressSync([Buffer.from('rake_vault')], PROGRAM_ID)[0];
 }
 
+function revSharePda() {
+  return PublicKey.findProgramAddressSync([Buffer.from('rev_share')], PROGRAM_ID)[0];
+}
+
+function buybackVaultPda() {
+  return PublicKey.findProgramAddressSync([Buffer.from('buyback_vault')], PROGRAM_ID)[0];
+}
+
+function claimStatePda(nftMint) {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('claim'), new PublicKey(nftMint).toBytes()],
+    PROGRAM_ID,
+  )[0];
+}
+
 // Oracle creates a pot for a fresh quickmatch room. Pays rent on the
 // Pot PDA (~0.003 SOL); refunded on finalize via close=oracle.
 async function initPot(roomIdBigInt, entryFeeLamports) {
@@ -168,6 +183,53 @@ async function fetchPot(roomIdBigInt) {
   return _program.account.pot.fetch(pot);
 }
 
+// Oracle drains rake_vault: 20% → buyback_vault, 80% → rev_share.
+// Auto-called after each finalize_pot so the rev-share accumulator
+// stays current with on-chain reality. Errors are non-fatal —
+// finalize_pot already succeeded, drain is best-effort cleanup.
+async function drainRakeVault() {
+  if (!_enabled) throw new Error('escrow disabled');
+  const sig = await _program.methods
+    .drainRakeVault()
+    .accounts({
+      config: configPda(),
+      rakeVault: rakeVaultPda(),
+      revShare: revSharePda(),
+      buybackVault: buybackVaultPda(),
+      oracle: _oracle.publicKey,
+    })
+    .rpc();
+  return { signature: sig };
+}
+
+// Admin one-time setup. Called from scripts/init-rev-share.js, not
+// from the running server. Exposed here so the same Program +
+// provider plumbing can drive both runtime and setup flows.
+async function initRevShare(nftSupply, buybackReceiver) {
+  if (!_enabled) throw new Error('escrow disabled');
+  const sig = await _program.methods
+    .initRevShare(new anchor.BN(nftSupply), new PublicKey(buybackReceiver))
+    .accounts({
+      config: configPda(),
+      revShare: revSharePda(),
+      buybackVault: buybackVaultPda(),
+      admin: _oracle.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc();
+  return { signature: sig };
+}
+
+async function fetchRevShare() {
+  if (!_enabled) throw new Error('escrow disabled');
+  return _program.account.revShareState.fetch(revSharePda());
+}
+
+async function fetchBuybackVault() {
+  if (!_enabled) throw new Error('escrow disabled');
+  return _program.account.buybackVault.fetch(buybackVaultPda());
+}
+
 module.exports = {
   init,
   isEnabled,
@@ -176,9 +238,16 @@ module.exports = {
   refundPot,
   finalizePot,
   fetchPot,
+  drainRakeVault,
+  initRevShare,
+  fetchRevShare,
+  fetchBuybackVault,
   potPda,
   configPda,
   rakeVaultPda,
+  revSharePda,
+  buybackVaultPda,
+  claimStatePda,
   PROGRAM_ID,
   RPC_URL,
 };
