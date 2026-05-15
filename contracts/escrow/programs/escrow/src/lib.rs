@@ -21,6 +21,92 @@
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
+use anchor_spl::token::{Mint, TokenAccount};
+
+/// Metaplex token-metadata program id, hard-coded so we can verify
+/// the metadata account's owner without taking a dependency on the
+/// mpl-token-metadata crate (whose type system clashes with Anchor
+/// 1.0's re-exported AccountInfo).
+const MPL_TOKEN_METADATA_ID: Pubkey =
+    pubkey!("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
+
+/// Read the `collection: Option<Collection>` field out of a Metaplex
+/// Metadata account's borsh bytes. Returns the verified flag and the
+/// collection mint key when present.
+///
+/// Metaplex Metadata layout (stable across program versions):
+///   key u8 + update_authority [u8;32] + mint [u8;32]
+///   data.name   : u32 len + bytes
+///   data.symbol : u32 len + bytes
+///   data.uri    : u32 len + bytes
+///   data.seller_fee_basis_points u16
+///   data.creators Option<Vec<Creator{ [u8;32] + bool + u8 }>>
+///   primary_sale_happened bool + is_mutable bool
+///   edition_nonce Option<u8>
+///   token_standard Option<TokenStandard(u8)>
+///   collection Option<Collection{ verified bool + key [u8;32] }>
+///   ...remaining fields ignored.
+fn parse_metaplex_collection(data: &[u8]) -> Result<(Pubkey, bool, Pubkey)> {
+    let mut o: usize = 0;
+    fn need(data: &[u8], o: usize, n: usize) -> Result<()> {
+        require!(o + n <= data.len(), EscrowError::NotInCollection);
+        Ok(())
+    }
+    // key + update_authority + mint
+    need(data, o, 1 + 32 + 32)?;
+    o += 1 + 32;
+    let mut mint_bytes = [0u8; 32];
+    mint_bytes.copy_from_slice(&data[o..o + 32]);
+    o += 32;
+    let mint = Pubkey::new_from_array(mint_bytes);
+
+    // Skip name / symbol / uri (each u32 LE len + bytes)
+    for _ in 0..3 {
+        need(data, o, 4)?;
+        let len = u32::from_le_bytes(data[o..o + 4].try_into().unwrap()) as usize;
+        o += 4;
+        need(data, o, len)?;
+        o += len;
+    }
+    // seller_fee_basis_points u16
+    need(data, o, 2)?;
+    o += 2;
+    // creators: Option<Vec<Creator>>; Creator = 32 + 1 + 1 = 34 bytes
+    need(data, o, 1)?;
+    let has_creators = data[o]; o += 1;
+    if has_creators == 1 {
+        need(data, o, 4)?;
+        let n = u32::from_le_bytes(data[o..o + 4].try_into().unwrap()) as usize;
+        o += 4;
+        need(data, o, n * 34)?;
+        o += n * 34;
+    } else {
+        require!(has_creators == 0, EscrowError::NotInCollection);
+    }
+    // primary_sale_happened bool + is_mutable bool
+    need(data, o, 2)?;
+    o += 2;
+    // edition_nonce: Option<u8>
+    need(data, o, 1)?;
+    let nonce_tag = data[o]; o += 1;
+    if nonce_tag == 1 { need(data, o, 1)?; o += 1; }
+    else { require!(nonce_tag == 0, EscrowError::NotInCollection); }
+    // token_standard: Option<TokenStandard> (1-byte enum)
+    need(data, o, 1)?;
+    let ts_tag = data[o]; o += 1;
+    if ts_tag == 1 { need(data, o, 1)?; o += 1; }
+    else { require!(ts_tag == 0, EscrowError::NotInCollection); }
+    // collection: Option<Collection { verified: bool, key: Pubkey }>
+    need(data, o, 1)?;
+    let col_tag = data[o]; o += 1;
+    require!(col_tag == 1, EscrowError::NotInCollection);
+    need(data, o, 1 + 32)?;
+    let verified = data[o] != 0;
+    o += 1;
+    let mut key_bytes = [0u8; 32];
+    key_bytes.copy_from_slice(&data[o..o + 32]);
+    Ok((mint, verified, Pubkey::new_from_array(key_bytes)))
+}
 
 declare_id!("DsFoEFQw6uPGgXDztmuPUozi1AqP9KWC6N71H2MLVG5z");
 
@@ -388,6 +474,77 @@ pub mod escrow {
         **ctx.accounts.receiver.try_borrow_mut_lamports()? = ctx
             .accounts
             .receiver
+            .lamports()
+            .checked_add(amount)
+            .ok_or(EscrowError::Overflow)?;
+        Ok(())
+    }
+
+    /// NFT holder claims their share of the accumulated rev-share pool.
+    /// Each holder can claim once per drain (per NFT they hold);
+    /// subsequent claims just pay the new delta since their last cursor.
+    ///
+    /// Verification chain:
+    ///   1. Token account is owned by `claimer` and holds at least 1
+    ///      of `nft_mint` — Anchor's account constraints enforce this.
+    ///   2. Metadata account is owned by mpl_token_metadata program
+    ///      AND its embedded mint == nft_mint AND its collection field
+    ///      points to the configured `config.nft_collection` with
+    ///      verified == true — checked here.
+    ///   3. ClaimState is the per-mint PDA, so a single mint can't
+    ///      be used to claim more than once per drain by the same or
+    ///      different holders. init_if_needed creates it on first claim.
+    pub fn claim_rev_share(ctx: Context<ClaimRevShare>) -> Result<()> {
+        // The Anchor constraints on ClaimRevShare already enforce
+        // token_account.mint == nft_mint and token_account.owner ==
+        // claimer. We re-check amount here so a zero-balance token
+        // account can't claim.
+        require!(
+            ctx.accounts.token_account.amount >= 1,
+            EscrowError::NotNftHolder
+        );
+
+        // Metaplex collection check. The metadata account's owner
+        // constraint already guarantees it's owned by the token-metadata
+        // program (so it's a real metadata account, not a forgery).
+        // We deserialize the minimum fields we need: mint (must match
+        // nft_mint) + collection.verified + collection.key.
+        let metadata_info = ctx.accounts.metadata.to_account_info();
+        let metadata_data = metadata_info.try_borrow_data()?;
+        let (mint, verified, col_key) = parse_metaplex_collection(&metadata_data)?;
+        require!(mint == ctx.accounts.nft_mint.key(), EscrowError::NotInCollection);
+        require!(verified, EscrowError::NotInCollection);
+        require!(
+            col_key == ctx.accounts.config.nft_collection,
+            EscrowError::NotInCollection
+        );
+        drop(metadata_data);
+
+        // Compute the delta. If the holder's cursor already matches
+        // the global accumulator, there's nothing to claim.
+        let claim_state = &mut ctx.accounts.claim_state;
+        let rev_share = &mut ctx.accounts.rev_share;
+        let delta_per_unit = rev_share
+            .total_accrued_per_unit
+            .checked_sub(claim_state.last_claimed_per_unit)
+            .ok_or(EscrowError::Overflow)?;
+        let amount = (delta_per_unit / RevShareState::PRECISION) as u64;
+        require!(amount > 0, EscrowError::NothingToDrain);
+
+        // Advance the cursor BEFORE the payout so a panic mid-transfer
+        // doesn't leave the holder eligible to claim the same delta twice.
+        claim_state.last_claimed_per_unit = rev_share.total_accrued_per_unit;
+        claim_state.bump = ctx.bumps.claim_state;
+
+        // Pay from rev_share to claimer via direct lamport manipulation
+        // (rev_share is program-owned).
+        let rs_info = rev_share.to_account_info();
+        **rs_info.try_borrow_mut_lamports()? = rs_info
+            .lamports()
+            .checked_sub(amount)
+            .ok_or(EscrowError::Overflow)?;
+        let claimer_info = ctx.accounts.claimer.to_account_info();
+        **claimer_info.try_borrow_mut_lamports()? = claimer_info
             .lamports()
             .checked_add(amount)
             .ok_or(EscrowError::Overflow)?;
@@ -821,4 +978,57 @@ pub struct ExecuteBuyback<'info> {
     pub receiver: UncheckedAccount<'info>,
 
     pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct ClaimRevShare<'info> {
+    #[account(
+        seeds = [b"config"],
+        bump = config.bump,
+    )]
+    pub config: Account<'info, ProgramConfig>,
+
+    #[account(
+        mut,
+        seeds = [b"rev_share"],
+        bump = rev_share.bump,
+    )]
+    pub rev_share: Account<'info, RevShareState>,
+
+    /// The NFT mint we're claiming for. We don't enforce supply == 1
+    /// here (the collection check covers identity); we just need it
+    /// to derive the metadata + claim_state PDAs.
+    pub nft_mint: Account<'info, Mint>,
+
+    /// Claimer's token account for `nft_mint`. The constraints enforce
+    /// the right mint + owner; the handler enforces amount >= 1.
+    #[account(
+        constraint = token_account.mint == nft_mint.key() @ EscrowError::NotNftHolder,
+        constraint = token_account.owner == claimer.key() @ EscrowError::NotNftHolder,
+    )]
+    pub token_account: Account<'info, TokenAccount>,
+
+    /// Metaplex metadata account for `nft_mint`. Owner constraint
+    /// ensures it's owned by the token-metadata program (so it's a
+    /// real metadata account, not forged); the handler decodes the
+    /// borsh bytes and validates the collection field.
+    /// CHECK: validated via parse_metaplex_collection in the handler.
+    #[account(owner = MPL_TOKEN_METADATA_ID)]
+    pub metadata: UncheckedAccount<'info>,
+
+    /// Per-mint claim cursor. Init on first claim; advanced on each
+    /// subsequent claim.
+    #[account(
+        init_if_needed,
+        payer = claimer,
+        seeds = [b"claim", nft_mint.key().as_ref()],
+        bump,
+        space = ClaimState::SPACE,
+    )]
+    pub claim_state: Account<'info, ClaimState>,
+
+    #[account(mut)]
+    pub claimer: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
 }
