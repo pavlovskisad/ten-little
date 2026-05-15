@@ -2642,6 +2642,8 @@ function netConnect() {
       NET.podium = Array.isArray(msg.podium) ? msg.podium : null;
       NET.humansAtStart = msg.humansAtStart || null;
       showOverlay(placement);
+    } else if (msg.type === 'refunded') {
+      console.log('[net] refunded:', msg.signature);
     } else if (msg.type === 'error') {
       console.error('[net] error', msg.message);
       if (NET.onError) NET.onError(msg);
@@ -3621,17 +3623,14 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
       NET.ws.send(JSON.stringify({ type: 'start' }));
     }
   });
-  // Cancel: close the WS and return to the chooser. No on-chain
-  // cleanup happens here — with pot init deferred until 2 humans
-  // are present, a lone-canceler exits without ever paying. (For
-  // the rare case of someone canceling AFTER their join_pot tx but
-  // before the round starts, the entry sits locked until the
-  // refund_pot instruction lands in Phase C.)
+  // Cancel: send a 'cancel' message so the server can refund any
+  // paid players on chain via refund_pot before tearing down. The
+  // server closes the WS once it's done; we don't close locally
+  // because we want to see any 'refunded' acknowledgement first.
   const cancelBtn = document.getElementById('lobby-cancel');
   if (cancelBtn) cancelBtn.addEventListener('click', () => {
-    if (NET.ws) {
-      try { NET.ws.close(); } catch (e) {}
-      NET.ws = null;
+    if (NET.ws && NET.ws.readyState === WebSocket.OPEN) {
+      try { NET.ws.send(JSON.stringify({ type: 'cancel' })); } catch (e) {}
     }
     NET.paymentTriggered = false;
     NET.podium = null;

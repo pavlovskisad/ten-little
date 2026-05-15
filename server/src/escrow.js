@@ -111,6 +111,29 @@ async function startPot(roomIdBigInt) {
   return { signature: sig };
 }
 
+// Refunds every paid player and closes the pot. Only valid while
+// pot.state == Waiting (i.e., round hasn't started yet). Used when
+// a paid quickmatch lobby is cancelled before the round begins.
+// The full pot.players list must be supplied as `players` so we
+// can pass them as remaining_accounts.
+async function refundPot(roomIdBigInt, players) {
+  if (!_enabled) throw new Error('escrow disabled');
+  const playerKeys = players.map(p => new PublicKey(p));
+  const sig = await _program.methods
+    .refundPot(new anchor.BN(roomIdBigInt))
+    .accounts({
+      config: configPda(),
+      pot: potPda(roomIdBigInt),
+      oracle: _oracle.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .remainingAccounts(
+      playerKeys.map(pk => ({ pubkey: pk, isWritable: true, isSigner: false }))
+    )
+    .rpc();
+  return { signature: sig };
+}
+
 // Pays each winner from the pot, sweeps rake into the vault, closes
 // the pot account (rent refunds to oracle). Winners must be in the
 // pot's player list; sum(amounts) + rake must equal total played.
@@ -150,6 +173,7 @@ module.exports = {
   isEnabled,
   initPot,
   startPot,
+  refundPot,
   finalizePot,
   fetchPot,
   potPda,

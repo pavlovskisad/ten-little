@@ -126,6 +126,45 @@ pub mod escrow {
         Ok(())
     }
 
+    /// Oracle refunds every paid player and closes the pot. Only valid
+    /// while the pot is still Waiting — once start_pot fires, the round
+    /// has begun and the next legal transition is finalize_pot. Used
+    /// by the server when a paid quickmatch lobby gets cancelled
+    /// before the round starts (e.g., a paid player leaves and we
+    /// can't run a paid round with the remaining roster).
+    ///
+    /// Each player's wallet must be supplied as remaining_accounts[i],
+    /// matching pot.players[i] one-for-one. The instruction pays each
+    /// of them pot.entry_fee lamports; the pot's remaining lamports
+    /// (rent-exempt minimum) refund to the oracle via close=oracle.
+    pub fn refund_pot(ctx: Context<RefundPot>, _room_id: u64) -> Result<()> {
+        let pot = &mut ctx.accounts.pot;
+        require!(pot.state == PotState::Waiting as u8, EscrowError::WrongState);
+        require!(
+            ctx.remaining_accounts.len() == pot.players.len(),
+            EscrowError::PayoutMismatch
+        );
+
+        for (i, expected) in pot.players.iter().enumerate() {
+            let acc = &ctx.remaining_accounts[i];
+            require!(acc.key() == *expected, EscrowError::WinnerMismatch);
+
+            **pot.to_account_info().try_borrow_mut_lamports()? = pot
+                .to_account_info()
+                .lamports()
+                .checked_sub(pot.entry_fee)
+                .ok_or(EscrowError::Overflow)?;
+            **acc.try_borrow_mut_lamports()? = acc
+                .lamports()
+                .checked_add(pot.entry_fee)
+                .ok_or(EscrowError::Overflow)?;
+        }
+
+        pot.state = PotState::Finalized as u8;
+        // close = oracle on the context refunds the remaining rent.
+        Ok(())
+    }
+
     /// Oracle distributes the pot. winners[i] receives amounts[i]
     /// lamports; rake (computed from rake_bps) goes to the rake_vault
     /// PDA; remaining rent on the closed pot account refunds to the
@@ -430,6 +469,30 @@ pub struct FinalizePot<'info> {
         bump = rake_vault.bump,
     )]
     pub rake_vault: Account<'info, RakeVault>,
+
+    #[account(mut)]
+    pub oracle: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(room_id: u64)]
+pub struct RefundPot<'info> {
+    #[account(
+        seeds = [b"config"],
+        bump = config.bump,
+        has_one = oracle @ EscrowError::OracleOnly,
+    )]
+    pub config: Account<'info, ProgramConfig>,
+
+    #[account(
+        mut,
+        seeds = [b"pot", room_id.to_le_bytes().as_ref()],
+        bump = pot.bump,
+        close = oracle,
+    )]
+    pub pot: Account<'info, Pot>,
 
     #[account(mut)]
     pub oracle: Signer<'info>,

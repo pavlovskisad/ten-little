@@ -342,6 +342,90 @@ export type Escrow = {
       "args": []
     },
     {
+      "name": "refundPot",
+      "docs": [
+        "Oracle refunds every paid player and closes the pot. Only valid",
+        "while the pot is still Waiting — once start_pot fires, the round",
+        "has begun and the next legal transition is finalize_pot. Used",
+        "by the server when a paid quickmatch lobby gets cancelled",
+        "before the round starts (e.g., a paid player leaves and we",
+        "can't run a paid round with the remaining roster).",
+        "",
+        "Each player's wallet must be supplied as remaining_accounts[i],",
+        "matching pot.players[i] one-for-one. The instruction pays each",
+        "of them pot.entry_fee lamports; the pot's remaining lamports",
+        "(rent-exempt minimum) refund to the oracle via close=oracle."
+      ],
+      "discriminator": [
+        43,
+        38,
+        238,
+        255,
+        48,
+        213,
+        224,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "roomId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "roomId",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "setBuybackToken",
       "docs": [
         "Admin sets the SPL token used for the buyback-and-burn rake",
