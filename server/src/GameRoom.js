@@ -20,8 +20,12 @@ const MAX_PLAYERS = 10;
 let roomSeq = 0;
 
 class GameRoom {
-  constructor({ code, seed }) {
+  constructor({ code, seed, mode }) {
     this.code = code || `R${(++roomSeq).toString(36).padStart(4, '0')}`;
+    // 'practice' = free solo + bots (no escrow, no Privy required).
+    // 'quickmatch' = paid multiplayer (requires Privy auth + an
+    //                on-chain pot via init_pot).
+    this.mode = mode || 'quickmatch';
     this.seed = seed || (Math.random() * 0xffffffff) >>> 0;
     this.rand = SIM.mulberry32(this.seed);
     this.state = SIM.createState();
