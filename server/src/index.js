@@ -56,7 +56,12 @@ const RAKE_BPS = 500n;
 // account just sits there (admin recovery in Phase C). Reads the
 // authoritative paid list straight from chain to avoid trusting the
 // server's client-claimed wallets.
-async function finalizeRoom(room, roomIdBigInt, survivorFigIds) {
+//
+// topFigIds carries the placement-ordered figure ids: [1st, 2nd, 3rd].
+// (1st = survivor, 2nd = last eliminated, 3rd = second-to-last.) The
+// game ends last-man-standing, so this list is built from elimination
+// order in GameRoom.tick().
+async function finalizeRoom(room, roomIdBigInt, topFigIds) {
   if (!room.escrow) return;
   const pot = await escrow.fetchPot(roomIdBigInt);
   const paidWallets = pot.players.map(p => p.toBase58());
@@ -66,21 +71,19 @@ async function finalizeRoom(room, roomIdBigInt, survivorFigIds) {
     return;
   }
 
-  // Map survivor figure ids back to human players who paid + whose
-  // claimed wallet matches the on-chain pot.players list. Bots and
-  // unpaid humans drop out here.
+  // Walk placement order; collect only paid humans for the eligible
+  // list. Bots and unpaid humans drop out, but order is preserved so
+  // 1st place stays 1st. If 1st is a bot, the next paid human takes
+  // their tier slot — we don't shift down, we just skip.
   const eligible = [];
-  for (const figId of survivorFigIds) {
+  for (const figId of topFigIds) {
     for (const [pid, p] of room.players) {
       if (p.figureId === figId && p.wallet && paidWallets.includes(p.wallet)) {
         eligible.push({ figId, wallet: p.wallet, playerId: pid });
+        break;
       }
     }
   }
-  // Deterministic placement among survivors: lowest figure id wins.
-  // Arbitrary but consistent — game doesn't yet differentiate among
-  // simultaneous survivors.
-  eligible.sort((a, b) => a.figId - b.figId);
   if (eligible.length === 0) {
     console.log('[escrow] no eligible human winners in', room.code, '— skipping finalize_pot');
     return;
@@ -401,9 +404,9 @@ wss.on('connection', (ws) => {
                 console.warn('[escrow] start_pot failed', room.code, err.message);
               }
             };
-            room.onRoundEnd = async ({ eliminated, survivors }) => {
+            room.onRoundEnd = async ({ eliminated, topFigIds }) => {
               try {
-                await finalizeRoom(room, roomIdBigInt, survivors);
+                await finalizeRoom(room, roomIdBigInt, topFigIds);
               } catch (err) {
                 console.warn('[escrow] finalize_pot failed', room.code, ':', err.message || err);
               }
