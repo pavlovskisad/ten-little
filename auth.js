@@ -70,9 +70,9 @@ function pickSolanaAddress(user) {
   return acct?.address || '';
 }
 
-async function fetchBalance(address) {
+async function fetchBalanceFrom(address, rpcUrl) {
   try {
-    const res = await fetch(SOLANA_RPC, {
+    const res = await fetch(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -87,6 +87,12 @@ async function fetchBalance(address) {
     console.warn('[wallet] balance fetch failed:', err.message);
     return { ok: false, error: err.message };
   }
+}
+async function fetchBalance(address) {
+  return fetchBalanceFrom(address, SOLANA_RPC);
+}
+async function fetchDevnetBalance(address) {
+  return fetchBalanceFrom(address, ESCROW_RPC);
 }
 
 function validatePubkey(s) {
@@ -179,6 +185,7 @@ function SendForm({ fromAddress, wallet, onDone, onCancel }) {
 function WalletDrawer({ address, onClose }) {
   // balance: { ok: true, sol } | { ok: false, error } | null (still loading)
   const [balance, setBalance] = useState(null);
+  const [devBalance, setDevBalance] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
@@ -186,16 +193,22 @@ function WalletDrawer({ address, onClose }) {
   const { wallets } = useSolanaWallets();
   const wallet = wallets?.find(w => w.address === address) || wallets?.[0];
 
-  // Auto-refresh balance every 5 s while the drawer is open. The
-  // manual refresh button below bumps refreshKey to retrigger the
-  // first fetch immediately rather than waiting for the interval.
+  // Auto-refresh both balances (mainnet + devnet) every 5 s while
+  // the drawer is open. Devnet line stays in the UI as long as the
+  // escrow program is on devnet — when we promote to mainnet, the
+  // ESCROW_RPC default flips and this line just mirrors the main
+  // balance (or we hide it; up to taste).
   useEffect(() => {
     let alive = true;
     const tick = async () => {
       setRefreshing(true);
-      const b = await fetchBalance(address);
+      const [b, d] = await Promise.all([
+        fetchBalance(address),
+        fetchDevnetBalance(address),
+      ]);
       if (alive) {
         setBalance(b);
+        setDevBalance(d);
         setRefreshing(false);
       }
     };
@@ -245,6 +258,15 @@ function WalletDrawer({ address, onClose }) {
           balance == null ? '…'
             : balance.ok ? balance.sol.toFixed(4) + ' SOL'
             : 'rpc error: ' + (balance.error || 'unknown')
+        ),
+        // Devnet sub-line — same wallet, just on devnet. Useful for
+        // verifying entry-fee payments + payouts during testing.
+        // Hides itself once devnet balance reads zero and we promote
+        // the program to mainnet (ESCROW_RPC default flips).
+        h('div', { className: 'wd-balance-sub' },
+          devBalance == null ? 'devnet · …'
+            : devBalance.ok ? `devnet · ${devBalance.sol.toFixed(4)} SOL`
+            : `devnet · rpc error`
         ),
       ]),
       !sending && h('div', { className: 'wd-row wd-actions' }, [

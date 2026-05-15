@@ -32,11 +32,25 @@ class GameRoom {
     this.state.phase = 'lobby';
     this.players = new Map();    // playerId -> { ws, input, figureId }
     this.tickHandle = null;
-    this.lobbyDeadline = Date.now() + COUNTDOWN_MS;
+    // Auto-start is deferred: practice rooms arm it on the first
+    // joiner; quickmatch rooms wait for a 2nd human before arming.
+    // Until armed, lobbyDeadline stays 0 → roster broadcasts countdownMs=0
+    // and the client renders a "waiting for opponents" state instead
+    // of a ticking timer.
+    this.lobbyDeadline = 0;
+    this.autoStartHandle = null;
     this.startedAt = 0;
     this.host = null;            // playerId of the room's creator
-    // Auto-start: if the host doesn't start early, kick off the round
-    // when the lobby countdown expires. Bots fill remaining seats.
+  }
+
+  // Arm the auto-start countdown the first time conditions are met.
+  // Practice rooms: arm on first joiner. Quickmatch: arm only when
+  // at least 2 humans are present, so a lone player waits indefinitely
+  // without paying anything (pot init is gated on 2 humans too).
+  armAutoStart() {
+    if (this.autoStartHandle) return;
+    if (this.mode === 'quickmatch' && this.players.size < 2) return;
+    this.lobbyDeadline = Date.now() + COUNTDOWN_MS;
     this.autoStartHandle = setTimeout(() => this.start('auto'), COUNTDOWN_MS);
   }
 
@@ -46,6 +60,7 @@ class GameRoom {
     if (this.players.size >= MAX_PLAYERS) return false;
     if (this.host === null) this.host = playerId;
     this.players.set(playerId, { ws, input: { dx: 0, dy: 0 }, figureId: null });
+    this.armAutoStart();
     this.broadcastRoster();
     return true;
   }
@@ -55,13 +70,21 @@ class GameRoom {
   // ships only when the room has an on-chain pot; the lobby UI uses
   // paid count to show "pot: X SOL" without hitting RPC every second.
   broadcastRoster() {
+    // "Waiting" mode: quickmatch room with a single human in it.
+    // Countdown is intentionally not armed; client renders "waiting
+    // for opponents…" instead of a ticking timer.
+    const waiting = (this.mode === 'quickmatch' && this.players.size < 2);
     const msg = {
       type: 'roster',
       code: this.code,
       count: this.players.size,
       max: MAX_PLAYERS,
       host: this.host,
-      countdownMs: Math.max(0, this.lobbyDeadline - Date.now()),
+      countdownMs: this.lobbyDeadline > 0
+        ? Math.max(0, this.lobbyDeadline - Date.now())
+        : 0,
+      waiting,
+      mode: this.mode,
     };
     if (this.escrow) {
       let paidCount = 0;
@@ -111,6 +134,17 @@ class GameRoom {
   // early, 'auto' when the countdown expires.
   start(reason = 'host') {
     if (this.state.phase !== 'lobby') return;
+    // Auto-start is rejected for quickmatch rooms that slipped below
+    // 2 humans (e.g., 2nd joiner cancelled during countdown). Disarm
+    // the timer so the next addPlayer can re-arm it once we're back
+    // at 2+ humans.
+    if (this.mode === 'quickmatch' && this.players.size < 2 && reason === 'auto') {
+      console.log('[room]', this.code, 'auto-start blocked — only', this.players.size, 'human(s)');
+      if (this.autoStartHandle) { clearTimeout(this.autoStartHandle); this.autoStartHandle = null; }
+      this.lobbyDeadline = 0;
+      this.broadcastRoster();
+      return;
+    }
     if (this.autoStartHandle) { clearTimeout(this.autoStartHandle); this.autoStartHandle = null; }
     const humans = this.players.size;
     const bots = MAX_PLAYERS - humans;
