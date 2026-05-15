@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ten little · rev-share claim</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: #14110d;
+    color: #ffffff;
+    font-family: 'VT323', monospace;
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+  }
+  body { padding: 32px 16px 80px; }
+  a { color: #ffd000; text-decoration: none; }
+  a:hover { color: #ff7a10; text-decoration: underline; }
+
+  .nav {
+    max-width: 720px; margin: 0 auto 24px;
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 18px; opacity: 0.85;
+  }
+  .nav .brand {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 14px; color: #ffd000;
+    letter-spacing: 0.12em; text-transform: lowercase;
+  }
+  .nav .back { font-size: 18px; }
+
+  #claim-root { max-width: 720px; margin: 0 auto; }
+
+  .claim-page h1, .claim-gate h1 {
+    font-family: 'Press Start 2P', monospace;
+    font-size: clamp(18px, 3.5vw, 26px);
+    color: #ffd000;
+    text-transform: lowercase;
+    letter-spacing: 0.10em;
+    margin: 8px 0 20px;
+  }
+
+  .claim-loading { font-size: 22px; opacity: 0.65; padding: 32px 0; }
+
+  .claim-gate {
+    display: flex; flex-direction: column; gap: 14px;
+    padding: 24px 0;
+  }
+  .claim-gate p {
+    font-size: 20px; line-height: 1.4; max-width: 540px;
+    color: #f1e5cd; opacity: 0.9;
+  }
+  .claim-cta {
+    align-self: flex-start; margin-top: 8px;
+    background: transparent; border: 0; padding: 0;
+    color: #0000ee; font-family: 'VT323', monospace;
+    font-size: 28px; cursor: pointer;
+    text-decoration: underline; text-underline-offset: 6px;
+    text-transform: lowercase;
+  }
+  .claim-cta:hover { color: #551a8b; }
+  .claim-cta:active { color: #ff0000; }
+
+  .claim-top {
+    display: flex; justify-content: flex-end; align-items: baseline;
+    gap: 16px; margin-bottom: 4px;
+  }
+  .claim-wallet {
+    font-family: 'VT323', monospace; font-size: 20px;
+    color: #f1e5cd; opacity: 0.85;
+    background: rgba(241,229,205,0.06);
+    padding: 4px 10px; border-radius: 4px;
+    letter-spacing: 0.06em;
+  }
+  .claim-logout {
+    background: transparent; border: 0; padding: 0;
+    color: #0000ee; font-family: 'VT323', monospace;
+    font-size: 20px; cursor: pointer;
+    text-decoration: underline; text-underline-offset: 4px;
+    text-transform: lowercase;
+  }
+  .claim-logout:hover { color: #551a8b; }
+
+  .claim-pool {
+    display: flex; gap: 28px; flex-wrap: wrap;
+    padding: 16px 0 8px;
+    border-bottom: 1px solid rgba(241,229,205,0.18);
+    margin-bottom: 20px;
+  }
+  .claim-stat { display: flex; flex-direction: column; gap: 2px; }
+  .claim-stat-label {
+    font-size: 12px; opacity: 0.55; letter-spacing: 0.15em;
+    text-transform: lowercase; color: #f1e5cd;
+  }
+  .claim-stat-value {
+    font-size: 26px; color: #ffd000; letter-spacing: 0.04em;
+  }
+
+  .claim-warn {
+    font-size: 18px; color: #ffb347;
+    padding: 12px 14px; margin: 10px 0 18px;
+    background: rgba(255,179,71,0.08);
+    border-left: 3px solid #ffb347;
+    line-height: 1.4;
+  }
+  .claim-empty {
+    font-size: 20px; opacity: 0.7;
+    padding: 24px 0;
+  }
+  .claim-error {
+    font-size: 18px; color: #ff1a1a;
+    padding: 6px 0;
+    line-height: 1.4;
+  }
+
+  .claim-list { display: flex; flex-direction: column; gap: 10px; }
+  .claim-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    grid-template-rows: auto auto;
+    gap: 4px 16px;
+    align-items: center;
+    padding: 12px 14px;
+    background: rgba(241,229,205,0.04);
+    border: 1px solid rgba(241,229,205,0.10);
+    border-radius: 4px;
+  }
+  .claim-mint {
+    font-family: 'VT323', monospace; font-size: 22px;
+    color: #f1e5cd; letter-spacing: 0.06em;
+  }
+  .claim-amount {
+    font-family: 'VT323', monospace; font-size: 22px;
+    color: #ffd000; letter-spacing: 0.04em;
+    text-align: right;
+  }
+  .claim-btn {
+    background: transparent; border: 0; padding: 0;
+    color: #0000ee; font-family: 'VT323', monospace;
+    font-size: 22px; cursor: pointer;
+    text-decoration: underline; text-underline-offset: 4px;
+    text-transform: lowercase;
+  }
+  .claim-btn:hover { color: #551a8b; }
+  .claim-btn:active { color: #ff0000; }
+  .claim-btn:disabled {
+    color: #6b6b6b; cursor: not-allowed; text-decoration: none;
+  }
+  .claim-row .claim-error,
+  .claim-row .claim-sig {
+    grid-column: 1 / -1;
+    font-size: 16px;
+    padding: 0;
+  }
+  .claim-row .claim-sig { color: #9ed68a; opacity: 0.85; }
+</style>
+</head>
+<body>
+  <div class="nav">
+    <span class="brand">ten little</span>
+    <a class="back" href="/">← back to game</a>
+  </div>
+  <div id="claim-root"></div>
+  <script type="module" src="./claim.bundle.js"></script>
+</body>
+</html>

@@ -148,37 +148,45 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 2570;
 // Repo root: server/src/index.js → ../../
 const STATIC_ROOT = path.resolve(__dirname, '..', '..');
 
-// Cache-buster for auth.bundle.js. Mobile Safari sometimes holds on
-// to an old bundle even with no-store headers; bumping the URL on
+// Cache-buster for the Preact bundles. Mobile Safari sometimes holds
+// on to an old bundle even with no-store headers; bumping the URL on
 // every deploy forces a fresh fetch because the browser hasn't seen
-// the new query string before. We rewrite plate-shapes.html on the
-// fly to inject this version.
-const BUNDLE_VERSION = (() => {
+// the new query string before. We rewrite both plate-shapes.html and
+// claim.html on the fly to inject these versions.
+function bundleVersion(filename) {
   try {
-    const stat = fs.statSync(path.join(STATIC_ROOT, 'auth.bundle.js'));
+    const stat = fs.statSync(path.join(STATIC_ROOT, filename));
     return String(Math.floor(stat.mtimeMs));
   } catch {
     return String(Date.now());
   }
-})();
-console.log('[static] bundle version =', BUNDLE_VERSION);
-
-// Read plate-shapes.html once on startup, inject the cache-buster on
-// every "./auth.bundle.js" reference, cache the result in memory.
-// If the file isn't where we expect (shouldn't happen, but a deploy
-// quirk could leave it elsewhere), keep PLATE_HTML null and the
-// serve path falls back to plain file streaming.
-let PLATE_HTML = null;
-try {
-  const raw = fs.readFileSync(path.join(STATIC_ROOT, 'plate-shapes.html'), 'utf8');
-  PLATE_HTML = Buffer.from(
-    raw.replace(/\.\/auth\.bundle\.js(?:\?[^"'\s]*)?/g, './auth.bundle.js?v=' + BUNDLE_VERSION)
-  );
-  console.log('[static] cached plate-shapes.html, bundle ?v=' + BUNDLE_VERSION);
-} catch (err) {
-  console.warn('[static] could not pre-cache plate-shapes.html:', err.message,
-    '— falling back to streaming file (no cache-bust)');
 }
+const AUTH_BUNDLE_VERSION = bundleVersion('auth.bundle.js');
+const CLAIM_BUNDLE_VERSION = bundleVersion('claim.bundle.js');
+console.log('[static] auth bundle  =', AUTH_BUNDLE_VERSION);
+console.log('[static] claim bundle =', CLAIM_BUNDLE_VERSION);
+
+// Read each HTML file once on startup, inject the cache-buster on
+// the bundle reference, cache the result in memory. If a file isn't
+// where we expect (shouldn't happen, but a deploy quirk could leave
+// it elsewhere), the corresponding cache entry stays null and the
+// serve path falls back to plain file streaming.
+function precacheHtml(filename, bundleName, version) {
+  try {
+    const raw = fs.readFileSync(path.join(STATIC_ROOT, filename), 'utf8');
+    const escaped = bundleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(escaped + '(?:\\?[^"\'\\s]*)?', 'g');
+    const out = Buffer.from(raw.replace(re, bundleName + '?v=' + version));
+    console.log('[static] cached', filename, '— bundle ?v=' + version);
+    return out;
+  } catch (err) {
+    console.warn('[static] could not pre-cache', filename + ':', err.message,
+      '— falling back to streaming file (no cache-bust)');
+    return null;
+  }
+}
+const PLATE_HTML = precacheHtml('plate-shapes.html', './auth.bundle.js', AUTH_BUNDLE_VERSION);
+const CLAIM_HTML = precacheHtml('claim.html', './claim.bundle.js', CLAIM_BUNDLE_VERSION);
 
 const rooms = new Map();  // code → GameRoom
 let playerSeq = 0;
@@ -210,12 +218,12 @@ const MIME = {
   '.md':   'text/markdown; charset=utf-8',
 };
 
-// Serve the cache-busted in-memory plate-shapes.html. Honours
+// Serve a cache-busted in-memory HTML buffer. Honours
 // Accept-Encoding: gzip the same as the file-streaming path. If the
-// pre-cache failed at startup (PLATE_HTML === null), the caller's
-// fallback path streams the file directly.
-function servePlateHtml(req, res) {
-  if (!PLATE_HTML) return false;
+// pre-cache failed at startup (buf === null), returns false so the
+// caller's fallback path streams the file directly.
+function serveCachedHtml(req, res, buf) {
+  if (!buf) return false;
   const noCacheHeaders = {
     'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
     'Pragma': 'no-cache',
@@ -223,7 +231,7 @@ function servePlateHtml(req, res) {
   };
   const acceptsGzip = (req.headers['accept-encoding'] || '').includes('gzip');
   if (acceptsGzip) {
-    const gz = zlib.gzipSync(PLATE_HTML);
+    const gz = zlib.gzipSync(buf);
     res.writeHead(200, {
       'Content-Type': MIME['.html'],
       'Content-Encoding': 'gzip',
@@ -236,16 +244,19 @@ function servePlateHtml(req, res) {
   }
   res.writeHead(200, {
     'Content-Type': MIME['.html'],
-    'Content-Length': PLATE_HTML.length,
+    'Content-Length': buf.length,
     ...noCacheHeaders,
   });
-  res.end(PLATE_HTML);
+  res.end(buf);
   return true;
 }
 
 function serveStatic(req, res) {
   let urlPath = req.url.split('?')[0];
   if (urlPath === '/' || urlPath === '') urlPath = '/plate-shapes.html';
+  // Friendly /claim alias for the rev-share page. Matches both /claim
+  // and /claim/ so a trailing-slash bookmark also lands.
+  if (urlPath === '/claim' || urlPath === '/claim/') urlPath = '/claim.html';
   // Resolve and clamp inside STATIC_ROOT so '..' can't escape.
   const safe = path.normalize(urlPath).replace(/^(\.\.[\/\\])+/, '');
   const filePath = path.join(STATIC_ROOT, safe);
@@ -254,12 +265,16 @@ function serveStatic(req, res) {
     return;
   }
 
-  // Special case: plate-shapes.html is served from an in-memory buffer
-  // with the auth.bundle.js URL cache-busted. If the pre-cache failed
-  // (e.g., file not on disk where we expected at startup), servePlateHtml
-  // returns false and we fall through to plain streaming.
+  // Special case: plate-shapes.html and claim.html are served from
+  // in-memory buffers with their bundle URLs cache-busted. If the
+  // pre-cache failed (e.g., file not on disk where we expected at
+  // startup), serveCachedHtml returns false and we fall through to
+  // plain streaming.
   if (filePath === path.join(STATIC_ROOT, 'plate-shapes.html')) {
-    if (servePlateHtml(req, res)) return;
+    if (serveCachedHtml(req, res, PLATE_HTML)) return;
+  }
+  if (filePath === path.join(STATIC_ROOT, 'claim.html')) {
+    if (serveCachedHtml(req, res, CLAIM_HTML)) return;
   }
 
   fs.stat(filePath, (err, stat) => {
