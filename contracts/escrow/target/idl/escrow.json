@@ -8,6 +8,137 @@
   },
   "instructions": [
     {
+      "name": "claim_rev_share",
+      "docs": [
+        "NFT holder claims their share of the accumulated rev-share pool.",
+        "Each holder can claim once per drain (per NFT they hold);",
+        "subsequent claims just pay the new delta since their last cursor.",
+        "",
+        "Verification chain:",
+        "1. Token account is owned by `claimer` and holds at least 1",
+        "of `nft_mint` — Anchor's account constraints enforce this.",
+        "2. Metadata account is owned by mpl_token_metadata program",
+        "AND its embedded mint == nft_mint AND its collection field",
+        "points to the configured `config.nft_collection` with",
+        "verified == true — checked here.",
+        "3. ClaimState is the per-mint PDA, so a single mint can't",
+        "be used to claim more than once per drain by the same or",
+        "different holders. init_if_needed creates it on first claim."
+      ],
+      "discriminator": [
+        214,
+        35,
+        60,
+        39,
+        1,
+        145,
+        62,
+        218
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "rev_share",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  118,
+                  95,
+                  115,
+                  104,
+                  97,
+                  114,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "nft_mint",
+          "docs": [
+            "The NFT mint we're claiming for. We don't enforce supply == 1",
+            "here (the collection check covers identity); we just need it",
+            "to derive the metadata + claim_state PDAs."
+          ]
+        },
+        {
+          "name": "token_account",
+          "docs": [
+            "Claimer's token account for `nft_mint`. The constraints enforce",
+            "the right mint + owner; the handler enforces amount >= 1."
+          ]
+        },
+        {
+          "name": "metadata",
+          "docs": [
+            "Metaplex metadata account for `nft_mint`. Owner constraint",
+            "ensures it's owned by the token-metadata program (so it's a",
+            "real metadata account, not forged); the handler decodes the",
+            "borsh bytes and validates the collection field."
+          ]
+        },
+        {
+          "name": "claim_state",
+          "docs": [
+            "Per-mint claim cursor. Init on first claim; advanced on each",
+            "subsequent claim."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nft_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "claimer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "drain_rake_vault",
       "docs": [
         "Oracle drains the rake_vault: 20% lands in buyback_vault, 80%",
@@ -1166,6 +1297,19 @@
       ]
     },
     {
+      "name": "ClaimState",
+      "discriminator": [
+        71,
+        73,
+        19,
+        83,
+        53,
+        228,
+        242,
+        53
+      ]
+    },
+    {
       "name": "Pot",
       "discriminator": [
         238,
@@ -1330,6 +1474,28 @@
           {
             "name": "receiver",
             "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClaimState",
+      "docs": [
+        "Per-NFT claim cursor. Records the holder's last seen",
+        "total_accrued_per_unit so future claims pay only the delta. PDA",
+        "keyed on the NFT mint so the program enforces uniqueness without",
+        "trusting the caller's account."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "last_claimed_per_unit",
+            "type": "u128"
           },
           {
             "name": "bump",
