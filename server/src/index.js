@@ -465,6 +465,9 @@ wss.on('connection', (ws) => {
         player.paidSig = msg.signature || null;
         player.wallet = msg.wallet || null;
         console.log('[escrow] paid', room.code, playerId, 'wallet=' + msg.wallet, 'sig=' + msg.signature);
+        // Push a fresh roster so every client sees the new paid count
+        // light up in the pot UI immediately.
+        if (room.state.phase === 'lobby') room.broadcastRoster();
       }
       return;
     }
