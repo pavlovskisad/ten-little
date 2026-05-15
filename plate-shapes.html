@@ -512,6 +512,14 @@
   /* Pulses dim while the auto-refresh/manual-refresh fetch is in
      flight. Makes "is the balance still polling?" visually obvious. */
   .wd-balance.wd-balance-fetching { opacity: 0.45; }
+  /* Devnet sub-line: visible during the testing window so the user
+     can verify entry-fee payments and payouts without leaving the
+     page. Removed/hidden when program is promoted to mainnet. */
+  .wd-balance-sub {
+    font-size: 13px; opacity: 0.55;
+    letter-spacing: 0.06em; margin-top: 2px;
+    color: #f1e5cd;
+  }
   .wd-actions { margin-top: 4px; }
   .wd-actions-row { flex-direction: row !important; gap: 8px; }
   /* Inputs: compact system monospace so a 44-char Solana address
@@ -700,6 +708,7 @@
     </div>
     <div class="meta countdown" id="lobby-countdown">starts in 60s</div>
     <button id="lobby-start" style="display:none;">skip timer</button>
+    <button id="lobby-cancel">cancel</button>
     <div class="meta" id="lobby-status">waiting for host...</div>
   </div>
 </div>
@@ -2527,11 +2536,39 @@ function predictLocalPlayer(dt) {
   f.z += f.vz * dt;
 }
 
+// Trigger join_pot payment idempotently. Called from both the
+// 'joined' message handler (2nd-joiner who lands when pot already
+// exists) and the 'roster' handler (1st-joiner whose escrow info
+// arrives later, when the 2nd-joiner triggers pot creation). The
+// NET.paymentTriggered flag — reset in netConnect — keeps a single
+// player from accidentally double-paying when both messages carry
+// escrow back-to-back.
+function maybeTriggerPayment(escrow, ws) {
+  if (NET.paymentTriggered) return;
+  if (NET.joinMode !== 'quickjoin') return;
+  if (typeof window.payEntryFee !== 'function') return;
+  NET.paymentTriggered = true;
+  const statusEl = document.getElementById('lobby-status');
+  if (statusEl) statusEl.textContent = 'paying entry fee…';
+  window.payEntryFee(escrow)
+    .then(({ signature, wallet }) => {
+      console.log('[net] entry fee paid:', signature, 'wallet:', wallet);
+      if (statusEl) statusEl.textContent = 'paid · waiting for players';
+      ws.send(JSON.stringify({ type: 'paid', signature, wallet }));
+    })
+    .catch((err) => {
+      console.warn('[net] payment failed:', err);
+      if (statusEl) statusEl.textContent = 'payment failed: ' + (err.message || 'unknown');
+      NET.paymentTriggered = false;  // allow retry on next escrow nudge
+    });
+}
+
 function netConnect() {
   if (NET.ws && NET.ws.readyState <= 1 /* CONNECTING || OPEN */) {
     try { NET.ws.close(); } catch (e) {}
   }
   NET.spawned = false;
+  NET.paymentTriggered = false;
   const ws = new WebSocket(NET.url);
   NET.ws = ws;
   ws.addEventListener('open', () => {
@@ -2557,26 +2594,15 @@ function netConnect() {
       if (NET.onJoined) NET.onJoined(msg);
       if (NET.joinMode === 'solo') {
         ws.send(JSON.stringify({ type: 'start' }));
-      } else if (msg.escrow && typeof window.payEntryFee === 'function') {
-        // Quickmatch with an on-chain pot. Pay the entry fee from the
-        // Privy embedded wallet, then tell the server the tx landed.
-        // Errors surface in the lobby status line; the player stays in
-        // the WS room (still gets snapshots) but won't show up as paid
-        // until they retry — for v0 we don't auto-retry.
-        const statusEl = document.getElementById('lobby-status');
-        if (statusEl) statusEl.textContent = 'paying entry fee…';
-        window.payEntryFee(msg.escrow)
-          .then(({ signature, wallet }) => {
-            console.log('[net] entry fee paid:', signature, 'wallet:', wallet);
-            if (statusEl) statusEl.textContent = 'paid · waiting for players';
-            ws.send(JSON.stringify({ type: 'paid', signature, wallet }));
-          })
-          .catch((err) => {
-            console.warn('[net] payment failed:', err);
-            if (statusEl) statusEl.textContent = 'payment failed: ' + (err.message || 'unknown');
-          });
+      } else if (msg.escrow) {
+        // 2nd-joiner path: pot already exists, pay immediately.
+        maybeTriggerPayment(msg.escrow, ws);
       }
     } else if (msg.type === 'roster') {
+      // 1st-joiner path: pot didn't exist when they joined; it gets
+      // created the moment the 2nd human lands. The next roster
+      // broadcast carries the escrow payload and triggers payment.
+      if (msg.escrow) maybeTriggerPayment(msg.escrow, ws);
       if (NET.onRoster) NET.onRoster(msg);
     } else if (msg.type === 'start') {
       console.log('[net] start humans=' + msg.humans + ' bots=' + msg.bots + ' reason=' + msg.reason);
@@ -3499,8 +3525,13 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
   // Local countdown tick: server tells us countdownMs in each roster
   // update, we lerp it down from receipt time so the timer reads live.
   let countdownDeadline = 0;
+  let countdownWaiting = false;
   const tickCountdown = setInterval(() => {
     if (!lobby.classList.contains('show') || inRoom.style.display === 'none') return;
+    if (countdownWaiting) {
+      countdownEl.textContent = 'waiting for opponents…';
+      return;
+    }
     const ms = Math.max(0, countdownDeadline - Date.now());
     countdownEl.textContent = `starts in ${Math.ceil(ms / 1000)}s`;
   }, 250);
@@ -3516,6 +3547,7 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
   };
   NET.onRoster = (msg) => {
     rosterEl.textContent = `${msg.count} / ${msg.max} players`;
+    countdownWaiting = !!msg.waiting;
     countdownDeadline = Date.now() + (msg.countdownMs || 0);
     startBtn.style.display = (msg.host === NET.playerId) ? 'inline' : 'none';
     statusEl.textContent = (msg.host === NET.playerId) ? 'you are the host' : 'waiting for host...';
@@ -3588,6 +3620,25 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
     if (NET.ws && NET.ws.readyState === WebSocket.OPEN) {
       NET.ws.send(JSON.stringify({ type: 'start' }));
     }
+  });
+  // Cancel: close the WS and return to the chooser. No on-chain
+  // cleanup happens here — with pot init deferred until 2 humans
+  // are present, a lone-canceler exits without ever paying. (For
+  // the rare case of someone canceling AFTER their join_pot tx but
+  // before the round starts, the entry sits locked until the
+  // refund_pot instruction lands in Phase C.)
+  const cancelBtn = document.getElementById('lobby-cancel');
+  if (cancelBtn) cancelBtn.addEventListener('click', () => {
+    if (NET.ws) {
+      try { NET.ws.close(); } catch (e) {}
+      NET.ws = null;
+    }
+    NET.paymentTriggered = false;
+    NET.podium = null;
+    NET.humansAtStart = null;
+    inRoom.style.display = 'none';
+    pre.style.display = 'flex';
+    statusEl.textContent = 'waiting for host...';
   });
 })();
 

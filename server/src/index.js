@@ -376,58 +376,62 @@ wss.on('connection', (ws) => {
       if (!room) {
         room = new GameRoom({ mode: 'quickmatch' });
         rooms.set(room.code, room);
-        // First joiner of a fresh quickmatch room → spin up the
-        // on-chain pot. Stays a no-op when escrow is disabled. We
-        // block the joined response until init_pot confirms so the
-        // client doesn't have to handle a delayed pot payload — devnet
-        // finalization is ~1 s, acceptable for v0.
-        if (escrow.isEnabled()) {
-          try {
-            const roomIdBigInt = nextRoomIdBigInt();
-            const entryFee = ENTRY_FEE_LAMPORTS;
-            const { signature, pot } = await escrow.initPot(roomIdBigInt, entryFee);
-            room.escrow = {
-              roomId: String(roomIdBigInt),
-              pot,
-              entryFee: String(entryFee),
-              signature,
-            };
-            console.log('[escrow] init_pot', room.code, 'roomId=' + roomIdBigInt, '→ pot=' + pot);
-            // Wire lifecycle hooks. The room calls these after its
-            // start / end broadcasts. start_pot is straightforward.
-            // finalize_pot needs winners + amounts (handled in B2.5c-ii).
-            room.onRoundStart = async () => {
-              try {
-                const { signature: sig } = await escrow.startPot(roomIdBigInt);
-                console.log('[escrow] start_pot', room.code, 'sig=' + sig);
-              } catch (err) {
-                console.warn('[escrow] start_pot failed', room.code, err.message);
-              }
-            };
-            room.onRoundEnd = async ({ eliminated, topFigIds }) => {
-              try {
-                await finalizeRoom(room, roomIdBigInt, topFigIds);
-              } catch (err) {
-                console.warn('[escrow] finalize_pot failed', room.code, ':', err.message || err);
-              }
-            };
-          } catch (err) {
-            console.warn('[escrow] init_pot failed for', room.code, ':', err.message);
-            // Tear down the WS room so the next quickjoin doesn't try
-            // to re-join a half-formed pot-less room.
-            rooms.delete(room.code);
-            send(ws, { type: 'error', message: 'pot init failed: ' + err.message });
-            return;
-          }
-        }
       }
       if (!room.addPlayer(playerId, ws)) {
         send(ws, { type: 'error', message: 'could not join room' });
         return;
       }
       roomCode = room.code;
-      // Escrow payload is only attached when the room has an on-chain
-      // pot. Practice / unauthenticated rooms send a bare joined.
+      // Pot creation is DEFERRED until 2+ humans are in the lobby.
+      // First joiner pays nothing and can leave cleanly with no chain
+      // interaction. When the second joiner lands, we init_pot once;
+      // both clients see the new pot in the next roster broadcast and
+      // trigger their join_pot tx from the onRoster handler.
+      const needsPot = escrow.isEnabled() && !room.escrow && room.players.size >= 2;
+      if (needsPot) {
+        try {
+          const roomIdBigInt = nextRoomIdBigInt();
+          const entryFee = ENTRY_FEE_LAMPORTS;
+          const { signature, pot } = await escrow.initPot(roomIdBigInt, entryFee);
+          room.escrow = {
+            roomId: String(roomIdBigInt),
+            pot,
+            entryFee: String(entryFee),
+            signature,
+          };
+          console.log('[escrow] init_pot', room.code, 'roomId=' + roomIdBigInt, '→ pot=' + pot,
+                      `(triggered by 2nd human joining)`);
+          // Wire lifecycle hooks at the same moment we create the pot.
+          room.onRoundStart = async () => {
+            try {
+              const { signature: sig } = await escrow.startPot(roomIdBigInt);
+              console.log('[escrow] start_pot', room.code, 'sig=' + sig);
+            } catch (err) {
+              console.warn('[escrow] start_pot failed', room.code, err.message);
+            }
+          };
+          room.onRoundEnd = async ({ eliminated, topFigIds }) => {
+            try {
+              await finalizeRoom(room, roomIdBigInt, topFigIds);
+            } catch (err) {
+              console.warn('[escrow] finalize_pot failed', room.code, ':', err.message || err);
+            }
+          };
+          // Push the fresh escrow payload to ALL clients in the room
+          // (including the 1st joiner who didn't see it before).
+          room.broadcastRoster();
+        } catch (err) {
+          console.warn('[escrow] init_pot failed for', room.code, ':', err.message);
+          send(ws, { type: 'error', message: 'pot init failed: ' + err.message });
+          // Don't tear down the room — the 1st joiner is still there
+          // and we can retry on the next 2nd-joiner attempt.
+          return;
+        }
+      }
+      // Escrow payload is sent in 'joined' only when the room already
+      // had a pot before this joiner (3rd+ players, or 2nd joiner who
+      // triggered the create above). 1st joiner gets a bare 'joined';
+      // they pick up the pot info in the next roster broadcast.
       const joinedMsg = { type: 'joined', code: room.code, playerId };
       if (room.escrow) joinedMsg.escrow = room.escrow;
       send(ws, joinedMsg);
