@@ -358,19 +358,20 @@ wss.on('connection', (ws) => {
         send(ws, { type: 'error', message: 'auth failed: ' + err.message });
         return;
       }
-      // Smart matchmaking: pick the first lobby-phase room with
-      // capacity; if none exists, spin up a fresh one. Friends who
-      // both tap "join" within the same lobby window land together
-      // without needing to coordinate a room code.
+      // Smart matchmaking: pick the first lobby-phase quickmatch
+      // room with capacity; if none exists, spin up a fresh one.
+      // Practice rooms (mode='practice') are excluded — they're
+      // single-shot solo games and never accept matchmakers.
       let room = null;
       for (const r of rooms.values()) {
+        if (r.mode !== 'quickmatch') continue;
         if (r.state.phase !== 'lobby') continue;
         if (r.players.size >= MAX_PLAYERS) continue;
         room = r;
         break;
       }
       if (!room) {
-        room = new GameRoom({});
+        room = new GameRoom({ mode: 'quickmatch' });
         rooms.set(room.code, room);
         // First joiner of a fresh quickmatch room → spin up the
         // on-chain pot. Stays a no-op when escrow is disabled. We
@@ -430,7 +431,9 @@ wss.on('connection', (ws) => {
       return;
     }
     if (msg.type === 'create') {
-      const room = new GameRoom({});
+      // Practice room: no Privy required, no escrow, just bots.
+      // Solo / "skip timer" flows both end up here.
+      const room = new GameRoom({ mode: 'practice' });
       rooms.set(room.code, room);
       if (!room.addPlayer(playerId, ws)) {
         send(ws, { type: 'error', message: 'could not join fresh room' });
