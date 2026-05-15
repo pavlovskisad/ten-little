@@ -116,6 +116,27 @@ async function finalizeRoom(room, roomIdBigInt, topFigIds) {
   const { signature } = await escrow.finalizePot(roomIdBigInt, winners, amounts);
   console.log('[escrow] finalize_pot', room.code, 'sig=' + signature,
               'winners=' + winners.length, 'pool=' + pool, 'rake=' + rake);
+
+  // Cascade: now that rake has landed in rake_vault, drain it into
+  // buyback_vault + rev_share. Errors are logged but non-fatal —
+  // the finalize already succeeded, and rake just accumulates for
+  // the next drain attempt. Skipped when rev_share isn't initialized
+  // yet (admin hasn't called init_rev_share). On a successful run,
+  // NFT holders see new claimable amounts on their next claim.
+  try {
+    const { signature: drainSig } = await escrow.drainRakeVault();
+    console.log('[escrow] drain_rake_vault', room.code, 'sig=' + drainSig);
+  } catch (err) {
+    const msg = (err && err.message) || String(err);
+    // The most common reason for failure pre-init_rev_share is the
+    // rev_share / buyback_vault accounts not existing yet. Log
+    // calmly so it doesn't look like a real fault.
+    if (msg.includes('AccountNotInitialized') || msg.includes('rev_share')) {
+      console.log('[escrow] drain_rake_vault skipped (rev_share not initialized — run init_rev_share)');
+    } else {
+      console.warn('[escrow] drain_rake_vault failed', room.code, msg);
+    }
+  }
 }
 
 // Extensions where on-the-fly gzip is a meaningful win. Binary media
