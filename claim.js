@@ -34,9 +34,15 @@ const MPL_TOKEN_METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3
 const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 
+// Standard Solana RPC for getAccountInfo (config + rev-share + claim
+// state PDAs). The public api.devnet.solana.com is rate-limited to
+// the point of unusability during the test window, so we default to
+// the same Helius endpoint that handles getAssetsByOwner — it also
+// serves standard RPC methods.
 const ESCROW_RPC = (() => {
   const params = new URLSearchParams(location.search);
-  return params.get('escrowRpc') || 'https://api.devnet.solana.com';
+  return params.get('escrowRpc') ||
+    'https://devnet.helius-rpc.com/?api-key=f06fa0f0-ba74-43b6-afef-dfa9928341cc';
 })();
 // Helius RPC for getAssetsByOwner. Hardcoded devnet key during the
 // devnet-testing window; flip to mainnet alongside the program promotion.
@@ -264,7 +270,8 @@ function ClaimPage() {
   const total = revShare ? BigInt(revShare.totalAccruedPerUnit.toString()) : 0n;
   const supply = revShare ? Number(revShare.nftSupply) : 0;
   const collectionMint = config && config.nftCollection ? config.nftCollection.toBase58() : null;
-  const showNoConfig = !collectionMint || collectionMint === '11111111111111111111111111111111';
+  const showNoConfig = config !== null
+    && (!collectionMint || collectionMint === '11111111111111111111111111111111');
 
   return h('div', { className: 'claim-page' }, [
     h('div', { className: 'claim-top' }, [
