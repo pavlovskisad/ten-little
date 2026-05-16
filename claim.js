@@ -223,10 +223,16 @@ function ClaimPage() {
   const { wallets } = useSolanaWallets();
   const wallet = wallets?.[0];
   const [assets, setAssets] = useState(null);
+  const [rawAssets, setRawAssets] = useState(null);
   const [revShare, setRevShare] = useState(null);
   const [config, setConfig] = useState(null);
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  // Temporary debug surfaces — visible in-page on mobile while
+  // figuring out why fetches hang. Each entry: 'pending' | 'ok …' |
+  // 'err …'. Remove once the load reliably works.
+  const [dbg, setDbg] = useState({ config: 'pending', revShare: 'pending', assets: 'pending' });
+  const setDbgKey = (key, value) => setDbg(prev => ({ ...prev, [key]: value }));
 
   const conn = new Connection(ESCROW_RPC, 'confirmed');
   const owner = privy.user ? pickSolanaAddress(privy.user) : '';
@@ -234,27 +240,41 @@ function ClaimPage() {
   useEffect(() => {
     if (!privy.authenticated || !owner) return;
     let alive = true;
-    (async () => {
-      try {
-        const [cfg, rs, items] = await Promise.all([
-          fetchConfig(conn),
-          fetchRevShareState(conn),
-          fetchOwnedAssets(owner),
-        ]);
+    setDbg({ config: 'pending', revShare: 'pending', assets: 'pending' });
+    // Each fetch runs independently so a hang in one doesn't block
+    // the other two from rendering. Also lets the debug panel show
+    // which one is the bottleneck.
+    fetchConfig(conn).then(
+      cfg => { if (alive) { setConfig(cfg); setDbgKey('config', cfg ? 'ok' : 'ok (null)'); } },
+      err => { if (alive) setDbgKey('config', 'err ' + (err.message || err)); },
+    );
+    fetchRevShareState(conn).then(
+      rs => { if (alive) { setRevShare(rs); setDbgKey('revShare', rs ? 'ok' : 'ok (null)'); } },
+      err => { if (alive) setDbgKey('revShare', 'err ' + (err.message || err)); },
+    );
+    fetchOwnedAssets(owner).then(
+      items => {
         if (!alive) return;
-        setConfig(cfg);
-        setRevShare(rs);
-        const collectionMint = cfg && cfg.nftCollection ? cfg.nftCollection.toBase58() : null;
-        const filtered = collectionMint
-          ? items.filter(a => nftBelongsToCollection(a, collectionMint))
-          : [];
-        setAssets(filtered);
-      } catch (err) {
-        if (alive) setError(err.message || 'failed to load');
-      }
-    })();
+        setDbgKey('assets', 'ok ' + items.length + ' raw');
+        // Filtering happens once both rawAssets and config have arrived,
+        // handled in a separate effect below.
+        setRawAssets(items);
+      },
+      err => { if (alive) { setDbgKey('assets', 'err ' + (err.message || err)); setError(err.message || 'failed to load'); } },
+    );
     return () => { alive = false; };
   }, [privy.authenticated, owner, refreshKey]);
+
+  // Filter raw assets to the configured collection once both config
+  // and raw asset list are in.
+  useEffect(() => {
+    if (rawAssets === null || config === null) return;
+    const collectionMint = config.nftCollection ? config.nftCollection.toBase58() : null;
+    const filtered = collectionMint
+      ? rawAssets.filter(a => nftBelongsToCollection(a, collectionMint))
+      : [];
+    setAssets(filtered);
+  }, [rawAssets, config]);
 
   if (!privy.ready) {
     return h('div', { className: 'claim-loading' }, 'loading…');
@@ -294,6 +314,18 @@ function ClaimPage() {
     showNoConfig && h('div', { className: 'claim-warn' },
       'collection mint not configured on chain yet — admin runs set_nft_collection to enable claims.'
     ),
+    // Temporary debug panel — surfaces per-fetch status on mobile so
+    // we can see which RPC call is stalling. Remove once stable.
+    h('pre', {
+      style: 'background:#1a1410;color:#ffd000;padding:8px;border:1px solid #ffd000;font-size:11px;white-space:pre-wrap;word-break:break-all;margin:8px 0;',
+    }, [
+      'rpc: ' + ESCROW_RPC + '\n',
+      'helius: ' + HELIUS_RPC + '\n',
+      'owner: ' + owner + '\n',
+      'config:    ' + dbg.config + '\n',
+      'revShare:  ' + dbg.revShare + '\n',
+      'assets:    ' + dbg.assets,
+    ].join('')),
     error && h('div', { className: 'claim-error' }, error),
     assets === null && !error && h('div', { className: 'claim-loading' }, 'loading your nfts…'),
     assets !== null && assets.length === 0 && !showNoConfig && h('div', { className: 'claim-empty' },
