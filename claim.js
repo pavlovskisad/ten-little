@@ -245,7 +245,20 @@ function ClaimPage() {
     // the other two from rendering. Also lets the debug panel show
     // which one is the bottleneck.
     fetchConfig(conn).then(
-      cfg => { if (alive) { setConfig(cfg); setDbgKey('config', cfg ? 'ok' : 'ok (null)'); } },
+      cfg => {
+        if (!alive) return;
+        setConfig(cfg);
+        // Surface decoded keys + nft_collection value (both casings)
+        // so a snake_case ↔ camelCase mismatch is visible.
+        if (cfg) {
+          const keys = Object.keys(cfg).join(',');
+          const nc = (cfg.nftCollection || cfg.nft_collection);
+          const ncStr = nc ? (nc.toBase58 ? nc.toBase58() : String(nc)) : 'undef';
+          setDbgKey('config', 'ok keys=' + keys + ' nc=' + ncStr);
+        } else {
+          setDbgKey('config', 'ok (null)');
+        }
+      },
       err => { if (alive) setDbgKey('config', 'err ' + (err.message || err)); },
     );
     fetchRevShareState(conn).then(
@@ -269,7 +282,8 @@ function ClaimPage() {
   // and raw asset list are in.
   useEffect(() => {
     if (rawAssets === null || config === null) return;
-    const collectionMint = config.nftCollection ? config.nftCollection.toBase58() : null;
+    const nc = config.nftCollection || config.nft_collection;
+    const collectionMint = nc ? nc.toBase58() : null;
     const filtered = collectionMint
       ? rawAssets.filter(a => nftBelongsToCollection(a, collectionMint))
       : [];
@@ -287,9 +301,12 @@ function ClaimPage() {
     ]);
   }
 
-  const total = revShare ? BigInt(revShare.totalAccruedPerUnit.toString()) : 0n;
-  const supply = revShare ? Number(revShare.nftSupply) : 0;
-  const collectionMint = config && config.nftCollection ? config.nftCollection.toBase58() : null;
+  const totalRaw = revShare && (revShare.totalAccruedPerUnit || revShare.total_accrued_per_unit);
+  const supplyRaw = revShare && (revShare.nftSupply || revShare.nft_supply);
+  const total = totalRaw ? BigInt(totalRaw.toString()) : 0n;
+  const supply = supplyRaw ? Number(supplyRaw) : 0;
+  const ncField = config && (config.nftCollection || config.nft_collection);
+  const collectionMint = ncField ? ncField.toBase58() : null;
   const showNoConfig = config !== null
     && (!collectionMint || collectionMint === '11111111111111111111111111111111');
 
