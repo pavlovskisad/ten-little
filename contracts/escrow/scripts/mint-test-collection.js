@@ -87,6 +87,33 @@ async function main() {
   console.log('  tx:             ', parentSig.signature ? Buffer.from(parentSig.signature).toString('hex') : '(confirmed)');
 
   // --- 2. member NFTs ---
+  // Public devnet RPCs occasionally race: a createNft confirms on one
+  // node, but the immediately-following verifyCollectionV1 hits a
+  // different node that hasn't seen the metadata account yet and errors
+  // with IncorrectOwner (0x39). Retry with backoff to ride out the lag.
+  const verifyWithRetry = async (memberMint) => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        await verifyCollectionV1(umi, {
+          metadata: findMetadataPda(umi, { mint: memberMint.publicKey }),
+          collectionMint: collectionMint.publicKey,
+          authority: umi.identity,
+        }).sendAndConfirm(umi);
+        return;
+      } catch (e) {
+        const msg = e?.message || String(e);
+        const transient = msg.includes('IncorrectOwner')
+          || msg.includes('0x39')
+          || msg.includes('not been found')
+          || msg.includes('AccountNotFound');
+        if (!transient || attempt === 4) throw e;
+        const waitMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s, 8s
+        process.stdout.write(`(retry in ${waitMs}ms) `);
+        await new Promise((r) => setTimeout(r, waitMs));
+      }
+    }
+  };
+
   const members = [];
   for (let i = 0; i < count; i++) {
     const memberMint = generateSigner(umi);
@@ -101,13 +128,7 @@ async function main() {
       tokenOwner: owner,
     }).sendAndConfirm(umi);
     process.stdout.write('minted, verifying… ');
-    // verifyCollectionV1 flips collection.verified = true. Without it,
-    // the on-chain claim_rev_share check rejects the NFT.
-    await verifyCollectionV1(umi, {
-      metadata: findMetadataPda(umi, { mint: memberMint.publicKey }),
-      collectionMint: collectionMint.publicKey,
-      authority: umi.identity, // payer == update authority by default
-    }).sendAndConfirm(umi);
+    await verifyWithRetry(memberMint);
     console.log('verified  →', memberMint.publicKey);
     members.push(memberMint.publicKey);
   }
