@@ -9,3 +9,4 @@ ImageToStl.com_Basketball_ball.zip
 node_modules/
 package-lock.json
 auth.bundle.js
+claim.bundle.js

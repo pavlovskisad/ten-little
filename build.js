@@ -1,24 +1,28 @@
-// Build script for auth.bundle.js. Runs at deploy time on Railway
-// (npm run build, auto-detected after npm install) and reproduces
-// locally with the same command.
+// Build script for the Preact bundles. Runs at deploy time on
+// Railway (npm run build, auto-detected after npm install) and
+// reproduces locally with the same command.
 //
-// What it does: takes auth.js (Preact + Privy island source) and
-// bundles it together with preact + @privy-io/react-auth +
-// @solana/web3.js into a single ESM file. React imports get aliased
+// What it does: takes the two Preact entry points (auth.js for the
+// lobby login/wallet island, claim.js for the rev-share /claim
+// page) and bundles each one together with preact + Privy + web3.js
+// + Anchor coder into a single ESM file. React imports get aliased
 // to preact/compat at bundle time, so the Privy SDK runs unmodified
 // on top of Preact.
 //
-// Output: ./auth.bundle.js — served by the unified static handler
-// the same as any other static asset. Self-contained, no runtime
-// CDN, no import map, ~300-500 KB minified.
+// Outputs:
+//   ./auth.bundle.js   — used by plate-shapes.html
+//   ./claim.bundle.js  — used by claim.html
+// Both served by the unified static handler the same as any other
+// static asset. Self-contained, no runtime CDN, no import map.
 
 const esbuild = require('esbuild');
 
-esbuild.build({
-  entryPoints: ['./auth.js'],
+// Shared build options. Each entry point gets its own outfile but
+// otherwise uses identical settings (same React→Preact alias, same
+// Buffer polyfill, same env defines).
+const sharedOptions = {
   bundle: true,
   format: 'esm',
-  outfile: './auth.bundle.js',
   minify: true,
   // React-libs introspect this to enable prod paths (drop dev warnings).
   // SOLANA_RPC lets the deploy pipeline inject a real (Helius / QuickNode /
@@ -44,6 +48,20 @@ esbuild.build({
     'react-dom': 'preact/compat',
     'react/jsx-runtime': 'preact/jsx-runtime',
   },
+  // The claim bundle imports the escrow IDL JSON directly — esbuild
+  // handles .json natively, no loader needed, but spell out the loader
+  // anyway so future contributors don't second-guess it.
+  loader: { '.json': 'json' },
   logLevel: 'info',
-}).then(() => console.log('[build] auth.bundle.js written'))
+};
+
+const targets = [
+  { entryPoints: ['./auth.js'],  outfile: './auth.bundle.js'  },
+  { entryPoints: ['./claim.js'], outfile: './claim.bundle.js' },
+];
+
+Promise.all(targets.map(t => esbuild.build({ ...sharedOptions, ...t })))
+  .then(() => {
+    for (const t of targets) console.log('[build]', t.outfile, 'written');
+  })
   .catch(err => { console.error(err); process.exit(1); });
