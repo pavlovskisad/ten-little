@@ -41,22 +41,12 @@ const {
   findMetadataPda,
 } = require('@metaplex-foundation/mpl-token-metadata');
 
-// Tiny inline image so the NFTs render with *something* in wallets /
-// explorers. URI is data: so the script doesn't need an upload step.
-// Each token uses the same image; only the on-chain mint differs.
-const METADATA_URI = 'data:application/json;base64,' + Buffer.from(JSON.stringify({
-  name: 'ten little test',
-  symbol: 'TLT',
-  description: 'Devnet test NFT for the ten little rev-share claim flow.',
-  image: 'data:image/svg+xml;base64,' + Buffer.from(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256">' +
-    '<rect width="100%" height="100%" fill="#14110d"/>' +
-    '<text x="50%" y="50%" font-family="monospace" font-size="22" fill="#ffd000" ' +
-    'text-anchor="middle" dominant-baseline="middle">ten little</text>' +
-    '</svg>',
-  ).toString('base64'),
-  attributes: [{ trait_type: 'cluster', value: 'devnet' }],
-})).toString('base64');
+// Dummy URI — devnet only. claim_rev_share doesn't read the metadata
+// URI, just the on-chain collection field. Wallets/explorers will
+// show "metadata not found", which is fine for testing. An inline
+// data: URI blows past Solana's 1232-byte tx limit; a real Arweave
+// upload would work but isn't needed to prove the claim flow.
+const METADATA_URI = 'https://example.com/nft.json';
 
 async function main() {
   const [, , ownerStr, countStr, rpcUrl, keypairPath] = process.argv;
