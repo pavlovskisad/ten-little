@@ -533,6 +533,14 @@ wss.on('connection', (ws) => {
             } catch (err) {
               console.warn('[escrow] finalize_pot failed', room.code, ':', err.message || err);
             }
+            // Drop session tokens for this room once the round
+            // finalizes — there's nothing for a late reconnect to
+            // attach to. Clients get reconnectFailed and fall back
+            // to a clean lobby; they can check their wallet for the
+            // payout signature.
+            for (const [tok, entry] of sessionTokens) {
+              if (entry.roomCode === room.code) sessionTokens.delete(tok);
+            }
           };
           // Push the fresh escrow payload to ALL clients in the room
           // (including the 1st joiner who didn't see it before).
@@ -668,20 +676,21 @@ wss.on('connection', (ws) => {
     const room = rooms.get(roomCode);
     if (!room) return;
     const player = room.players.get(playerId);
-    if (player && player.paidSig) {
-      // Paid player: keep the slot reserved so they can reconnect via
-      // their session token. Bot AI drives their figure in the
-      // meantime. Their slot stays around until the round finalizes
-      // (and is implicitly torn down when the room is) or the session
-      // token expires.
+    // Paid player + round still in progress (lobby or play): preserve
+    // the slot so they can reconnect. Bot AI drives their figure in
+    // the meantime. The round still plays out and finalize_pot still
+    // runs against pot.players regardless of how many humans are
+    // actively connected at the end.
+    const preserveSlot = player
+      && player.paidSig
+      && (room.state.phase === 'lobby' || room.state.phase === 'play');
+    if (preserveSlot) {
       room.disconnect(playerId);
       console.log('[ws] paid player', playerId, 'disconnected from', room.code, '— slot reserved');
-      // No teardown here: the room is preserved with disconnected
-      // slots so reconnect can land. If everyone disconnects mid-play
-      // the round still plays out with bots and finalize_pot runs.
       return;
     }
-    // Unpaid player: standard remove.
+    // Unpaid disconnect OR round is over (nothing to reconnect to):
+    // remove the slot and tear down empty non-play rooms.
     room.removePlayer(playerId);
     if (room.players.size === 0 && room.state.phase !== 'play') {
       room.stop();
