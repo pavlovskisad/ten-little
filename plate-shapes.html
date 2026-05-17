@@ -2546,6 +2546,34 @@ function predictLocalPlayer(dt) {
 }
 
 // Trigger join_pot payment idempotently. Called from both the
+// Session token persistence. Stored in localStorage so a page
+// reload, accidental tab close, or wifi blip lands the player back
+// in the same paid slot. Server-side TTL is 10 min; the client-side
+// expiry mirrors that so we don't even try to reconnect with a stale
+// token. Cleared on round-end and on reconnectFailed.
+const SESSION_KEY = 'tlSession';
+function readStoredSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!s || !s.token || !s.expiresAt || s.expiresAt <= Date.now()) {
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return s;
+  } catch (e) {
+    return null;
+  }
+}
+function saveSession(token, roomCode, expiresAt) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify({ token, roomCode, expiresAt })); }
+  catch (e) {}
+}
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+}
+
 // 'joined' message handler (2nd-joiner who lands when pot already
 // exists) and the 'roster' handler (1st-joiner whose escrow info
 // arrives later, when the 2nd-joiner triggers pot creation). The
@@ -2582,6 +2610,23 @@ function netConnect() {
   NET.ws = ws;
   ws.addEventListener('open', () => {
     console.log('[net] open', NET.url);
+    // Reconnect path: if the client is in reconnect mode (set by
+    // netReconnect() on page-load auto-attempt), send the session
+    // token first. Server replies with 'reconnected' on success or
+    // 'reconnectFailed' — the latter triggers a clean fall-through
+    // to normal join below.
+    if (NET.joinMode === 'reconnect') {
+      const session = readStoredSession();
+      if (session) {
+        ws.send(JSON.stringify({ type: 'reconnect', token: session.token }));
+        return;
+      }
+      // No session anymore (cleared while we were opening the WS) —
+      // can't do anything. Tear down and bail to lobby.
+      try { ws.close(); } catch (e) {}
+      if (typeof NET.onReconnectFailed === 'function') NET.onReconnectFailed();
+      return;
+    }
     const mode = NET.joinMode || 'quickjoin';
     if (mode === 'quickjoin') {
       // Token is bundled into the quickjoin message itself so server
@@ -2632,8 +2677,41 @@ function netConnect() {
     } else if (msg.type === 'state') {
       netReconcile(msg.state);
       NET.spawned = true;
+    } else if (msg.type === 'sessionToken') {
+      // Server hands us a token after our join_pot confirms. Persist
+      // it so a page reload / wifi blip can reconnect back to the
+      // same paid slot via the 'reconnect' message.
+      saveSession(msg.token, msg.roomCode, msg.expiresAt);
+      console.log('[net] session token stored, expires', new Date(msg.expiresAt).toISOString());
+    } else if (msg.type === 'reconnected') {
+      // We landed back in our slot after a disconnect. Restore the
+      // NET state and figure binding, then resume input if the round
+      // is mid-play.
+      NET.playerId = msg.playerId;
+      NET.code = msg.code;
+      NET.myFigureId = msg.figureId != null ? msg.figureId : 0;
+      console.log('[net] reconnected', msg.code, msg.playerId, 'phase=' + msg.phase, 'fig=' + msg.figureId);
+      if (msg.phase === 'play') {
+        // The next 'state' broadcast will bring the actual sim state.
+        // Set up input + UI as if a normal 'start' had arrived.
+        S.phase = 'play';
+        S.startedAt = performance.now();
+        document.getElementById('over').classList.remove('show');
+        if (NET.inputTimer) clearInterval(NET.inputTimer);
+        NET.inputTimer = setInterval(netSendInput, 33);
+      }
+      if (typeof NET.onReconnected === 'function') NET.onReconnected(msg);
+    } else if (msg.type === 'reconnectFailed') {
+      // Stored token is no longer usable (expired, room gone, etc.).
+      // Clear localStorage and let the UI fall back to a clean lobby.
+      console.log('[net] reconnect failed:', msg.reason);
+      clearSession();
+      if (typeof NET.onReconnectFailed === 'function') NET.onReconnectFailed(msg);
     } else if (msg.type === 'end') {
       console.log('[net] end', msg);
+      // Round finalized — clear the session token. Even if the player
+      // closes the tab now, there's no slot to reconnect to.
+      clearSession();
       if (NET.inputTimer) { clearInterval(NET.inputTimer); NET.inputTimer = null;
       }
       S.phase = 'over';
@@ -3618,6 +3696,51 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
     NET.privyToken = token;
     netConnect();
   };
+
+  // Page-load auto-reconnect: if there's an unexpired session token
+  // in localStorage, the player was mid-match when their last tab
+  // closed. Attempt to drop them back into the same slot before
+  // showing the normal lobby. Fall back to lobby on failure.
+  NET.onReconnected = (msg) => {
+    // Dismiss the title screen if it's still visible (it usually is
+    // because reconnect fires before the user has clicked anything).
+    const title = document.getElementById('title');
+    if (title) {
+      title.classList.add('gone');
+      setTimeout(() => title.remove(), 700);
+    }
+    pre.style.display = 'none';
+    inRoom.style.display = 'flex';
+    document.getElementById('lobby-code-show').textContent = msg.code;
+    if (msg.phase === 'play') {
+      // Game is live — hide the entire lobby overlay so the rendered
+      // sim is visible. The room scenery clears via explodeRoom() so
+      // the title cubes don't hang around over the plate. The next
+      // 'state' broadcast brings the actual sim state.
+      lobby.classList.remove('show');
+      try { explodeRoom(); } catch (e) {}
+    } else {
+      // Still in lobby phase — show the in-room panel + opens its
+      // countdown / pot UI on the next roster broadcast.
+      lobby.classList.add('show');
+      statusEl.textContent = 'reconnected · waiting for opponents';
+    }
+  };
+  NET.onReconnectFailed = () => {
+    // Quiet failure — just show the normal lobby. No need to alarm
+    // the user; their stored token was stale or the room is gone.
+    pre.style.display = 'flex';
+    inRoom.style.display = 'none';
+  };
+  if (readStoredSession()) {
+    console.log('[net] stored session found, attempting reconnect');
+    NET.joinMode = 'reconnect';
+    // Show a quick "reconnecting…" state so users know what's happening.
+    pre.style.display = 'none';
+    inRoom.style.display = 'flex';
+    statusEl.textContent = 'reconnecting to room…';
+    netConnect();
+  }
   // Solo = create a fresh room + auto-start. No auth required;
   // practice rounds bypass the on-chain layer entirely (see Phase B5
   // in the plan).

@@ -59,7 +59,12 @@ class GameRoom {
     if (this.state.phase !== 'lobby') return false;
     if (this.players.size >= MAX_PLAYERS) return false;
     if (this.host === null) this.host = playerId;
-    this.players.set(playerId, { ws, input: { dx: 0, dy: 0 }, figureId: null });
+    this.players.set(playerId, {
+      ws,
+      input: { dx: 0, dy: 0 },
+      figureId: null,
+      disconnected: false,
+    });
     this.armAutoStart();
     this.broadcastRoster();
     return true;
@@ -120,6 +125,59 @@ class GameRoom {
       this.host = next || null;
     }
     if (this.state.phase === 'lobby') this.broadcastRoster();
+  }
+
+  // Soft disconnect: the player's WS closed but they hold a valid
+  // session token, so we keep the slot reserved for reconnect. Their
+  // figure flips to bot AI for the duration. Used for paid players
+  // — unpaid disconnects still fall through removePlayer().
+  disconnect(playerId) {
+    const p = this.players.get(playerId);
+    if (!p) return;
+    p.ws = null;
+    p.disconnected = true;
+    p.disconnectedAt = Date.now();
+    p.input.dx = 0; p.input.dy = 0;
+    if (p.figureId != null) {
+      const f = this.state.figs.find(x => x.id === p.figureId);
+      if (f) f.isPlayer = false;
+    }
+    // Roster broadcast lets remaining clients know the slot is still
+    // counted but no input is coming.
+    if (this.state.phase === 'lobby') this.broadcastRoster();
+  }
+
+  // Rebind a slot to a new WS after a reconnect handshake. Caller
+  // (index.js) has already validated the session token. Returns the
+  // payload the client needs to restore its game state.
+  reconnect(playerId, ws) {
+    const p = this.players.get(playerId);
+    if (!p) return null;
+    // Last-connect-wins: if the old WS is still alive (e.g., the
+    // player opened a second tab), close it so two clients don't
+    // fight over the same slot.
+    if (p.ws && p.ws !== ws) {
+      try { p.ws.close(); } catch (e) {}
+    }
+    p.ws = ws;
+    p.disconnected = false;
+    p.disconnectedAt = null;
+    if (p.figureId != null) {
+      const f = this.state.figs.find(x => x.id === p.figureId);
+      // Only re-enable player control if the figure is still alive.
+      // A figure that died while disconnected stays dead.
+      if (f && f.alive) f.isPlayer = true;
+    }
+    if (this.state.phase === 'lobby') this.broadcastRoster();
+    return {
+      code: this.code,
+      playerId,
+      figureId: p.figureId,
+      phase: this.state.phase,
+      host: this.host,
+      humansAtStart: this.humansAtStart || null,
+      mode: this.mode,
+    };
   }
 
   setInput(playerId, dx, dy) {
@@ -336,7 +394,10 @@ class GameRoom {
   broadcast(msg) {
     const data = JSON.stringify(msg);
     for (const { ws } of this.players.values()) {
-      if (ws.readyState === 1 /* OPEN */) ws.send(data);
+      // Skip disconnected slots — ws is null after disconnect() until
+      // a reconnect rebinds. The bot AI is driving their figure in
+      // the meantime so they don't need state snapshots.
+      if (ws && ws.readyState === 1 /* OPEN */) ws.send(data);
     }
   }
 }

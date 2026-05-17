@@ -199,6 +199,39 @@ function send(ws, msg) {
   if (ws.readyState === 1) ws.send(JSON.stringify(msg));
 }
 
+// Session tokens for the reconnect flow. Issued to a player only
+// after their join_pot tx confirms (we don't hand out tokens to
+// players who never paid — they have no slot worth reserving).
+// Stored in-memory and lost on server restart, which is acceptable
+// for Railway's rolling-deploy cadence; durable storage would be a
+// follow-up if restart frequency becomes a problem.
+const sessionTokens = new Map();   // token → { playerId, roomCode, expiresAt }
+const SESSION_TTL_MS = 10 * 60 * 1000;   // 10 min, covers a 90s round + grace
+
+function issueSessionToken(playerId, roomCode) {
+  // Token format: random 16-byte hex string. Not cryptographically
+  // signed — security model is "stored only on chain via paidSig +
+  // wallet, server validates the token by lookup, not by signature."
+  const token = Array.from({ length: 16 }, () =>
+    Math.floor(Math.random() * 256).toString(16).padStart(2, '0')
+  ).join('');
+  sessionTokens.set(token, {
+    playerId,
+    roomCode,
+    expiresAt: Date.now() + SESSION_TTL_MS,
+  });
+  return token;
+}
+
+// Periodic sweep so the map doesn't grow forever. Cheap — runs once
+// a minute, walks the map, drops expired entries.
+setInterval(() => {
+  const now = Date.now();
+  for (const [tok, entry] of sessionTokens) {
+    if (entry.expiresAt <= now) sessionTokens.delete(tok);
+  }
+}, 60_000).unref();
+
 // Whitelist of extensions we'll serve, mapped to content types.
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -375,7 +408,9 @@ const httpServer = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server: httpServer });
 
 wss.on('connection', (ws) => {
-  const playerId = nextPlayerId();
+  // Reassigned by the reconnect handler when the client lands with a
+  // valid session token — the WS rebinds to the original slot.
+  let playerId = nextPlayerId();
   let roomCode = null;
   // Privy identity bound by quickjoin (when the client includes a
   // token). Practice ('create' for solo) leaves this null.
@@ -510,10 +545,51 @@ wss.on('connection', (ws) => {
       if (player) {
         player.paidSig = msg.signature || null;
         player.wallet = msg.wallet || null;
+        // Issue a session token so the client can reconnect to the
+        // same slot if their WS drops mid-round. Tokens are scoped to
+        // (playerId, roomCode) and expire after SESSION_TTL_MS.
+        const token = issueSessionToken(playerId, room.code);
+        player.sessionToken = token;
+        send(ws, { type: 'sessionToken', token, roomCode: room.code, expiresAt: Date.now() + SESSION_TTL_MS });
         console.log('[escrow] paid', room.code, playerId, 'wallet=' + msg.wallet, 'sig=' + msg.signature);
         // Push a fresh roster so every client sees the new paid count
         // light up in the pot UI immediately.
         if (room.state.phase === 'lobby') room.broadcastRoster();
+      }
+      return;
+    }
+    if (msg.type === 'reconnect') {
+      // Client believes it has a valid session token. Validate, find
+      // the slot, rebind WS. The fresh playerId from nextPlayerId()
+      // at connection-open is discarded in favor of the token's bound
+      // playerId, so all subsequent messages from this WS hit the
+      // right slot.
+      const entry = sessionTokens.get(msg.token);
+      if (!entry || entry.expiresAt <= Date.now()) {
+        send(ws, { type: 'reconnectFailed', reason: 'token expired or invalid' });
+        return;
+      }
+      const room = rooms.get(entry.roomCode);
+      if (!room) {
+        sessionTokens.delete(msg.token);
+        send(ws, { type: 'reconnectFailed', reason: 'room no longer exists' });
+        return;
+      }
+      const payload = room.reconnect(entry.playerId, ws);
+      if (!payload) {
+        sessionTokens.delete(msg.token);
+        send(ws, { type: 'reconnectFailed', reason: 'slot no longer in room' });
+        return;
+      }
+      playerId = entry.playerId;
+      roomCode = room.code;
+      send(ws, { type: 'reconnected', ...payload });
+      console.log('[reconnect]', room.code, playerId, 'phase=' + payload.phase);
+      // Push a fresh roster + snapshot so the client immediately sees
+      // current room state.
+      if (room.state.phase === 'lobby') room.broadcastRoster();
+      else if (room.state.phase === 'play') {
+        send(ws, { type: 'state', state: room.snapshot() });
       }
       return;
     }
@@ -544,15 +620,26 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     const room = rooms.get(roomCode);
-    if (room) {
-      room.removePlayer(playerId);
-      // Tear down the room when it's empty AND no longer in play. We
-      // keep in-progress rounds running with bots so the remaining
-      // players don't lose their game.
-      if (room.players.size === 0 && room.state.phase !== 'play') {
-        room.stop();
-        rooms.delete(roomCode);
-      }
+    if (!room) return;
+    const player = room.players.get(playerId);
+    if (player && player.paidSig) {
+      // Paid player: keep the slot reserved so they can reconnect via
+      // their session token. Bot AI drives their figure in the
+      // meantime. Their slot stays around until the round finalizes
+      // (and is implicitly torn down when the room is) or the session
+      // token expires.
+      room.disconnect(playerId);
+      console.log('[ws] paid player', playerId, 'disconnected from', room.code, '— slot reserved');
+      // No teardown here: the room is preserved with disconnected
+      // slots so reconnect can land. If everyone disconnects mid-play
+      // the round still plays out with bots and finalize_pot runs.
+      return;
+    }
+    // Unpaid player: standard remove.
+    room.removePlayer(playerId);
+    if (room.players.size === 0 && room.state.phase !== 'play') {
+      room.stop();
+      rooms.delete(roomCode);
     }
   });
 });
