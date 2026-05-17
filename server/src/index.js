@@ -598,34 +598,52 @@ wss.on('connection', (ws) => {
       return;
     }
     if (msg.type === 'paid') {
-      // Client confirms join_pot signed + submitted. We stash the
-      // signature and the wallet address; finalize_pot uses the
-      // wallet to pay the player when they place. The wallet claim
-      // is enforced by the on-chain pot.players list — even if the
-      // client lies here, finalize_pot's require! rejects winners
-      // not in that list.
+      // Client claims join_pot has confirmed. We verify on chain by
+      // reading pot.players — the wallet must be in that list before
+      // we trust this message. Without this verification a modified
+      // client could lie about paying (junk paidSig), bypass the
+      // start-time gate, and play for free against a real opponent.
+      // Server-side retry covers the 1-2s window between client
+      // submit and tx finalization.
       const room = rooms.get(roomCode);
       if (!room) return;
       const player = room.players.get(playerId);
-      if (player) {
-        player.paidSig = msg.signature || null;
-        player.wallet = msg.wallet || null;
-        // Issue a session token so the client can reconnect to the
-        // same slot if their WS drops mid-round. Tokens are scoped to
-        // (playerId, roomCode) and expire after SESSION_TTL_MS.
-        const token = issueSessionToken(playerId, room.code);
-        player.sessionToken = token;
-        send(ws, { type: 'sessionToken', token, roomCode: room.code, expiresAt: Date.now() + SESSION_TTL_MS });
-        console.log('[escrow] paid', room.code, playerId, 'wallet=' + msg.wallet, 'sig=' + msg.signature);
-        // The room may already have lost its 2nd human while this
-        // player was signing (unpaid disconnect before our 'paid'
-        // arrived). Re-check stale state now that there's a paid
-        // player in a maybe-undersized room.
-        room._evaluateStaleLobby();
-        // Push a fresh roster so every client sees the new paid count
-        // light up in the pot UI immediately.
-        if (room.state.phase === 'lobby') room.broadcastRoster();
+      if (!player) return;
+      if (!room.escrow || !msg.wallet) {
+        send(ws, { type: 'error', message: 'no pot or wallet for paid msg' });
+        return;
       }
+      const roomIdBigInt = BigInt(room.escrow.roomId);
+      const targetWallet = msg.wallet;
+      let verified = false;
+      // Up to ~10s of retries (4 attempts × 2.5s) — long enough to
+      // ride out Solana confirmation latency, short enough that a
+      // legitimately-failed tx doesn't block the room.
+      for (let attempt = 0; attempt < 4 && !verified; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 2500));
+        try {
+          const pot = await escrow.fetchPot(roomIdBigInt);
+          verified = pot.players.some(p => p.toBase58() === targetWallet);
+        } catch (e) {
+          console.warn('[paid] fetchPot failed for', room.code, ':', e.message || e);
+        }
+      }
+      if (!verified) {
+        console.warn('[paid] verification failed for', room.code, playerId, 'wallet=' + targetWallet);
+        send(ws, { type: 'error', message: 'payment not confirmed on chain' });
+        return;
+      }
+      player.paidSig = msg.signature || null;
+      player.wallet = targetWallet;
+      const token = issueSessionToken(playerId, room.code);
+      player.sessionToken = token;
+      send(ws, { type: 'sessionToken', token, roomCode: room.code, expiresAt: Date.now() + SESSION_TTL_MS });
+      console.log('[escrow] paid', room.code, playerId, 'wallet=' + targetWallet, 'sig=' + msg.signature);
+      // The room may have lost its 2nd human while this player was
+      // signing (unpaid disconnect before 'paid' verification
+      // completed). Re-check stale state now that paid count changed.
+      room._evaluateStaleLobby();
+      if (room.state.phase === 'lobby') room.broadcastRoster();
       return;
     }
     if (msg.type === 'reconnect') {
