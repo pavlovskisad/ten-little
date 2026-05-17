@@ -149,8 +149,13 @@ class GameRoom {
 
   // Rebind a slot to a new WS after a reconnect handshake. Caller
   // (index.js) has already validated the session token. Returns the
-  // payload the client needs to restore its game state.
+  // payload the client needs to restore its game state, or null if
+  // the room is no longer reconnectable (round finalized).
   reconnect(playerId, ws) {
+    // Phase 'over' rooms aren't useful to reconnect to — the round is
+    // decided, payouts are on chain, there's nothing for the client
+    // to render. Caller treats null the same as a stale token.
+    if (this.state.phase === 'over') return null;
     const p = this.players.get(playerId);
     if (!p) return null;
     // Last-connect-wins: if the old WS is still alive (e.g., the
