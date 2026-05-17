@@ -2620,8 +2620,24 @@ function maybeTriggerPayment(escrow, ws) {
     })
     .catch((err) => {
       console.warn('[net] payment failed:', err);
-      if (statusEl) statusEl.textContent = 'payment failed: ' + (err.message || 'unknown');
-      NET.paymentTriggered = false;  // allow retry on next escrow nudge
+      NET.paymentTriggered = false;
+      // Any payment failure (modal closed, signing rejected, RPC
+      // timeout) is treated as "this player is leaving the match."
+      // Server still has a start-time backstop that refunds the
+      // remaining paid player after countdown if we somehow didn't
+      // close, but the proactive exit avoids 60s of dead lobby
+      // staring at "payment failed: User exited the modal…" text.
+      if (statusEl) statusEl.textContent = 'payment cancelled — returning to lobby…';
+      // Clear any auto-replay flag so we don't auto-rejoin into
+      // the same dropped match.
+      try { sessionStorage.removeItem('tlAgain'); } catch (e) {}
+      try { localStorage.removeItem('tlSession'); } catch (e) {}
+      setTimeout(() => {
+        if (NET.ws && NET.ws.readyState <= 1) {
+          try { NET.ws.close(); } catch (e) {}
+        }
+        location.reload();
+      }, 2500);
     });
 }
 
@@ -3440,26 +3456,17 @@ function showOverlay(placement) {
   o.classList.add('show');
 }
 
-// Render the big "Nth of M" label and (if payouts have arrived) the
-// player's own +X SOL prize underneath. Re-callable when payouts
-// land after the overlay's already up.
+// Render the big "Nth of M" label. Payouts no longer pile onto
+// the headline — they live on the podium row directly under so
+// the placement headline stays clean and readable.
 function refreshOverlayPlace() {
   const ord = document.getElementById('ord');
-  const stat = document.getElementById('overStat');
   const placement = NET.lastPlacement;
   if (placement == null) return;
   const ords = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th'];
   let label = ords[placement - 1] || (placement + 'th');
   if (NET.humansAtStart && NET.humansAtStart > 1) {
     label += ` of ${NET.humansAtStart}`;
-  }
-  // If payouts are in and we matched on figId, append the player's
-  // prize so the headline reads e.g. "1st of 3 · +0.018 SOL".
-  const myPayout = (NET.payouts || []).find(
-    pay => NET.myFigureId != null && pay.figId === NET.myFigureId
-  );
-  if (myPayout) {
-    label += ` · +${lamportsToSolStr(myPayout.lamports)} SOL`;
   }
   ord.textContent = label;
   ord.className = 'ord' + (placement <= 2 ? ' win' : '');
@@ -3867,12 +3874,24 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
     NET.staleRefundAt = null;
     renderStaleCountdown();
   };
+  // Generic terminal-state handler: show the message, take the player
+  // back to the lobby after a beat so they can read it but don't get
+  // stranded staring at a dead room.
+  function returnToLobbyAfter(ms) {
+    setTimeout(() => {
+      if (NET.ws && NET.ws.readyState <= 1) try { NET.ws.close(); } catch (e) {}
+      try { sessionStorage.removeItem('tlAgain'); } catch (e) {}
+      try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+      location.reload();
+    }, ms);
+  }
   NET.onRefunded = (msg) => {
     NET.staleRefundAt = null;
     renderStaleCountdown();
     statusEl.textContent = msg && msg.reason === 'stale_lobby'
       ? 'no one joined — refunded'
       : 'match cancelled — refunded';
+    returnToLobbyAfter(4000);
   };
   NET.onMatchCancelled = (msg) => {
     NET.staleRefundAt = null;
@@ -3880,6 +3899,7 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
     statusEl.textContent = msg.reason === 'unpaid_player'
       ? 'match cancelled — other player did not pay'
       : 'match cancelled';
+    returnToLobbyAfter(4000);
   };
 
   // Bridge from the Preact auth island (auth.js) to the vanilla net
