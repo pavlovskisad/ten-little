@@ -307,6 +307,15 @@
     font-size: 18px; color: #ff1a1a;
     min-height: 22px;
   }
+  /* Pre-pay disclaimer in the lobby. Once you confirm join_pot you're
+     locked in: no cancel UI, no on-chain refund path triggered by
+     players, no take-backs. Surfaced before the join click so users
+     know what they're agreeing to. */
+  #lobby .lobby-disclaimer {
+    font-size: 13px; color: #f1e5cd; opacity: 0.6;
+    line-height: 1.4; text-align: center;
+    margin: 8px 0 4px; padding: 0 8px;
+  }
 
   /* end overlay */
   #over {
@@ -689,6 +698,7 @@
          "join" button. The solo button below is vanilla and always
          clickable. -->
     <div id="auth-root"></div>
+    <div class="lobby-disclaimer">paid match: no refunds. once you pay, leaving or disconnecting forfeits your entry to the pot.</div>
     <button id="lobby-solo">solo (bots)</button>
     <div class="err" id="lobby-err"></div>
   </div>
@@ -708,7 +718,6 @@
     </div>
     <div class="meta countdown" id="lobby-countdown">starts in 60s</div>
     <button id="lobby-start" style="display:none;">skip timer</button>
-    <button id="lobby-cancel">cancel</button>
     <div class="meta" id="lobby-status">waiting for host...</div>
   </div>
 </div>
@@ -3622,22 +3631,6 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
     if (NET.ws && NET.ws.readyState === WebSocket.OPEN) {
       NET.ws.send(JSON.stringify({ type: 'start' }));
     }
-  });
-  // Cancel: send a 'cancel' message so the server can refund any
-  // paid players on chain via refund_pot before tearing down. The
-  // server closes the WS once it's done; we don't close locally
-  // because we want to see any 'refunded' acknowledgement first.
-  const cancelBtn = document.getElementById('lobby-cancel');
-  if (cancelBtn) cancelBtn.addEventListener('click', () => {
-    if (NET.ws && NET.ws.readyState === WebSocket.OPEN) {
-      try { NET.ws.send(JSON.stringify({ type: 'cancel' })); } catch (e) {}
-    }
-    NET.paymentTriggered = false;
-    NET.podium = null;
-    NET.humansAtStart = null;
-    inRoom.style.display = 'none';
-    pre.style.display = 'flex';
-    statusEl.textContent = 'waiting for host...';
   });
 })();
 

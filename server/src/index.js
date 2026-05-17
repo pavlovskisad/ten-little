@@ -517,47 +517,13 @@ wss.on('connection', (ws) => {
       }
       return;
     }
-    if (msg.type === 'cancel') {
-      // Client cancelled out of the lobby. If they hadn't paid yet
-      // (and no other paid players are in the room), the room can
-      // be torn down cleanly. If any player already paid, we need
-      // to refund the pot on-chain before tearing down — otherwise
-      // their entry is stuck. Refund is oracle-signed.
-      const room = rooms.get(roomCode);
-      if (!room) { try { ws.close(); } catch (e) {} return; }
-      const isLobby = room.state.phase === 'lobby';
-      const hasPot = !!room.escrow;
-      const paidPlayers = [...room.players.values()].filter(p => p.paidSig && p.wallet);
-      if (isLobby && hasPot && paidPlayers.length > 0) {
-        // Refund everyone who paid, then tear down.
-        try {
-          const wallets = paidPlayers.map(p => p.wallet);
-          const roomIdBigInt = BigInt(room.escrow.roomId);
-          const { signature } = await escrow.refundPot(roomIdBigInt, wallets);
-          console.log('[escrow] refund_pot', room.code, 'players=' + wallets.length, 'sig=' + signature);
-          // Notify every still-connected client. They'll see their
-          // devnet balance bump back up on the next poll.
-          for (const p of room.players.values()) {
-            try { p.ws.send(JSON.stringify({ type: 'refunded', signature })); } catch (e) {}
-          }
-        } catch (err) {
-          console.warn('[escrow] refund_pot failed', room.code, err.message || err);
-          // Don't tear down — the funds are still on chain. An admin
-          // can manually retry refund later.
-          send(ws, { type: 'error', message: 'refund failed: ' + err.message });
-          return;
-        }
-      }
-      // Tear down the room. Removes all players, clears timers, closes
-      // their sockets. Future quickjoin won't find this room.
-      for (const [pid, p] of room.players) {
-        if (p.ws !== ws) try { p.ws.close(); } catch (e) {}
-      }
-      room.stop && room.stop();
-      rooms.delete(room.code);
-      try { ws.close(); } catch (e) {}
-      return;
-    }
+    // Note: the player-initiated 'cancel' message handler was removed.
+    // Paid matches are no-refund: once a player completes join_pot
+    // their entry stays in the pot regardless of how they exit (close
+    // tab, disconnect, server-side timeout). escrow.refundPot is still
+    // available for server-internal use — currently the only legitimate
+    // case is "paid lobby aged out without enough humans to start" —
+    // and is invoked by the lobby-timeout path in GameRoom.
     if (msg.type === 'input') {
       const room = rooms.get(roomCode);
       if (!room) return;
