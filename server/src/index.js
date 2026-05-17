@@ -371,18 +371,23 @@ function serveStatic(req, res) {
       return;
     }
     // Don't cache the HTML or sim modules during dev so reloads pick
-    // up changes immediately. Long-cache the assets that don't change.
-    // Use the belt-and-suspenders set of no-cache headers — mobile
-    // Safari sometimes serves a cached HTML page on back/forward
-    // navigation despite plain Cache-Control: no-store.
+    // up changes immediately. Long-cache the binary assets — GLB
+    // meshes and mp3 score don't change between deploys, and these
+    // are the heavy bytes (5-9 MB each). Short cache on smaller
+    // static files. Mobile Safari sometimes serves a stale HTML on
+    // back/forward navigation despite plain Cache-Control: no-store,
+    // hence the belt-and-suspenders no-cache headers for code.
     const noCache = ext === '.html' || ext === '.js' || ext === '.json';
+    const isHeavyAsset = ext === '.glb' || ext === '.gltf' || ext === '.mp3' || ext === '.wav';
     const noCacheHeaders = noCache
       ? {
           'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
           'Pragma': 'no-cache',
           'Expires': '0',
         }
-      : { 'Cache-Control': 'public, max-age=300' };
+      : isHeavyAsset
+        ? { 'Cache-Control': 'public, max-age=86400, immutable' }
+        : { 'Cache-Control': 'public, max-age=300' };
     const total = stat.size;
     // HTTP Range support. Required for HTMLAudioElement.currentTime
     // seeking on the mp3 score: setting currentTime triggers a Range
