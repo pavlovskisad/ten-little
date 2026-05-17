@@ -316,6 +316,25 @@
     line-height: 1.4; text-align: center;
     margin: 8px 0 4px; padding: 0 8px;
   }
+  /* In-flight stale-lobby notice. Fires when a paid lobby drops below
+     2 humans and the server has scheduled an auto-refund. Live
+     countdown shows time-to-refund. Hidden until 'opponentLeft'
+     arrives, cleared on 'opponentArrived'. */
+  #lobby .lobby-stale {
+    border: 1px solid #ff8c00; background: rgba(255, 140, 0, 0.08);
+    padding: 10px 14px; margin-top: 12px; border-radius: 4px;
+    text-align: center;
+  }
+  #lobby .lobby-stale-msg {
+    color: #ff8c00; font-size: 16px; letter-spacing: 0.04em;
+    margin-bottom: 4px;
+  }
+  #lobby .lobby-stale-sub {
+    color: #f1e5cd; opacity: 0.85; font-size: 13px;
+  }
+  #lobby .lobby-stale-sub span {
+    color: #ffd000; font-weight: bold;
+  }
 
   /* end overlay */
   #over {
@@ -719,6 +738,10 @@
     <div class="meta countdown" id="lobby-countdown">starts in 60s</div>
     <button id="lobby-start" style="display:none;">skip timer</button>
     <div class="meta" id="lobby-status">waiting for host...</div>
+    <div class="lobby-stale" id="lobby-stale" style="display:none;">
+      <div class="lobby-stale-msg">opponent disconnected</div>
+      <div class="lobby-stale-sub">if nobody joins, you'll be refunded in <span id="lobby-stale-countdown">1:30</span></div>
+    </div>
   </div>
 </div>
 
@@ -2657,6 +2680,14 @@ function netConnect() {
       // created the moment the 2nd human lands. The next roster
       // broadcast carries the escrow payload and triggers payment.
       if (msg.escrow) maybeTriggerPayment(msg.escrow, ws);
+      // Roster carries staleRefundAt if the room is currently in
+      // the grace window — a late reconnect during the grace period
+      // picks up the deadline this way (since they missed the original
+      // 'opponentLeft' message).
+      if (msg.staleRefundAt) {
+        NET.staleRefundAt = msg.staleRefundAt;
+        if (NET.onOpponentLeft) NET.onOpponentLeft({ refundAt: msg.staleRefundAt });
+      }
       if (NET.onRoster) NET.onRoster(msg);
     } else if (msg.type === 'start') {
       console.log('[net] start humans=' + msg.humans + ' bots=' + msg.bots + ' reason=' + msg.reason);
@@ -2730,7 +2761,19 @@ function netConnect() {
       NET.humansAtStart = msg.humansAtStart || null;
       showOverlay(placement);
     } else if (msg.type === 'refunded') {
-      console.log('[net] refunded:', msg.signature);
+      console.log('[net] refunded:', msg.signature, msg.reason || '');
+      if (NET.onRefunded) NET.onRefunded(msg);
+    } else if (msg.type === 'opponentLeft') {
+      // Paid lobby just lost its 2nd human (unpaid disconnect, etc.).
+      // Surface the refund countdown so the player knows what's about
+      // to happen.
+      NET.staleRefundAt = msg.refundAt;
+      if (NET.onOpponentLeft) NET.onOpponentLeft(msg);
+    } else if (msg.type === 'opponentArrived') {
+      // A new joiner arrived in time — stale state cleared. Drop the
+      // notice if it's showing.
+      NET.staleRefundAt = null;
+      if (NET.onOpponentArrived) NET.onOpponentArrived(msg);
     } else if (msg.type === 'error') {
       console.error('[net] error', msg.message);
       if (NET.onError) NET.onError(msg);
@@ -3683,6 +3726,41 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
     if (inRoom.style.display !== 'flex') {
       pre.style.display = 'flex';
     }
+  };
+
+  // Stale-lobby warning UI. Shown when the server tells us our
+  // opponent dropped and a refund is scheduled. Live 1Hz countdown
+  // renders mm:ss remaining; cleared when 'opponentArrived' fires
+  // or 'refunded' lands.
+  const staleEl = document.getElementById('lobby-stale');
+  const staleCountdownEl = document.getElementById('lobby-stale-countdown');
+  let staleCountdownTimer = null;
+  function renderStaleCountdown() {
+    if (!NET.staleRefundAt) {
+      staleEl.style.display = 'none';
+      if (staleCountdownTimer) { clearInterval(staleCountdownTimer); staleCountdownTimer = null; }
+      return;
+    }
+    const remainingMs = Math.max(0, NET.staleRefundAt - Date.now());
+    const totalSec = Math.ceil(remainingMs / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    staleCountdownEl.textContent = `${m}:${s.toString().padStart(2, '0')}`;
+  }
+  NET.onOpponentLeft = () => {
+    staleEl.style.display = 'block';
+    renderStaleCountdown();
+    if (!staleCountdownTimer) {
+      staleCountdownTimer = setInterval(renderStaleCountdown, 1000);
+    }
+  };
+  NET.onOpponentArrived = () => {
+    NET.staleRefundAt = null;
+    renderStaleCountdown();
+  };
+  NET.onRefunded = () => {
+    NET.staleRefundAt = null;
+    renderStaleCountdown();
   };
 
   // Bridge from the Preact auth island (auth.js) to the vanilla net

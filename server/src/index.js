@@ -232,51 +232,38 @@ setInterval(() => {
   }
 }, 60_000).unref();
 
-// Stale-lobby refund sweep. A paid quickmatch room that can't reach
-// the 2-human threshold (e.g., 2nd joiner disconnected before paying,
-// or matchmaking failed to refill the slot) needs an exit hatch so a
-// lone paid player's SOL doesn't stay locked indefinitely. Sweep
-// every 30s, refund + tear down rooms stalled for STALE_LOBBY_MS.
-const STALE_LOBBY_MS = 5 * 60 * 1000;   // 5 min grace before auto-refund
-setInterval(async () => {
-  for (const room of rooms.values()) {
-    if (room.mode !== 'quickmatch') continue;
-    if (room.state.phase !== 'lobby') continue;
-    if (!room.escrow) continue;
-    const paid = [...room.players.values()].filter(p => p.paidSig && p.wallet);
-    const stalled = paid.length > 0 && room.players.size < 2;
-    if (!stalled) {
-      room.stalledAt = null;
-      continue;
-    }
-    if (!room.stalledAt) {
-      room.stalledAt = Date.now();
-      console.log('[room] stale-lobby watch started', room.code, 'paid=' + paid.length);
-      continue;
-    }
-    if (Date.now() - room.stalledAt < STALE_LOBBY_MS) continue;
-    // Stalled long enough — refund every paid wallet and dissolve.
-    try {
-      const wallets = paid.map(p => p.wallet);
-      const roomIdBigInt = BigInt(room.escrow.roomId);
-      const { signature } = await escrow.refundPot(roomIdBigInt, wallets);
-      console.log('[escrow] stale-lobby refund_pot', room.code, 'wallets=' + wallets.length, 'sig=' + signature);
-      for (const p of room.players.values()) {
-        if (p.ws) {
-          try { p.ws.send(JSON.stringify({ type: 'refunded', signature, reason: 'stale_lobby' })); } catch (e) {}
-          try { p.ws.close(); } catch (e) {}
-        }
-      }
-      room.stop && room.stop();
-      rooms.delete(room.code);
-    } catch (err) {
-      console.warn('[escrow] stale-lobby refund failed', room.code, err.message || err);
-      // Leave stalledAt set so the next tick retries. If refund_pot
-      // is consistently failing (e.g., oracle out of SOL), admin
-      // intervention is needed — log will say so.
-    }
+// Stale-lobby refund handler. Wired into room.onStaleTimeout when an
+// escrow-backed quickmatch room is created (see the init_pot success
+// path). GameRoom's _evaluateStaleLobby schedules the actual timer
+// and broadcasts the warning the moment the room enters the stale
+// state, so this just executes the refund when it fires.
+async function refundStaleLobby(room, wallets) {
+  if (!room.escrow || wallets.length === 0) {
+    // Nothing to refund — just tear down.
+    room.stop && room.stop();
+    rooms.delete(room.code);
+    return;
   }
-}, 30_000).unref();
+  try {
+    const roomIdBigInt = BigInt(room.escrow.roomId);
+    const { signature } = await escrow.refundPot(roomIdBigInt, wallets);
+    console.log('[escrow] stale-lobby refund_pot', room.code,
+      'wallets=' + wallets.length, 'sig=' + signature);
+    for (const p of room.players.values()) {
+      if (p.ws) {
+        try { p.ws.send(JSON.stringify({ type: 'refunded', signature, reason: 'stale_lobby' })); } catch (e) {}
+        try { p.ws.close(); } catch (e) {}
+      }
+    }
+  } catch (err) {
+    console.warn('[escrow] stale-lobby refund failed', room.code, err.message || err);
+    // Don't tear down on failure — admin can retry refund manually,
+    // and a fresh joiner could still rescue the room.
+    return;
+  }
+  room.stop && room.stop();
+  rooms.delete(room.code);
+}
 
 // Whitelist of extensions we'll serve, mapped to content types.
 const MIME = {
@@ -527,6 +514,9 @@ wss.on('connection', (ws) => {
               console.warn('[escrow] start_pot failed', room.code, err.message);
             }
           };
+          room.onStaleTimeout = async (wallets) => {
+            await refundStaleLobby(room, wallets);
+          };
           room.onRoundEnd = async ({ eliminated, topFigIds }) => {
             try {
               await finalizeRoom(room, roomIdBigInt, topFigIds);
@@ -606,6 +596,11 @@ wss.on('connection', (ws) => {
         player.sessionToken = token;
         send(ws, { type: 'sessionToken', token, roomCode: room.code, expiresAt: Date.now() + SESSION_TTL_MS });
         console.log('[escrow] paid', room.code, playerId, 'wallet=' + msg.wallet, 'sig=' + msg.signature);
+        // The room may already have lost its 2nd human while this
+        // player was signing (unpaid disconnect before our 'paid'
+        // arrived). Re-check stale state now that there's a paid
+        // player in a maybe-undersized room.
+        room._evaluateStaleLobby();
         // Push a fresh roster so every client sees the new paid count
         // light up in the pot UI immediately.
         if (room.state.phase === 'lobby') room.broadcastRoster();

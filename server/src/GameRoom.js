@@ -15,6 +15,11 @@ const SIM = Object.assign({},
 
 const TICK_MS = 33;   // 30 Hz
 const COUNTDOWN_MS = 60_000;
+// Window after a paid quickmatch room drops below 2 humans before the
+// server auto-refunds the remaining paid player(s). Long enough for
+// matchmaking to drop a fresh joiner in (countdown-equivalent), short
+// enough that a stranded player isn't sitting around for minutes.
+const STALE_LOBBY_MS = 90_000;
 const MAX_PLAYERS = 10;
 
 let roomSeq = 0;
@@ -66,8 +71,53 @@ class GameRoom {
       disconnected: false,
     });
     this.armAutoStart();
+    this._evaluateStaleLobby();
     this.broadcastRoster();
     return true;
+  }
+
+  // Track + announce the "paid player(s) waiting alone after opponent
+  // bail" state. Called from addPlayer / removePlayer / disconnect /
+  // reconnect. When the state is entered, schedule a refund timer and
+  // tell remaining players what's happening. When it's exited (new
+  // joiner, etc.), cancel the timer and notify them.
+  _evaluateStaleLobby() {
+    if (this.mode !== 'quickmatch') return;
+    if (!this.escrow) return;
+    if (this.state.phase !== 'lobby') return;
+    const paidConnected = [...this.players.values()].filter(
+      p => p.paidSig && p.wallet && !p.disconnected
+    );
+    const isStale = paidConnected.length > 0 && this.players.size < 2;
+    if (isStale && !this.staleTimeout) {
+      // Just entered the stale state. Notify everyone still here and
+      // schedule the refund. Stored deadline lets late joiners' roster
+      // broadcasts include the same countdown.
+      this.staleRefundAt = Date.now() + STALE_LOBBY_MS;
+      this.staleTimeout = setTimeout(() => {
+        this.staleTimeout = null;
+        if (typeof this.onStaleTimeout === 'function') {
+          const wallets = [...this.players.values()]
+            .filter(p => p.paidSig && p.wallet)
+            .map(p => p.wallet);
+          Promise.resolve(this.onStaleTimeout(wallets)).catch(err => {
+            console.warn('[room] onStaleTimeout failed', this.code, err.message || err);
+          });
+        }
+      }, STALE_LOBBY_MS);
+      this.broadcast({
+        type: 'opponentLeft',
+        refundIn: STALE_LOBBY_MS,
+        refundAt: this.staleRefundAt,
+      });
+    } else if (!isStale && this.staleTimeout) {
+      // Recovered — a new joiner showed up. Cancel the refund + tell
+      // clients to clear the warning UI.
+      clearTimeout(this.staleTimeout);
+      this.staleTimeout = null;
+      this.staleRefundAt = null;
+      this.broadcast({ type: 'opponentArrived' });
+    }
   }
 
   // Roster broadcast carries countdown so clients can render a live timer
@@ -100,6 +150,12 @@ class GameRoom {
         paidCount,
       };
     }
+    // If we're in the stale-lobby grace window, surface the deadline
+    // so a fresh roster (e.g. for a just-reconnected client) carries
+    // the same countdown the original opponentLeft message did.
+    if (this.staleRefundAt) {
+      msg.staleRefundAt = this.staleRefundAt;
+    }
     this.broadcast(msg);
   }
 
@@ -124,6 +180,7 @@ class GameRoom {
       const next = this.players.keys().next().value;
       this.host = next || null;
     }
+    this._evaluateStaleLobby();
     if (this.state.phase === 'lobby') this.broadcastRoster();
   }
 
@@ -142,6 +199,7 @@ class GameRoom {
       const f = this.state.figs.find(x => x.id === p.figureId);
       if (f) f.isPlayer = false;
     }
+    this._evaluateStaleLobby();
     // Roster broadcast lets remaining clients know the slot is still
     // counted but no input is coming.
     if (this.state.phase === 'lobby') this.broadcastRoster();
@@ -173,6 +231,7 @@ class GameRoom {
       // A figure that died while disconnected stays dead.
       if (f && f.alive) f.isPlayer = true;
     }
+    this._evaluateStaleLobby();
     if (this.state.phase === 'lobby') this.broadcastRoster();
     return {
       code: this.code,
@@ -245,8 +304,11 @@ class GameRoom {
   stop() {
     if (this.tickHandle) clearInterval(this.tickHandle);
     if (this.autoStartHandle) clearTimeout(this.autoStartHandle);
+    if (this.staleTimeout) clearTimeout(this.staleTimeout);
     this.tickHandle = null;
     this.autoStartHandle = null;
+    this.staleTimeout = null;
+    this.staleRefundAt = null;
   }
 
   tick() {
