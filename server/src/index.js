@@ -117,6 +117,17 @@ async function finalizeRoom(room, roomIdBigInt, topFigIds) {
   console.log('[escrow] finalize_pot', room.code, 'sig=' + signature,
               'winners=' + winners.length, 'pool=' + pool, 'rake=' + rake);
 
+  // Broadcast per-wallet payouts so clients can render amounts on
+  // the placement overlay. Includes the figId so the client can map
+  // a payout row back to its podium entry.
+  const payouts = winners.map((wallet, i) => ({
+    place: i + 1,
+    wallet,
+    figId: eligible[i].figId,
+    lamports: amounts[i].toString(),
+  }));
+  room.broadcast({ type: 'payouts', signature, payouts });
+
   // Cascade: now that rake has landed in rake_vault, drain it into
   // buyback_vault + rev_share. Errors are logged but non-fatal —
   // the finalize already succeeded, and rake just accumulates for
@@ -197,6 +208,72 @@ function nextPlayerId() {
 
 function send(ws, msg) {
   if (ws.readyState === 1) ws.send(JSON.stringify(msg));
+}
+
+// Session tokens for the reconnect flow. Issued to a player only
+// after their join_pot tx confirms (we don't hand out tokens to
+// players who never paid — they have no slot worth reserving).
+// Stored in-memory and lost on server restart, which is acceptable
+// for Railway's rolling-deploy cadence; durable storage would be a
+// follow-up if restart frequency becomes a problem.
+const sessionTokens = new Map();   // token → { playerId, roomCode, expiresAt }
+const SESSION_TTL_MS = 10 * 60 * 1000;   // 10 min, covers a 90s round + grace
+
+function issueSessionToken(playerId, roomCode) {
+  // Token format: random 16-byte hex string. Not cryptographically
+  // signed — security model is "stored only on chain via paidSig +
+  // wallet, server validates the token by lookup, not by signature."
+  const token = Array.from({ length: 16 }, () =>
+    Math.floor(Math.random() * 256).toString(16).padStart(2, '0')
+  ).join('');
+  sessionTokens.set(token, {
+    playerId,
+    roomCode,
+    expiresAt: Date.now() + SESSION_TTL_MS,
+  });
+  return token;
+}
+
+// Periodic sweep so the map doesn't grow forever. Cheap — runs once
+// a minute, walks the map, drops expired entries.
+setInterval(() => {
+  const now = Date.now();
+  for (const [tok, entry] of sessionTokens) {
+    if (entry.expiresAt <= now) sessionTokens.delete(tok);
+  }
+}, 60_000).unref();
+
+// Stale-lobby refund handler. Wired into room.onStaleTimeout when an
+// escrow-backed quickmatch room is created (see the init_pot success
+// path). GameRoom's _evaluateStaleLobby schedules the actual timer
+// and broadcasts the warning the moment the room enters the stale
+// state, so this just executes the refund when it fires.
+async function refundStaleLobby(room, wallets) {
+  if (!room.escrow || wallets.length === 0) {
+    // Nothing to refund — just tear down.
+    room.stop && room.stop();
+    rooms.delete(room.code);
+    return;
+  }
+  try {
+    const roomIdBigInt = BigInt(room.escrow.roomId);
+    const { signature } = await escrow.refundPot(roomIdBigInt, wallets);
+    console.log('[escrow] stale-lobby refund_pot', room.code,
+      'wallets=' + wallets.length, 'sig=' + signature);
+    for (const p of room.players.values()) {
+      if (p.ws) {
+        try { p.ws.send(JSON.stringify({ type: 'refunded', signature, reason: 'stale_lobby' })); } catch (e) {}
+        try { p.ws.close(); } catch (e) {}
+      }
+    }
+  } catch (err) {
+    console.warn('[escrow] stale-lobby refund failed', room.code, err.message || err);
+    // Don't tear down on failure — admin can retry refund manually,
+    // and a fresh joiner could still rescue the room.
+    return;
+  }
+  room.stop && room.stop();
+  rooms.delete(room.code);
 }
 
 // Whitelist of extensions we'll serve, mapped to content types.
@@ -375,7 +452,9 @@ const httpServer = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server: httpServer });
 
 wss.on('connection', (ws) => {
-  const playerId = nextPlayerId();
+  // Reassigned by the reconnect handler when the client lands with a
+  // valid session token — the WS rebinds to the original slot.
+  let playerId = nextPlayerId();
   let roomCode = null;
   // Privy identity bound by quickjoin (when the client includes a
   // token). Practice ('create' for solo) leaves this null.
@@ -446,11 +525,22 @@ wss.on('connection', (ws) => {
               console.warn('[escrow] start_pot failed', room.code, err.message);
             }
           };
+          room.onStaleTimeout = async (wallets) => {
+            await refundStaleLobby(room, wallets);
+          };
           room.onRoundEnd = async ({ eliminated, topFigIds }) => {
             try {
               await finalizeRoom(room, roomIdBigInt, topFigIds);
             } catch (err) {
               console.warn('[escrow] finalize_pot failed', room.code, ':', err.message || err);
+            }
+            // Drop session tokens for this room once the round
+            // finalizes — there's nothing for a late reconnect to
+            // attach to. Clients get reconnectFailed and fall back
+            // to a clean lobby; they can check their wallet for the
+            // payout signature.
+            for (const [tok, entry] of sessionTokens) {
+              if (entry.roomCode === room.code) sessionTokens.delete(tok);
             }
           };
           // Push the fresh escrow payload to ALL clients in the room
@@ -510,54 +600,66 @@ wss.on('connection', (ws) => {
       if (player) {
         player.paidSig = msg.signature || null;
         player.wallet = msg.wallet || null;
+        // Issue a session token so the client can reconnect to the
+        // same slot if their WS drops mid-round. Tokens are scoped to
+        // (playerId, roomCode) and expire after SESSION_TTL_MS.
+        const token = issueSessionToken(playerId, room.code);
+        player.sessionToken = token;
+        send(ws, { type: 'sessionToken', token, roomCode: room.code, expiresAt: Date.now() + SESSION_TTL_MS });
         console.log('[escrow] paid', room.code, playerId, 'wallet=' + msg.wallet, 'sig=' + msg.signature);
+        // The room may already have lost its 2nd human while this
+        // player was signing (unpaid disconnect before our 'paid'
+        // arrived). Re-check stale state now that there's a paid
+        // player in a maybe-undersized room.
+        room._evaluateStaleLobby();
         // Push a fresh roster so every client sees the new paid count
         // light up in the pot UI immediately.
         if (room.state.phase === 'lobby') room.broadcastRoster();
       }
       return;
     }
-    if (msg.type === 'cancel') {
-      // Client cancelled out of the lobby. If they hadn't paid yet
-      // (and no other paid players are in the room), the room can
-      // be torn down cleanly. If any player already paid, we need
-      // to refund the pot on-chain before tearing down — otherwise
-      // their entry is stuck. Refund is oracle-signed.
-      const room = rooms.get(roomCode);
-      if (!room) { try { ws.close(); } catch (e) {} return; }
-      const isLobby = room.state.phase === 'lobby';
-      const hasPot = !!room.escrow;
-      const paidPlayers = [...room.players.values()].filter(p => p.paidSig && p.wallet);
-      if (isLobby && hasPot && paidPlayers.length > 0) {
-        // Refund everyone who paid, then tear down.
-        try {
-          const wallets = paidPlayers.map(p => p.wallet);
-          const roomIdBigInt = BigInt(room.escrow.roomId);
-          const { signature } = await escrow.refundPot(roomIdBigInt, wallets);
-          console.log('[escrow] refund_pot', room.code, 'players=' + wallets.length, 'sig=' + signature);
-          // Notify every still-connected client. They'll see their
-          // devnet balance bump back up on the next poll.
-          for (const p of room.players.values()) {
-            try { p.ws.send(JSON.stringify({ type: 'refunded', signature })); } catch (e) {}
-          }
-        } catch (err) {
-          console.warn('[escrow] refund_pot failed', room.code, err.message || err);
-          // Don't tear down — the funds are still on chain. An admin
-          // can manually retry refund later.
-          send(ws, { type: 'error', message: 'refund failed: ' + err.message });
-          return;
-        }
+    if (msg.type === 'reconnect') {
+      // Client believes it has a valid session token. Validate, find
+      // the slot, rebind WS. The fresh playerId from nextPlayerId()
+      // at connection-open is discarded in favor of the token's bound
+      // playerId, so all subsequent messages from this WS hit the
+      // right slot.
+      const entry = sessionTokens.get(msg.token);
+      if (!entry || entry.expiresAt <= Date.now()) {
+        send(ws, { type: 'reconnectFailed', reason: 'token expired or invalid' });
+        return;
       }
-      // Tear down the room. Removes all players, clears timers, closes
-      // their sockets. Future quickjoin won't find this room.
-      for (const [pid, p] of room.players) {
-        if (p.ws !== ws) try { p.ws.close(); } catch (e) {}
+      const room = rooms.get(entry.roomCode);
+      if (!room) {
+        sessionTokens.delete(msg.token);
+        send(ws, { type: 'reconnectFailed', reason: 'room no longer exists' });
+        return;
       }
-      room.stop && room.stop();
-      rooms.delete(room.code);
-      try { ws.close(); } catch (e) {}
+      const payload = room.reconnect(entry.playerId, ws);
+      if (!payload) {
+        sessionTokens.delete(msg.token);
+        send(ws, { type: 'reconnectFailed', reason: 'slot no longer in room' });
+        return;
+      }
+      playerId = entry.playerId;
+      roomCode = room.code;
+      send(ws, { type: 'reconnected', ...payload });
+      console.log('[reconnect]', room.code, playerId, 'phase=' + payload.phase);
+      // Push a fresh roster + snapshot so the client immediately sees
+      // current room state.
+      if (room.state.phase === 'lobby') room.broadcastRoster();
+      else if (room.state.phase === 'play') {
+        send(ws, { type: 'state', state: room.snapshot() });
+      }
       return;
     }
+    // Note: the player-initiated 'cancel' message handler was removed.
+    // Paid matches are no-refund: once a player completes join_pot
+    // their entry stays in the pot regardless of how they exit (close
+    // tab, disconnect, server-side timeout). escrow.refundPot is still
+    // available for server-internal use — currently the only legitimate
+    // case is "paid lobby aged out without enough humans to start" —
+    // and is invoked by the lobby-timeout path in GameRoom.
     if (msg.type === 'input') {
       const room = rooms.get(roomCode);
       if (!room) return;
@@ -578,15 +680,27 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     const room = rooms.get(roomCode);
-    if (room) {
-      room.removePlayer(playerId);
-      // Tear down the room when it's empty AND no longer in play. We
-      // keep in-progress rounds running with bots so the remaining
-      // players don't lose their game.
-      if (room.players.size === 0 && room.state.phase !== 'play') {
-        room.stop();
-        rooms.delete(roomCode);
-      }
+    if (!room) return;
+    const player = room.players.get(playerId);
+    // Paid player + round still in progress (lobby or play): preserve
+    // the slot so they can reconnect. Bot AI drives their figure in
+    // the meantime. The round still plays out and finalize_pot still
+    // runs against pot.players regardless of how many humans are
+    // actively connected at the end.
+    const preserveSlot = player
+      && player.paidSig
+      && (room.state.phase === 'lobby' || room.state.phase === 'play');
+    if (preserveSlot) {
+      room.disconnect(playerId);
+      console.log('[ws] paid player', playerId, 'disconnected from', room.code, '— slot reserved');
+      return;
+    }
+    // Unpaid disconnect OR round is over (nothing to reconnect to):
+    // remove the slot and tear down empty non-play rooms.
+    room.removePlayer(playerId);
+    if (room.players.size === 0 && room.state.phase !== 'play') {
+      room.stop();
+      rooms.delete(roomCode);
     }
   });
 });

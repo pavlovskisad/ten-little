@@ -15,6 +15,11 @@ const SIM = Object.assign({},
 
 const TICK_MS = 33;   // 30 Hz
 const COUNTDOWN_MS = 60_000;
+// Window after a paid quickmatch room drops below 2 humans before the
+// server auto-refunds the remaining paid player(s). Long enough for
+// matchmaking to drop a fresh joiner in (countdown-equivalent), short
+// enough that a stranded player isn't sitting around for minutes.
+const STALE_LOBBY_MS = 90_000;
 const MAX_PLAYERS = 10;
 
 let roomSeq = 0;
@@ -59,10 +64,60 @@ class GameRoom {
     if (this.state.phase !== 'lobby') return false;
     if (this.players.size >= MAX_PLAYERS) return false;
     if (this.host === null) this.host = playerId;
-    this.players.set(playerId, { ws, input: { dx: 0, dy: 0 }, figureId: null });
+    this.players.set(playerId, {
+      ws,
+      input: { dx: 0, dy: 0 },
+      figureId: null,
+      disconnected: false,
+    });
     this.armAutoStart();
+    this._evaluateStaleLobby();
     this.broadcastRoster();
     return true;
+  }
+
+  // Track + announce the "paid player(s) waiting alone after opponent
+  // bail" state. Called from addPlayer / removePlayer / disconnect /
+  // reconnect. When the state is entered, schedule a refund timer and
+  // tell remaining players what's happening. When it's exited (new
+  // joiner, etc.), cancel the timer and notify them.
+  _evaluateStaleLobby() {
+    if (this.mode !== 'quickmatch') return;
+    if (!this.escrow) return;
+    if (this.state.phase !== 'lobby') return;
+    const paidConnected = [...this.players.values()].filter(
+      p => p.paidSig && p.wallet && !p.disconnected
+    );
+    const isStale = paidConnected.length > 0 && this.players.size < 2;
+    if (isStale && !this.staleTimeout) {
+      // Just entered the stale state. Notify everyone still here and
+      // schedule the refund. Stored deadline lets late joiners' roster
+      // broadcasts include the same countdown.
+      this.staleRefundAt = Date.now() + STALE_LOBBY_MS;
+      this.staleTimeout = setTimeout(() => {
+        this.staleTimeout = null;
+        if (typeof this.onStaleTimeout === 'function') {
+          const wallets = [...this.players.values()]
+            .filter(p => p.paidSig && p.wallet)
+            .map(p => p.wallet);
+          Promise.resolve(this.onStaleTimeout(wallets)).catch(err => {
+            console.warn('[room] onStaleTimeout failed', this.code, err.message || err);
+          });
+        }
+      }, STALE_LOBBY_MS);
+      this.broadcast({
+        type: 'opponentLeft',
+        refundIn: STALE_LOBBY_MS,
+        refundAt: this.staleRefundAt,
+      });
+    } else if (!isStale && this.staleTimeout) {
+      // Recovered — a new joiner showed up. Cancel the refund + tell
+      // clients to clear the warning UI.
+      clearTimeout(this.staleTimeout);
+      this.staleTimeout = null;
+      this.staleRefundAt = null;
+      this.broadcast({ type: 'opponentArrived' });
+    }
   }
 
   // Roster broadcast carries countdown so clients can render a live timer
@@ -95,6 +150,12 @@ class GameRoom {
         paidCount,
       };
     }
+    // If we're in the stale-lobby grace window, surface the deadline
+    // so a fresh roster (e.g. for a just-reconnected client) carries
+    // the same countdown the original opponentLeft message did.
+    if (this.staleRefundAt) {
+      msg.staleRefundAt = this.staleRefundAt;
+    }
     this.broadcast(msg);
   }
 
@@ -119,7 +180,68 @@ class GameRoom {
       const next = this.players.keys().next().value;
       this.host = next || null;
     }
+    this._evaluateStaleLobby();
     if (this.state.phase === 'lobby') this.broadcastRoster();
+  }
+
+  // Soft disconnect: the player's WS closed but they hold a valid
+  // session token, so we keep the slot reserved for reconnect. Their
+  // figure flips to bot AI for the duration. Used for paid players
+  // — unpaid disconnects still fall through removePlayer().
+  disconnect(playerId) {
+    const p = this.players.get(playerId);
+    if (!p) return;
+    p.ws = null;
+    p.disconnected = true;
+    p.disconnectedAt = Date.now();
+    p.input.dx = 0; p.input.dy = 0;
+    if (p.figureId != null) {
+      const f = this.state.figs.find(x => x.id === p.figureId);
+      if (f) f.isPlayer = false;
+    }
+    this._evaluateStaleLobby();
+    // Roster broadcast lets remaining clients know the slot is still
+    // counted but no input is coming.
+    if (this.state.phase === 'lobby') this.broadcastRoster();
+  }
+
+  // Rebind a slot to a new WS after a reconnect handshake. Caller
+  // (index.js) has already validated the session token. Returns the
+  // payload the client needs to restore its game state, or null if
+  // the room is no longer reconnectable (round finalized).
+  reconnect(playerId, ws) {
+    // Phase 'over' rooms aren't useful to reconnect to — the round is
+    // decided, payouts are on chain, there's nothing for the client
+    // to render. Caller treats null the same as a stale token.
+    if (this.state.phase === 'over') return null;
+    const p = this.players.get(playerId);
+    if (!p) return null;
+    // Last-connect-wins: if the old WS is still alive (e.g., the
+    // player opened a second tab), close it so two clients don't
+    // fight over the same slot.
+    if (p.ws && p.ws !== ws) {
+      try { p.ws.close(); } catch (e) {}
+    }
+    p.ws = ws;
+    p.disconnected = false;
+    p.disconnectedAt = null;
+    if (p.figureId != null) {
+      const f = this.state.figs.find(x => x.id === p.figureId);
+      // Only re-enable player control if the figure is still alive.
+      // A figure that died while disconnected stays dead.
+      if (f && f.alive) f.isPlayer = true;
+    }
+    this._evaluateStaleLobby();
+    if (this.state.phase === 'lobby') this.broadcastRoster();
+    return {
+      code: this.code,
+      playerId,
+      figureId: p.figureId,
+      phase: this.state.phase,
+      host: this.host,
+      humansAtStart: this.humansAtStart || null,
+      mode: this.mode,
+    };
   }
 
   setInput(playerId, dx, dy) {
@@ -182,8 +304,11 @@ class GameRoom {
   stop() {
     if (this.tickHandle) clearInterval(this.tickHandle);
     if (this.autoStartHandle) clearTimeout(this.autoStartHandle);
+    if (this.staleTimeout) clearTimeout(this.staleTimeout);
     this.tickHandle = null;
     this.autoStartHandle = null;
+    this.staleTimeout = null;
+    this.staleRefundAt = null;
   }
 
   tick() {
@@ -336,7 +461,10 @@ class GameRoom {
   broadcast(msg) {
     const data = JSON.stringify(msg);
     for (const { ws } of this.players.values()) {
-      if (ws.readyState === 1 /* OPEN */) ws.send(data);
+      // Skip disconnected slots — ws is null after disconnect() until
+      // a reconnect rebinds. The bot AI is driving their figure in
+      // the meantime so they don't need state snapshots.
+      if (ws && ws.readyState === 1 /* OPEN */) ws.send(data);
     }
   }
 }

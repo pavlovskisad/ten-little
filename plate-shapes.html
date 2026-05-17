@@ -307,6 +307,34 @@
     font-size: 18px; color: #ff1a1a;
     min-height: 22px;
   }
+  /* Pre-pay disclaimer in the lobby. Once you confirm join_pot you're
+     locked in: no cancel UI, no on-chain refund path triggered by
+     players, no take-backs. Surfaced before the join click so users
+     know what they're agreeing to. */
+  #lobby .lobby-disclaimer {
+    font-size: 13px; color: #f1e5cd; opacity: 0.6;
+    line-height: 1.4; text-align: center;
+    margin: 8px 0 4px; padding: 0 8px;
+  }
+  /* In-flight stale-lobby notice. Fires when a paid lobby drops below
+     2 humans and the server has scheduled an auto-refund. Live
+     countdown shows time-to-refund. Hidden until 'opponentLeft'
+     arrives, cleared on 'opponentArrived'. */
+  #lobby .lobby-stale {
+    border: 1px solid #ff8c00; background: rgba(255, 140, 0, 0.08);
+    padding: 10px 14px; margin-top: 12px; border-radius: 4px;
+    text-align: center;
+  }
+  #lobby .lobby-stale-msg {
+    color: #ff8c00; font-size: 16px; letter-spacing: 0.04em;
+    margin-bottom: 4px;
+  }
+  #lobby .lobby-stale-sub {
+    color: #f1e5cd; opacity: 0.85; font-size: 13px;
+  }
+  #lobby .lobby-stale-sub span {
+    color: #ffd000; font-weight: bold;
+  }
 
   /* end overlay */
   #over {
@@ -364,6 +392,7 @@
   #over .podium-row.mine { color: #ffd000; opacity: 1; }
   #over .podium-rank { color: #ff7a10; min-width: 36px; text-align: right; }
   #over .podium-who { letter-spacing: 0.04em; }
+  #over .podium-prize { color: #ffd000; letter-spacing: 0.04em; }
   /* Two buttons side-by-side: "again" + "back to menu". Flex row
      so they sit naturally; #over button keeps the link styling. */
   #over .over-actions {
@@ -689,6 +718,7 @@
          "join" button. The solo button below is vanilla and always
          clickable. -->
     <div id="auth-root"></div>
+    <div class="lobby-disclaimer">paid match: no refunds. once you pay, leaving or disconnecting forfeits your entry to the pot.</div>
     <button id="lobby-solo">solo (bots)</button>
     <div class="err" id="lobby-err"></div>
   </div>
@@ -708,8 +738,11 @@
     </div>
     <div class="meta countdown" id="lobby-countdown">starts in 60s</div>
     <button id="lobby-start" style="display:none;">skip timer</button>
-    <button id="lobby-cancel">cancel</button>
     <div class="meta" id="lobby-status">waiting for host...</div>
+    <div class="lobby-stale" id="lobby-stale" style="display:none;">
+      <div class="lobby-stale-msg">opponent disconnected</div>
+      <div class="lobby-stale-sub">if nobody joins, you'll be refunded in <span id="lobby-stale-countdown">1:30</span></div>
+    </div>
   </div>
 </div>
 
@@ -2537,6 +2570,34 @@ function predictLocalPlayer(dt) {
 }
 
 // Trigger join_pot payment idempotently. Called from both the
+// Session token persistence. Stored in localStorage so a page
+// reload, accidental tab close, or wifi blip lands the player back
+// in the same paid slot. Server-side TTL is 10 min; the client-side
+// expiry mirrors that so we don't even try to reconnect with a stale
+// token. Cleared on round-end and on reconnectFailed.
+const SESSION_KEY = 'tlSession';
+function readStoredSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!s || !s.token || !s.expiresAt || s.expiresAt <= Date.now()) {
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return s;
+  } catch (e) {
+    return null;
+  }
+}
+function saveSession(token, roomCode, expiresAt) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify({ token, roomCode, expiresAt })); }
+  catch (e) {}
+}
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+}
+
 // 'joined' message handler (2nd-joiner who lands when pot already
 // exists) and the 'roster' handler (1st-joiner whose escrow info
 // arrives later, when the 2nd-joiner triggers pot creation). The
@@ -2573,6 +2634,23 @@ function netConnect() {
   NET.ws = ws;
   ws.addEventListener('open', () => {
     console.log('[net] open', NET.url);
+    // Reconnect path: if the client is in reconnect mode (set by
+    // netReconnect() on page-load auto-attempt), send the session
+    // token first. Server replies with 'reconnected' on success or
+    // 'reconnectFailed' — the latter triggers a clean fall-through
+    // to normal join below.
+    if (NET.joinMode === 'reconnect') {
+      const session = readStoredSession();
+      if (session) {
+        ws.send(JSON.stringify({ type: 'reconnect', token: session.token }));
+        return;
+      }
+      // No session anymore (cleared while we were opening the WS) —
+      // can't do anything. Tear down and bail to lobby.
+      try { ws.close(); } catch (e) {}
+      if (typeof NET.onReconnectFailed === 'function') NET.onReconnectFailed();
+      return;
+    }
     const mode = NET.joinMode || 'quickjoin';
     if (mode === 'quickjoin') {
       // Token is bundled into the quickjoin message itself so server
@@ -2603,6 +2681,14 @@ function netConnect() {
       // created the moment the 2nd human lands. The next roster
       // broadcast carries the escrow payload and triggers payment.
       if (msg.escrow) maybeTriggerPayment(msg.escrow, ws);
+      // Roster carries staleRefundAt if the room is currently in
+      // the grace window — a late reconnect during the grace period
+      // picks up the deadline this way (since they missed the original
+      // 'opponentLeft' message).
+      if (msg.staleRefundAt) {
+        NET.staleRefundAt = msg.staleRefundAt;
+        if (NET.onOpponentLeft) NET.onOpponentLeft({ refundAt: msg.staleRefundAt });
+      }
       if (NET.onRoster) NET.onRoster(msg);
     } else if (msg.type === 'start') {
       console.log('[net] start humans=' + msg.humans + ' bots=' + msg.bots + ' reason=' + msg.reason);
@@ -2623,8 +2709,41 @@ function netConnect() {
     } else if (msg.type === 'state') {
       netReconcile(msg.state);
       NET.spawned = true;
+    } else if (msg.type === 'sessionToken') {
+      // Server hands us a token after our join_pot confirms. Persist
+      // it so a page reload / wifi blip can reconnect back to the
+      // same paid slot via the 'reconnect' message.
+      saveSession(msg.token, msg.roomCode, msg.expiresAt);
+      console.log('[net] session token stored, expires', new Date(msg.expiresAt).toISOString());
+    } else if (msg.type === 'reconnected') {
+      // We landed back in our slot after a disconnect. Restore the
+      // NET state and figure binding, then resume input if the round
+      // is mid-play.
+      NET.playerId = msg.playerId;
+      NET.code = msg.code;
+      NET.myFigureId = msg.figureId != null ? msg.figureId : 0;
+      console.log('[net] reconnected', msg.code, msg.playerId, 'phase=' + msg.phase, 'fig=' + msg.figureId);
+      if (msg.phase === 'play') {
+        // The next 'state' broadcast will bring the actual sim state.
+        // Set up input + UI as if a normal 'start' had arrived.
+        S.phase = 'play';
+        S.startedAt = performance.now();
+        document.getElementById('over').classList.remove('show');
+        if (NET.inputTimer) clearInterval(NET.inputTimer);
+        NET.inputTimer = setInterval(netSendInput, 33);
+      }
+      if (typeof NET.onReconnected === 'function') NET.onReconnected(msg);
+    } else if (msg.type === 'reconnectFailed') {
+      // Stored token is no longer usable (expired, room gone, etc.).
+      // Clear localStorage and let the UI fall back to a clean lobby.
+      console.log('[net] reconnect failed:', msg.reason);
+      clearSession();
+      if (typeof NET.onReconnectFailed === 'function') NET.onReconnectFailed(msg);
     } else if (msg.type === 'end') {
       console.log('[net] end', msg);
+      // Round finalized — clear the session token. Even if the player
+      // closes the tab now, there's no slot to reconnect to.
+      clearSession();
       if (NET.inputTimer) { clearInterval(NET.inputTimer); NET.inputTimer = null;
       }
       S.phase = 'over';
@@ -2641,9 +2760,37 @@ function netConnect() {
       }
       NET.podium = Array.isArray(msg.podium) ? msg.podium : null;
       NET.humansAtStart = msg.humansAtStart || null;
+      // 'end' lands before 'payouts' (finalize_pot is async). Clear
+      // the previous round's payouts so the overlay renders the
+      // empty placement first, then re-renders when 'payouts' lands.
+      NET.payouts = [];
       showOverlay(placement);
+    } else if (msg.type === 'payouts') {
+      // Per-wallet payouts from finalize_pot. Lands a moment after
+      // 'end' (finalize is async) — re-render the placement overlay
+      // with amounts on the podium rows + the player's own row.
+      console.log('[net] payouts:', msg.payouts);
+      NET.payouts = msg.payouts || [];
+      if (typeof renderPodium === 'function' && NET.podium) {
+        renderPodium(NET.podium, NET.payouts);
+      }
+      if (typeof refreshOverlayPlace === 'function') {
+        refreshOverlayPlace();
+      }
     } else if (msg.type === 'refunded') {
-      console.log('[net] refunded:', msg.signature);
+      console.log('[net] refunded:', msg.signature, msg.reason || '');
+      if (NET.onRefunded) NET.onRefunded(msg);
+    } else if (msg.type === 'opponentLeft') {
+      // Paid lobby just lost its 2nd human (unpaid disconnect, etc.).
+      // Surface the refund countdown so the player knows what's about
+      // to happen.
+      NET.staleRefundAt = msg.refundAt;
+      if (NET.onOpponentLeft) NET.onOpponentLeft(msg);
+    } else if (msg.type === 'opponentArrived') {
+      // A new joiner arrived in time — stale state cleared. Drop the
+      // notice if it's showing.
+      NET.staleRefundAt = null;
+      if (NET.onOpponentArrived) NET.onOpponentArrived(msg);
     } else if (msg.type === 'error') {
       console.error('[net] error', msg.message);
       if (NET.onError) NET.onError(msg);
@@ -3271,36 +3418,65 @@ function showHint(text) {
 }
 
 function showOverlay(placement) {
+  NET.lastPlacement = placement;
   const o = document.getElementById('over');
-  const ord = document.getElementById('ord');
+  refreshOverlayPlace();
   const stat = document.getElementById('overStat');
-  const ords = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th'];
-  let label = ords[placement - 1] || (placement + 'th');
-  // Show "1st of 3" so the player knows the field size — placement
-  // is among humans only, not total figures.
-  if (NET.humansAtStart && NET.humansAtStart > 1) {
-    label += ` of ${NET.humansAtStart}`;
-  }
-  ord.textContent = label;
-  ord.className = 'ord' + (placement <= 2 ? ' win' : '');
   const sec = Math.floor(S.t / 1000);
   const mm = String(Math.floor(sec / 60)).padStart(2, '0');
   const ss = String(sec % 60).padStart(2, '0');
   stat.textContent = `survived ${mm}:${ss}`;
-  renderPodium(NET.podium);
+  renderPodium(NET.podium, NET.payouts);
   o.classList.add('show');
+}
+
+// Render the big "Nth of M" label and (if payouts have arrived) the
+// player's own +X SOL prize underneath. Re-callable when payouts
+// land after the overlay's already up.
+function refreshOverlayPlace() {
+  const ord = document.getElementById('ord');
+  const stat = document.getElementById('overStat');
+  const placement = NET.lastPlacement;
+  if (placement == null) return;
+  const ords = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th'];
+  let label = ords[placement - 1] || (placement + 'th');
+  if (NET.humansAtStart && NET.humansAtStart > 1) {
+    label += ` of ${NET.humansAtStart}`;
+  }
+  // If payouts are in and we matched on figId, append the player's
+  // prize so the headline reads e.g. "1st of 3 · +0.018 SOL".
+  const myPayout = (NET.payouts || []).find(
+    pay => NET.myFigureId != null && pay.figId === NET.myFigureId
+  );
+  if (myPayout) {
+    label += ` · +${lamportsToSolStr(myPayout.lamports)} SOL`;
+  }
+  ord.textContent = label;
+  ord.className = 'ord' + (placement <= 2 ? ' win' : '');
+}
+
+function lamportsToSolStr(lamports) {
+  // BigInt-safe lamports → "0.012345" with 6 fixed decimals.
+  const n = typeof lamports === 'bigint' ? lamports : BigInt(String(lamports));
+  const whole = n / 1_000_000_000n;
+  const frac = (n % 1_000_000_000n).toString().padStart(9, '0').slice(0, 6);
+  return `${whole}.${frac}`;
 }
 
 // Podium block under the placement count. Server's 'end' message
 // carries the surviving figures with their wallet (when present)
 // and an isBot flag. Truncated addresses only — never the full
-// pubkey on screen — keeps the reveal minimal.
-function renderPodium(podium) {
+// pubkey on screen — keeps the reveal minimal. Payouts arrive in
+// a follow-up 'payouts' message; if available, append each row's
+// prize to its wallet line.
+function renderPodium(podium, payouts) {
   const host = document.getElementById('podium');
   if (!host) return;
   if (!podium || !podium.length) { host.innerHTML = ''; host.style.display = 'none'; return; }
   host.style.display = 'flex';
   const labels = ['1st', '2nd', '3rd'];
+  const payoutByFig = new Map();
+  for (const pay of (payouts || [])) payoutByFig.set(pay.figId, pay.lamports);
   // Server sends podium in placement order: [survivor, lastElim,
   // secondLastElim]. Honor that order — don't re-sort.
   host.innerHTML = podium.map((p, i) => {
@@ -3308,9 +3484,12 @@ function renderPodium(podium) {
     const who = p.isBot ? 'bot'
               : (p.wallet ? shortAddr(p.wallet) : 'human');
     const mine = (NET.myFigureId != null && p.figId === NET.myFigureId);
+    const prizeLam = payoutByFig.get(p.figId);
+    const prize = prizeLam ? ` <span class="podium-prize">+${lamportsToSolStr(prizeLam)} SOL</span>` : '';
     return `<div class="podium-row${mine ? ' mine' : ''}">`
          + `<span class="podium-rank">${lbl}</span>`
          + `<span class="podium-who">${who}</span>`
+         + prize
          + `</div>`;
   }).join('');
 }
@@ -3497,15 +3676,37 @@ document.getElementById('start').addEventListener('click', () => {
   setTimeout(() => document.getElementById('title').remove(), 700);
   document.getElementById('lobby').classList.add('show');
 });
+
+// Auto-replay handler for solo mode. Quickmatch is handled by
+// auth.js (the auth island fires window.startQuickjoin once Privy
+// is ready + authenticated). Deferred a tick so the wireLobby IIFE
+// further down has bound the solo button's click handler before we
+// fire it.
+setTimeout(function autoReplaySolo() {
+  let flag;
+  try { flag = sessionStorage.getItem('tlAgain'); } catch (e) { flag = null; }
+  if (flag !== 'solo') return;
+  try { sessionStorage.removeItem('tlAgain'); } catch (e) {}
+  const title = document.getElementById('title');
+  if (title) { title.classList.add('gone'); setTimeout(() => title.remove(), 700); }
+  document.getElementById('lobby').classList.add('show');
+  const btn = document.getElementById('lobby-solo');
+  if (btn) btn.click();
+}, 0);
 document.getElementById('again').addEventListener('click', () => {
-  // Cleanest reset path for v0 multiplayer: reload so we land on the
-  // lobby chooser with a fresh WS and a fresh client state.
+  // Stash the previous mode so the page-load handler can auto-trigger
+  // the same kind of round (solo or quickmatch) without making the
+  // player click through the title → lobby → join flow again. Cleared
+  // on page load right before use.
+  try {
+    sessionStorage.setItem('tlAgain', NET.joinMode === 'solo' ? 'solo' : 'quickmatch');
+  } catch (e) {}
   location.reload();
 });
 document.getElementById('back-to-menu').addEventListener('click', () => {
-  // Same reload path; the difference is intent — "again" is "queue
-  // another round," "back to menu" is "I'm done for now, take me out."
-  // After the rebuild both land at the title → lobby flow.
+  // Same reload, no auto-trigger flag set. "Back to menu" is "I'm
+  // done for now, take me to the lobby" — they pick their next move.
+  try { sessionStorage.removeItem('tlAgain'); } catch (e) {}
   location.reload();
 });
 
@@ -3598,6 +3799,41 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
     }
   };
 
+  // Stale-lobby warning UI. Shown when the server tells us our
+  // opponent dropped and a refund is scheduled. Live 1Hz countdown
+  // renders mm:ss remaining; cleared when 'opponentArrived' fires
+  // or 'refunded' lands.
+  const staleEl = document.getElementById('lobby-stale');
+  const staleCountdownEl = document.getElementById('lobby-stale-countdown');
+  let staleCountdownTimer = null;
+  function renderStaleCountdown() {
+    if (!NET.staleRefundAt) {
+      staleEl.style.display = 'none';
+      if (staleCountdownTimer) { clearInterval(staleCountdownTimer); staleCountdownTimer = null; }
+      return;
+    }
+    const remainingMs = Math.max(0, NET.staleRefundAt - Date.now());
+    const totalSec = Math.ceil(remainingMs / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    staleCountdownEl.textContent = `${m}:${s.toString().padStart(2, '0')}`;
+  }
+  NET.onOpponentLeft = () => {
+    staleEl.style.display = 'block';
+    renderStaleCountdown();
+    if (!staleCountdownTimer) {
+      staleCountdownTimer = setInterval(renderStaleCountdown, 1000);
+    }
+  };
+  NET.onOpponentArrived = () => {
+    NET.staleRefundAt = null;
+    renderStaleCountdown();
+  };
+  NET.onRefunded = () => {
+    NET.staleRefundAt = null;
+    renderStaleCountdown();
+  };
+
   // Bridge from the Preact auth island (auth.js) to the vanilla net
   // layer. The island calls this with a Privy access token once the
   // user is logged in and clicks "join". We stash the token on NET
@@ -3609,6 +3845,51 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
     NET.privyToken = token;
     netConnect();
   };
+
+  // Page-load auto-reconnect: if there's an unexpired session token
+  // in localStorage, the player was mid-match when their last tab
+  // closed. Attempt to drop them back into the same slot before
+  // showing the normal lobby. Fall back to lobby on failure.
+  NET.onReconnected = (msg) => {
+    // Dismiss the title screen if it's still visible (it usually is
+    // because reconnect fires before the user has clicked anything).
+    const title = document.getElementById('title');
+    if (title) {
+      title.classList.add('gone');
+      setTimeout(() => title.remove(), 700);
+    }
+    pre.style.display = 'none';
+    inRoom.style.display = 'flex';
+    document.getElementById('lobby-code-show').textContent = msg.code;
+    if (msg.phase === 'play') {
+      // Game is live — hide the entire lobby overlay so the rendered
+      // sim is visible. The room scenery clears via explodeRoom() so
+      // the title cubes don't hang around over the plate. The next
+      // 'state' broadcast brings the actual sim state.
+      lobby.classList.remove('show');
+      try { explodeRoom(); } catch (e) {}
+    } else {
+      // Still in lobby phase — show the in-room panel + opens its
+      // countdown / pot UI on the next roster broadcast.
+      lobby.classList.add('show');
+      statusEl.textContent = 'reconnected · waiting for opponents';
+    }
+  };
+  NET.onReconnectFailed = () => {
+    // Quiet failure — just show the normal lobby. No need to alarm
+    // the user; their stored token was stale or the room is gone.
+    pre.style.display = 'flex';
+    inRoom.style.display = 'none';
+  };
+  if (readStoredSession()) {
+    console.log('[net] stored session found, attempting reconnect');
+    NET.joinMode = 'reconnect';
+    // Show a quick "reconnecting…" state so users know what's happening.
+    pre.style.display = 'none';
+    inRoom.style.display = 'flex';
+    statusEl.textContent = 'reconnecting to room…';
+    netConnect();
+  }
   // Solo = create a fresh room + auto-start. No auth required;
   // practice rounds bypass the on-chain layer entirely (see Phase B5
   // in the plan).
@@ -3622,22 +3903,6 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
     if (NET.ws && NET.ws.readyState === WebSocket.OPEN) {
       NET.ws.send(JSON.stringify({ type: 'start' }));
     }
-  });
-  // Cancel: send a 'cancel' message so the server can refund any
-  // paid players on chain via refund_pot before tearing down. The
-  // server closes the WS once it's done; we don't close locally
-  // because we want to see any 'refunded' acknowledgement first.
-  const cancelBtn = document.getElementById('lobby-cancel');
-  if (cancelBtn) cancelBtn.addEventListener('click', () => {
-    if (NET.ws && NET.ws.readyState === WebSocket.OPEN) {
-      try { NET.ws.send(JSON.stringify({ type: 'cancel' })); } catch (e) {}
-    }
-    NET.paymentTriggered = false;
-    NET.podium = null;
-    NET.humansAtStart = null;
-    inRoom.style.display = 'none';
-    pre.style.display = 'flex';
-    statusEl.textContent = 'waiting for host...';
   });
 })();
 
