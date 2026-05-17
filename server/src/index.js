@@ -232,6 +232,52 @@ setInterval(() => {
   }
 }, 60_000).unref();
 
+// Stale-lobby refund sweep. A paid quickmatch room that can't reach
+// the 2-human threshold (e.g., 2nd joiner disconnected before paying,
+// or matchmaking failed to refill the slot) needs an exit hatch so a
+// lone paid player's SOL doesn't stay locked indefinitely. Sweep
+// every 30s, refund + tear down rooms stalled for STALE_LOBBY_MS.
+const STALE_LOBBY_MS = 5 * 60 * 1000;   // 5 min grace before auto-refund
+setInterval(async () => {
+  for (const room of rooms.values()) {
+    if (room.mode !== 'quickmatch') continue;
+    if (room.state.phase !== 'lobby') continue;
+    if (!room.escrow) continue;
+    const paid = [...room.players.values()].filter(p => p.paidSig && p.wallet);
+    const stalled = paid.length > 0 && room.players.size < 2;
+    if (!stalled) {
+      room.stalledAt = null;
+      continue;
+    }
+    if (!room.stalledAt) {
+      room.stalledAt = Date.now();
+      console.log('[room] stale-lobby watch started', room.code, 'paid=' + paid.length);
+      continue;
+    }
+    if (Date.now() - room.stalledAt < STALE_LOBBY_MS) continue;
+    // Stalled long enough — refund every paid wallet and dissolve.
+    try {
+      const wallets = paid.map(p => p.wallet);
+      const roomIdBigInt = BigInt(room.escrow.roomId);
+      const { signature } = await escrow.refundPot(roomIdBigInt, wallets);
+      console.log('[escrow] stale-lobby refund_pot', room.code, 'wallets=' + wallets.length, 'sig=' + signature);
+      for (const p of room.players.values()) {
+        if (p.ws) {
+          try { p.ws.send(JSON.stringify({ type: 'refunded', signature, reason: 'stale_lobby' })); } catch (e) {}
+          try { p.ws.close(); } catch (e) {}
+        }
+      }
+      room.stop && room.stop();
+      rooms.delete(room.code);
+    } catch (err) {
+      console.warn('[escrow] stale-lobby refund failed', room.code, err.message || err);
+      // Leave stalledAt set so the next tick retries. If refund_pot
+      // is consistently failing (e.g., oracle out of SOL), admin
+      // intervention is needed — log will say so.
+    }
+  }
+}, 30_000).unref();
+
 // Whitelist of extensions we'll serve, mapped to content types.
 const MIME = {
   '.html': 'text/html; charset=utf-8',
