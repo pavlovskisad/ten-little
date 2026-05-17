@@ -350,6 +350,20 @@ function AuthIsland() {
     }
   };
 
+  // Auto-rejoin: if the user just clicked "again" on a quickmatch
+  // end-screen, the vanilla layer set tlAgain='quickmatch' in
+  // sessionStorage before reloading. The moment we're authenticated
+  // and ready, fire join automatically so they don't have to click
+  // again. One-shot — flag is cleared after use.
+  useEffect(() => {
+    if (!privy.ready || !privy.authenticated) return;
+    let flag;
+    try { flag = sessionStorage.getItem('tlAgain'); } catch (e) { flag = null; }
+    if (flag !== 'quickmatch') return;
+    try { sessionStorage.removeItem('tlAgain'); } catch (e) {}
+    handleJoin();
+  }, [privy.ready, privy.authenticated]);
+
   // Single rendered element; the corner widget uses position:fixed so
   // it lives top-right of the viewport regardless of its DOM ancestry.
   return h('div', null, [

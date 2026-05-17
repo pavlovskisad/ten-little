@@ -392,6 +392,7 @@
   #over .podium-row.mine { color: #ffd000; opacity: 1; }
   #over .podium-rank { color: #ff7a10; min-width: 36px; text-align: right; }
   #over .podium-who { letter-spacing: 0.04em; }
+  #over .podium-prize { color: #ffd000; letter-spacing: 0.04em; }
   /* Two buttons side-by-side: "again" + "back to menu". Flex row
      so they sit naturally; #over button keeps the link styling. */
   #over .over-actions {
@@ -2759,7 +2760,23 @@ function netConnect() {
       }
       NET.podium = Array.isArray(msg.podium) ? msg.podium : null;
       NET.humansAtStart = msg.humansAtStart || null;
+      // 'end' lands before 'payouts' (finalize_pot is async). Clear
+      // the previous round's payouts so the overlay renders the
+      // empty placement first, then re-renders when 'payouts' lands.
+      NET.payouts = [];
       showOverlay(placement);
+    } else if (msg.type === 'payouts') {
+      // Per-wallet payouts from finalize_pot. Lands a moment after
+      // 'end' (finalize is async) — re-render the placement overlay
+      // with amounts on the podium rows + the player's own row.
+      console.log('[net] payouts:', msg.payouts);
+      NET.payouts = msg.payouts || [];
+      if (typeof renderPodium === 'function' && NET.podium) {
+        renderPodium(NET.podium, NET.payouts);
+      }
+      if (typeof refreshOverlayPlace === 'function') {
+        refreshOverlayPlace();
+      }
     } else if (msg.type === 'refunded') {
       console.log('[net] refunded:', msg.signature, msg.reason || '');
       if (NET.onRefunded) NET.onRefunded(msg);
@@ -3401,36 +3418,65 @@ function showHint(text) {
 }
 
 function showOverlay(placement) {
+  NET.lastPlacement = placement;
   const o = document.getElementById('over');
-  const ord = document.getElementById('ord');
+  refreshOverlayPlace();
   const stat = document.getElementById('overStat');
-  const ords = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th'];
-  let label = ords[placement - 1] || (placement + 'th');
-  // Show "1st of 3" so the player knows the field size — placement
-  // is among humans only, not total figures.
-  if (NET.humansAtStart && NET.humansAtStart > 1) {
-    label += ` of ${NET.humansAtStart}`;
-  }
-  ord.textContent = label;
-  ord.className = 'ord' + (placement <= 2 ? ' win' : '');
   const sec = Math.floor(S.t / 1000);
   const mm = String(Math.floor(sec / 60)).padStart(2, '0');
   const ss = String(sec % 60).padStart(2, '0');
   stat.textContent = `survived ${mm}:${ss}`;
-  renderPodium(NET.podium);
+  renderPodium(NET.podium, NET.payouts);
   o.classList.add('show');
+}
+
+// Render the big "Nth of M" label and (if payouts have arrived) the
+// player's own +X SOL prize underneath. Re-callable when payouts
+// land after the overlay's already up.
+function refreshOverlayPlace() {
+  const ord = document.getElementById('ord');
+  const stat = document.getElementById('overStat');
+  const placement = NET.lastPlacement;
+  if (placement == null) return;
+  const ords = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th'];
+  let label = ords[placement - 1] || (placement + 'th');
+  if (NET.humansAtStart && NET.humansAtStart > 1) {
+    label += ` of ${NET.humansAtStart}`;
+  }
+  // If payouts are in and we matched on figId, append the player's
+  // prize so the headline reads e.g. "1st of 3 · +0.018 SOL".
+  const myPayout = (NET.payouts || []).find(
+    pay => NET.myFigureId != null && pay.figId === NET.myFigureId
+  );
+  if (myPayout) {
+    label += ` · +${lamportsToSolStr(myPayout.lamports)} SOL`;
+  }
+  ord.textContent = label;
+  ord.className = 'ord' + (placement <= 2 ? ' win' : '');
+}
+
+function lamportsToSolStr(lamports) {
+  // BigInt-safe lamports → "0.012345" with 6 fixed decimals.
+  const n = typeof lamports === 'bigint' ? lamports : BigInt(String(lamports));
+  const whole = n / 1_000_000_000n;
+  const frac = (n % 1_000_000_000n).toString().padStart(9, '0').slice(0, 6);
+  return `${whole}.${frac}`;
 }
 
 // Podium block under the placement count. Server's 'end' message
 // carries the surviving figures with their wallet (when present)
 // and an isBot flag. Truncated addresses only — never the full
-// pubkey on screen — keeps the reveal minimal.
-function renderPodium(podium) {
+// pubkey on screen — keeps the reveal minimal. Payouts arrive in
+// a follow-up 'payouts' message; if available, append each row's
+// prize to its wallet line.
+function renderPodium(podium, payouts) {
   const host = document.getElementById('podium');
   if (!host) return;
   if (!podium || !podium.length) { host.innerHTML = ''; host.style.display = 'none'; return; }
   host.style.display = 'flex';
   const labels = ['1st', '2nd', '3rd'];
+  const payoutByFig = new Map();
+  for (const pay of (payouts || [])) payoutByFig.set(pay.figId, pay.lamports);
   // Server sends podium in placement order: [survivor, lastElim,
   // secondLastElim]. Honor that order — don't re-sort.
   host.innerHTML = podium.map((p, i) => {
@@ -3438,9 +3484,12 @@ function renderPodium(podium) {
     const who = p.isBot ? 'bot'
               : (p.wallet ? shortAddr(p.wallet) : 'human');
     const mine = (NET.myFigureId != null && p.figId === NET.myFigureId);
+    const prizeLam = payoutByFig.get(p.figId);
+    const prize = prizeLam ? ` <span class="podium-prize">+${lamportsToSolStr(prizeLam)} SOL</span>` : '';
     return `<div class="podium-row${mine ? ' mine' : ''}">`
          + `<span class="podium-rank">${lbl}</span>`
          + `<span class="podium-who">${who}</span>`
+         + prize
          + `</div>`;
   }).join('');
 }
@@ -3627,15 +3676,37 @@ document.getElementById('start').addEventListener('click', () => {
   setTimeout(() => document.getElementById('title').remove(), 700);
   document.getElementById('lobby').classList.add('show');
 });
+
+// Auto-replay handler for solo mode. Quickmatch is handled by
+// auth.js (the auth island fires window.startQuickjoin once Privy
+// is ready + authenticated). Deferred a tick so the wireLobby IIFE
+// further down has bound the solo button's click handler before we
+// fire it.
+setTimeout(function autoReplaySolo() {
+  let flag;
+  try { flag = sessionStorage.getItem('tlAgain'); } catch (e) { flag = null; }
+  if (flag !== 'solo') return;
+  try { sessionStorage.removeItem('tlAgain'); } catch (e) {}
+  const title = document.getElementById('title');
+  if (title) { title.classList.add('gone'); setTimeout(() => title.remove(), 700); }
+  document.getElementById('lobby').classList.add('show');
+  const btn = document.getElementById('lobby-solo');
+  if (btn) btn.click();
+}, 0);
 document.getElementById('again').addEventListener('click', () => {
-  // Cleanest reset path for v0 multiplayer: reload so we land on the
-  // lobby chooser with a fresh WS and a fresh client state.
+  // Stash the previous mode so the page-load handler can auto-trigger
+  // the same kind of round (solo or quickmatch) without making the
+  // player click through the title → lobby → join flow again. Cleared
+  // on page load right before use.
+  try {
+    sessionStorage.setItem('tlAgain', NET.joinMode === 'solo' ? 'solo' : 'quickmatch');
+  } catch (e) {}
   location.reload();
 });
 document.getElementById('back-to-menu').addEventListener('click', () => {
-  // Same reload path; the difference is intent — "again" is "queue
-  // another round," "back to menu" is "I'm done for now, take me out."
-  // After the rebuild both land at the title → lobby flow.
+  // Same reload, no auto-trigger flag set. "Back to menu" is "I'm
+  // done for now, take me to the lobby" — they pick their next move.
+  try { sessionStorage.removeItem('tlAgain'); } catch (e) {}
   location.reload();
 });
 

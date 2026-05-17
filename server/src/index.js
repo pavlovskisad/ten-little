@@ -117,6 +117,17 @@ async function finalizeRoom(room, roomIdBigInt, topFigIds) {
   console.log('[escrow] finalize_pot', room.code, 'sig=' + signature,
               'winners=' + winners.length, 'pool=' + pool, 'rake=' + rake);
 
+  // Broadcast per-wallet payouts so clients can render amounts on
+  // the placement overlay. Includes the figId so the client can map
+  // a payout row back to its podium entry.
+  const payouts = winners.map((wallet, i) => ({
+    place: i + 1,
+    wallet,
+    figId: eligible[i].figId,
+    lamports: amounts[i].toString(),
+  }));
+  room.broadcast({ type: 'payouts', signature, payouts });
+
   // Cascade: now that rake has landed in rake_vault, drain it into
   // buyback_vault + rev_share. Errors are logged but non-fatal —
   // the finalize already succeeded, and rake just accumulates for
