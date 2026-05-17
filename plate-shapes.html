@@ -738,6 +738,7 @@
     </div>
     <div class="meta countdown" id="lobby-countdown">starts in 60s</div>
     <button id="lobby-start" style="display:none;">skip timer</button>
+    <button id="lobby-leave">leave</button>
     <div class="meta" id="lobby-status">waiting for host...</div>
     <div class="lobby-stale" id="lobby-stale" style="display:none;">
       <div class="lobby-stale-msg">opponent disconnected</div>
@@ -2780,6 +2781,15 @@ function netConnect() {
     } else if (msg.type === 'refunded') {
       console.log('[net] refunded:', msg.signature, msg.reason || '');
       if (NET.onRefunded) NET.onRefunded(msg);
+    } else if (msg.type === 'matchCancelled') {
+      // Server blocked the round at start time because some connected
+      // human hadn't paid. Paid players get a 'refunded' tx right
+      // after this. The auth.js layer reloads the page on its own
+      // sessionStorage clear path; here we just surface the reason
+      // so the user sees something while the WS closes.
+      console.log('[net] match cancelled:', msg.reason);
+      try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+      if (NET.onMatchCancelled) NET.onMatchCancelled(msg);
     } else if (msg.type === 'opponentLeft') {
       // Paid lobby just lost its 2nd human (unpaid disconnect, etc.).
       // Surface the refund countdown so the player knows what's about
@@ -3677,21 +3687,27 @@ document.getElementById('start').addEventListener('click', () => {
   document.getElementById('lobby').classList.add('show');
 });
 
-// Auto-replay handler for solo mode. Quickmatch is handled by
-// auth.js (the auth island fires window.startQuickjoin once Privy
-// is ready + authenticated). Deferred a tick so the wireLobby IIFE
-// further down has bound the solo button's click handler before we
-// fire it.
-setTimeout(function autoReplaySolo() {
+// Auto-replay handler. For any replay flag (solo or quickmatch),
+// dismiss the title screen immediately so the payment modal +
+// lobby aren't hidden behind it. Solo mode also fires the solo
+// button here (no auth involved); quickmatch is fired by auth.js
+// once Privy is ready + authenticated.
+setTimeout(function autoReplay() {
   let flag;
   try { flag = sessionStorage.getItem('tlAgain'); } catch (e) { flag = null; }
-  if (flag !== 'solo') return;
-  try { sessionStorage.removeItem('tlAgain'); } catch (e) {}
+  if (!flag) return;
+  // Dismiss the title for both replay modes so the modal/lobby is
+  // visible during the auto-rejoin flow.
   const title = document.getElementById('title');
   if (title) { title.classList.add('gone'); setTimeout(() => title.remove(), 700); }
   document.getElementById('lobby').classList.add('show');
-  const btn = document.getElementById('lobby-solo');
-  if (btn) btn.click();
+  if (flag === 'solo') {
+    try { sessionStorage.removeItem('tlAgain'); } catch (e) {}
+    const btn = document.getElementById('lobby-solo');
+    if (btn) btn.click();
+  }
+  // For 'quickmatch' the flag stays set; auth.js's useEffect consumes
+  // it once Privy is authenticated and fires window.startQuickjoin.
 }, 0);
 document.getElementById('again').addEventListener('click', () => {
   // Stash the previous mode so the page-load handler can auto-trigger
@@ -3755,7 +3771,29 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
     startBtn.style.display = (msg.host === NET.playerId) ? 'inline' : 'none';
     statusEl.textContent = (msg.host === NET.playerId) ? 'you are the host' : 'waiting for host...';
     renderLobbyPot(msg.escrow);
+    // Hide the leave button once a pot exists (= 2nd human matched,
+    // payment is about to fire or has fired). Pre-pay-only escape.
+    const leaveBtn = document.getElementById('lobby-leave');
+    if (leaveBtn) leaveBtn.style.display = msg.escrow ? 'none' : 'inline';
   };
+
+  // Leave button — clean exit while the player is still alone in a
+  // quickmatch lobby (waiting for opponents, no pot yet, nothing
+  // escrowed). Just reload; server's ws.close handler will remove
+  // the slot and tear down the now-empty room. After a pot exists
+  // (escrow on roster), the button hides and the no-cancel policy
+  // takes over.
+  const leaveBtn = document.getElementById('lobby-leave');
+  if (leaveBtn) {
+    leaveBtn.addEventListener('click', () => {
+      try { sessionStorage.removeItem('tlAgain'); } catch (e) {}
+      try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+      if (NET.ws && NET.ws.readyState <= 1) {
+        try { NET.ws.close(); } catch (e) {}
+      }
+      location.reload();
+    });
+  }
 
   // Pot UI — visible only when the server's roster carries an escrow
   // payload. Tier math mirrors the server's prize-tier table so the
@@ -3829,9 +3867,19 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
     NET.staleRefundAt = null;
     renderStaleCountdown();
   };
-  NET.onRefunded = () => {
+  NET.onRefunded = (msg) => {
     NET.staleRefundAt = null;
     renderStaleCountdown();
+    statusEl.textContent = msg && msg.reason === 'stale_lobby'
+      ? 'no one joined — refunded'
+      : 'match cancelled — refunded';
+  };
+  NET.onMatchCancelled = (msg) => {
+    NET.staleRefundAt = null;
+    renderStaleCountdown();
+    statusEl.textContent = msg.reason === 'unpaid_player'
+      ? 'match cancelled — other player did not pay'
+      : 'match cancelled';
   };
 
   // Bridge from the Preact auth island (auth.js) to the vanilla net
