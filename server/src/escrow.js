@@ -80,6 +80,31 @@ function rakeVaultPda() {
   return PublicKey.findProgramAddressSync([Buffer.from('rake_vault')], PROGRAM_ID)[0];
 }
 
+// Retry-with-backoff for RPC submit calls. Transient network errors
+// (timeouts, 429s, 5xx, connection resets) are common on public
+// chains and Helius free-tier paths — retrying recovers without
+// player-visible failures. Anchor logic errors (account constraint
+// violations, custom program errors) propagate immediately since
+// retrying won't change the outcome.
+async function withRetry(name, fn, opts = {}) {
+  const maxAttempts = opts.maxAttempts || 3;
+  const baseDelayMs = opts.baseDelayMs || 1000;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const msg = (err && err.message) || String(err);
+      const isLogicError = !!(err && (err.error || err.errorCode))
+        || /custom program error|AnchorError|InstructionError|Account.*not initialized/.test(msg);
+      const isTransient = /timeout|timed out|429|5\d\d|fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|connection|EAI_AGAIN|socket hang up|blockhash not found/i.test(msg);
+      if (attempt === maxAttempts || isLogicError || !isTransient) throw err;
+      const delay = baseDelayMs * Math.pow(2, attempt - 1);
+      console.warn(`[escrow] ${name} attempt ${attempt} failed (${msg.slice(0, 140)}); retrying in ${delay}ms`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+}
+
 function revSharePda() {
   return PublicKey.findProgramAddressSync([Buffer.from('rev_share')], PROGRAM_ID)[0];
 }
@@ -100,7 +125,7 @@ function claimStatePda(nftMint) {
 async function initPot(roomIdBigInt, entryFeeLamports) {
   if (!_enabled) throw new Error('escrow disabled');
   const pot = potPda(roomIdBigInt);
-  const sig = await _program.methods
+  const sig = await withRetry('initPot', () => _program.methods
     .initPot(new anchor.BN(roomIdBigInt), new anchor.BN(entryFeeLamports))
     .accounts({
       config: configPda(),
@@ -108,21 +133,21 @@ async function initPot(roomIdBigInt, entryFeeLamports) {
       oracle: _oracle.publicKey,
       systemProgram: SystemProgram.programId,
     })
-    .rpc();
+    .rpc());
   return { signature: sig, pot: pot.toBase58() };
 }
 
 // Freezes joins. Called when the lobby countdown ends or skip-timer fires.
 async function startPot(roomIdBigInt) {
   if (!_enabled) throw new Error('escrow disabled');
-  const sig = await _program.methods
+  const sig = await withRetry('startPot', () => _program.methods
     .startPot(new anchor.BN(roomIdBigInt))
     .accounts({
       config: configPda(),
       pot: potPda(roomIdBigInt),
       oracle: _oracle.publicKey,
     })
-    .rpc();
+    .rpc());
   return { signature: sig };
 }
 
@@ -134,7 +159,7 @@ async function startPot(roomIdBigInt) {
 async function refundPot(roomIdBigInt, players) {
   if (!_enabled) throw new Error('escrow disabled');
   const playerKeys = players.map(p => new PublicKey(p));
-  const sig = await _program.methods
+  const sig = await withRetry('refundPot', () => _program.methods
     .refundPot(new anchor.BN(roomIdBigInt))
     .accounts({
       config: configPda(),
@@ -145,7 +170,7 @@ async function refundPot(roomIdBigInt, players) {
     .remainingAccounts(
       playerKeys.map(pk => ({ pubkey: pk, isWritable: true, isSigner: false }))
     )
-    .rpc();
+    .rpc());
   return { signature: sig };
 }
 
@@ -155,7 +180,7 @@ async function refundPot(roomIdBigInt, players) {
 async function finalizePot(roomIdBigInt, winners, amounts) {
   if (!_enabled) throw new Error('escrow disabled');
   const winnerKeys = winners.map(w => new PublicKey(w));
-  const sig = await _program.methods
+  const sig = await withRetry('finalizePot', () => _program.methods
     .finalizePot(
       new anchor.BN(roomIdBigInt),
       winnerKeys,
@@ -171,7 +196,7 @@ async function finalizePot(roomIdBigInt, winners, amounts) {
     .remainingAccounts(
       winnerKeys.map(pk => ({ pubkey: pk, isWritable: true, isSigner: false }))
     )
-    .rpc();
+    .rpc());
   return { signature: sig };
 }
 
@@ -189,7 +214,7 @@ async function fetchPot(roomIdBigInt) {
 // finalize_pot already succeeded, drain is best-effort cleanup.
 async function drainRakeVault() {
   if (!_enabled) throw new Error('escrow disabled');
-  const sig = await _program.methods
+  const sig = await withRetry('drainRakeVault', () => _program.methods
     .drainRakeVault()
     .accounts({
       config: configPda(),
@@ -198,7 +223,7 @@ async function drainRakeVault() {
       buybackVault: buybackVaultPda(),
       oracle: _oracle.publicKey,
     })
-    .rpc();
+    .rpc());
   return { signature: sig };
 }
 
