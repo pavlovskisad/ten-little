@@ -195,14 +195,15 @@ class GameRoom {
     p.disconnected = true;
     p.disconnectedAt = Date.now();
     p.input.dx = 0; p.input.dy = 0;
-    if (p.figureId != null) {
-      const f = this.state.figs.find(x => x.id === p.figureId);
-      if (f) f.isPlayer = false;
-    }
-    this._evaluateStaleLobby();
-    // Roster broadcast lets remaining clients know the slot is still
-    // counted but no input is coming.
+    // Deliberately do NOT flip the figure's isPlayer flag. The end
+    // condition counts isPlayer figures as "live humans" — flipping
+    // it would end the round the instant a single player disconnects,
+    // which is the opposite of what reconnect needs. The tick loop's
+    // playerIntent helper inspects p.disconnected and falls back to
+    // botIntent for those figures, so movement still happens; the
+    // slot just contributes a bot's worth of skill until reconnect.
     if (this.state.phase === 'lobby') this.broadcastRoster();
+    this._evaluateStaleLobby();
   }
 
   // Rebind a slot to a new WS after a reconnect handshake. Caller
@@ -267,6 +268,35 @@ class GameRoom {
       this.broadcastRoster();
       return;
     }
+    // Quickmatch with a pot: every connected human must have signed
+    // their join_pot before the round starts. If anyone hasn't paid
+    // by start time (modal closed, signing rejected, etc.), refund
+    // the paid players and dissolve the room — otherwise an unpaid
+    // player would get a free game and could win the pot.
+    if (this.mode === 'quickmatch' && this.escrow) {
+      const connected = [...this.players.values()];
+      const paid = connected.filter(p => p.paidSig && p.wallet);
+      const unpaid = connected.filter(p => !p.paidSig);
+      if (unpaid.length > 0) {
+        console.log('[room]', this.code, 'start blocked — unpaid players:', unpaid.length,
+                    '(paid:', paid.length + ')');
+        if (this.autoStartHandle) { clearTimeout(this.autoStartHandle); this.autoStartHandle = null; }
+        if (this.staleTimeout) { clearTimeout(this.staleTimeout); this.staleTimeout = null; this.staleRefundAt = null; }
+        this.broadcast({ type: 'matchCancelled', reason: 'unpaid_player' });
+        if (paid.length > 0 && typeof this.onStaleTimeout === 'function') {
+          // Reuse the stale-lobby refund pathway — same end state
+          // (paid players refunded + WSs closed + room torn down).
+          const wallets = paid.map(p => p.wallet);
+          Promise.resolve(this.onStaleTimeout(wallets)).catch(err => {
+            console.warn('[room] match-cancelled refund failed', this.code, err.message || err);
+          });
+        } else {
+          // No one paid — just close the room cleanly.
+          this.stop();
+        }
+        return;
+      }
+    }
     if (this.autoStartHandle) { clearTimeout(this.autoStartHandle); this.autoStartHandle = null; }
     const humans = this.players.size;
     const bots = MAX_PLAYERS - humans;
@@ -320,7 +350,9 @@ class GameRoom {
     // through to botIntent.
     const playerIntent = (f) => {
       const p = [...this.players.values()].find(pp => pp.figureId === f.id);
-      if (!p) return SIM.botIntent(f, dt, this.state, this.rand);
+      // No slot at all → pure bot. Slot exists but player is
+      // disconnected → also bot (reconnect can restore control).
+      if (!p || p.disconnected) return SIM.botIntent(f, dt, this.state, this.rand);
       let { dx, dy } = p.input;
       const len = Math.hypot(dx, dy);
       if (len > 1) { dx /= len; dy /= len; }
