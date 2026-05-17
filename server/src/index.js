@@ -250,7 +250,12 @@ setInterval(() => {
 // state, so this just executes the refund when it fires.
 async function refundStaleLobby(room, wallets) {
   if (!room.escrow || wallets.length === 0) {
-    // Nothing to refund — just tear down.
+    // Nothing to refund — just tear down. Still close any open WSs
+    // so disconnected-from-the-game players don't sit with a dead
+    // socket attached to a now-deleted room.
+    for (const p of room.players.values()) {
+      if (p.ws) try { p.ws.close(); } catch (e) {}
+    }
     room.stop && room.stop();
     rooms.delete(room.code);
     return;

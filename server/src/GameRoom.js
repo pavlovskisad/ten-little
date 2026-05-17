@@ -283,15 +283,16 @@ class GameRoom {
         if (this.autoStartHandle) { clearTimeout(this.autoStartHandle); this.autoStartHandle = null; }
         if (this.staleTimeout) { clearTimeout(this.staleTimeout); this.staleTimeout = null; this.staleRefundAt = null; }
         this.broadcast({ type: 'matchCancelled', reason: 'unpaid_player' });
-        if (paid.length > 0 && typeof this.onStaleTimeout === 'function') {
-          // Reuse the stale-lobby refund pathway — same end state
-          // (paid players refunded + WSs closed + room torn down).
+        // Always route through onStaleTimeout — it handles paid==0
+        // (just tear down + close WSs) and paid>0 (refund + tear
+        // down) consistently, so the room never leaks regardless of
+        // who paid.
+        if (typeof this.onStaleTimeout === 'function') {
           const wallets = paid.map(p => p.wallet);
           Promise.resolve(this.onStaleTimeout(wallets)).catch(err => {
             console.warn('[room] match-cancelled refund failed', this.code, err.message || err);
           });
         } else {
-          // No one paid — just close the room cleanly.
           this.stop();
         }
         return;
