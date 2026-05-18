@@ -9,7 +9,7 @@
 
 const { createRemoteJWKSet, jwtVerify } = require('jose');
 
-const PRIVY_APP_ID = process.env.PRIVY_APP_ID || 'cmp5itgpu000j0dk4zp6r05rs';
+const PRIVY_APP_ID = process.env.PRIVY_APP_ID || 'cmpappljb019s0cjrqmfgp5wc';
 const JWKS_URL = `https://auth.privy.io/api/v1/apps/${PRIVY_APP_ID}/jwks.json`;
 
 let JWKS = null;
