@@ -10,7 +10,7 @@
 //    user taps the wallet badge.
 //
 // Bridge to the vanilla code: window.startQuickjoin(token) is defined
-// in plate-shapes.html and triggers the existing netConnect /
+// in index.html and triggers the existing netConnect /
 // quickjoin flow with the Privy access token attached.
 
 import { h, render } from 'preact';
@@ -28,33 +28,34 @@ import {
 import { BorshCoder } from '@coral-xyz/anchor';
 import escrowIdl from './contracts/escrow/target/idl/escrow.json';
 
-// Program ID locked at devnet deploy. Server's address must match.
+// Program ID locked at deploy time. Server's address must match.
+// Update this constant when redeploying with a fresh program keypair.
 const ESCROW_PROGRAM_ID = new PublicKey('DsFoEFQw6uPGgXDztmuPUozi1AqP9KWC6N71H2MLVG5z');
-// Separate RPC for escrow tx submission. SOLANA_RPC stays mainnet for
-// the wallet drawer's balance display; ESCROW_RPC follows the program
-// (devnet today; flip to mainnet when the program is redeployed there).
-// Override via ?escrowRpc=… for testing.
+// RPC for escrow tx submission. Defaults to the same SOLANA_RPC the
+// wallet drawer uses (same chain). Override via ?escrowRpc=… for
+// per-page testing.
 const ESCROW_RPC = (() => {
   const params = new URLSearchParams(location.search);
-  return params.get('escrowRpc') || 'https://api.devnet.solana.com';
+  if (params.get('escrowRpc')) return params.get('escrowRpc');
+  if (typeof process !== 'undefined' && process.env.SOLANA_RPC) return process.env.SOLANA_RPC;
+  return 'https://api.mainnet-beta.solana.com';
 })();
 const _escrowCoder = new BorshCoder(escrowIdl);
 
-const PRIVY_APP_ID = 'cmp5itgpu000j0dk4zp6r05rs';
-// Solana mainnet RPC. Public endpoints (mainnet-beta.solana.com, ankr)
-// are 403-throttling free traffic in 2026. Resolution order:
+const PRIVY_APP_ID = 'cmpappljb019s0cjrqmfgp5wc';
+// Solana RPC for wallet balance + transaction submission. Resolution:
 //   1. ?rpc=<url> query param (per-load override)
 //   2. SOLANA_RPC env var, injected at build time by esbuild
-//   3. Helius free-tier fallback (rotated by setting the env var)
-// The Helius key in the fallback is rate-limited and may be rotated;
-// for prod, set SOLANA_RPC on Railway and the env-var path wins.
+//   3. Free-tier public endpoint as last-resort fallback (slow)
+// The real Helius URL with API key is set on Railway and baked into
+// the bundle at build time. Never check the key into source.
 const SOLANA_RPC = (() => {
   const params = new URLSearchParams(location.search);
   const urlOverride = params.get('rpc');
   if (urlOverride) return urlOverride;
   const envInjected = process.env.SOLANA_RPC;
   if (envInjected) return envInjected;
-  return 'https://mainnet.helius-rpc.com/?api-key=f06fa0f0-ba74-43b6-afef-dfa9928341cc';
+  return 'https://api.mainnet-beta.solana.com';
 })();
 
 function shortAddr(addr) {
@@ -294,7 +295,7 @@ function AuthIsland() {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Publish a payEntryFee bridge for the vanilla netConnect handler.
-  // Called by plate-shapes.html when the server sends a 'joined'
+  // Called by index.html when the server sends a 'joined'
   // message with an escrow payload. Returns the tx signature on
   // success so the vanilla side can forward it to the server in a
   // 'paid' message.

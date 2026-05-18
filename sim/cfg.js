@@ -1,4 +1,4 @@
-// Gameplay tuning constants. Extracted from plate-shapes.html so the future
+// Gameplay tuning constants. Extracted from index.html so the future
 // game server can share the same numbers without duplicating them. Authored
 // as a UMD-ish snippet so it works as a browser <script> (attaches to
 // window.SIM) and as a Node module (when the Colyseus server imports it).

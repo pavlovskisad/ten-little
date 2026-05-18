@@ -1,7 +1,7 @@
 // Minimal multiplayer game server. ws + http; no Colyseus yet. Each
 // client opens a WebSocket and sends/receives JSON messages.
 //
-// Also serves the static client (plate-shapes.html, sim/, *.glb, *.mp3,
+// Also serves the static client (index.html, sim/, *.glb, *.mp3,
 // etc.) from the repo root so one process is the whole game.
 //
 // Protocol (v0):
@@ -162,7 +162,7 @@ const STATIC_ROOT = path.resolve(__dirname, '..', '..');
 // Cache-buster for the Preact bundles. Mobile Safari sometimes holds
 // on to an old bundle even with no-store headers; bumping the URL on
 // every deploy forces a fresh fetch because the browser hasn't seen
-// the new query string before. We rewrite both plate-shapes.html and
+// the new query string before. We rewrite both index.html and
 // claim.html on the fly to inject these versions.
 function bundleVersion(filename) {
   try {
@@ -196,7 +196,7 @@ function precacheHtml(filename, bundleName, version) {
     return null;
   }
 }
-const PLATE_HTML = precacheHtml('plate-shapes.html', './auth.bundle.js', AUTH_BUNDLE_VERSION);
+const PLATE_HTML = precacheHtml('index.html', './auth.bundle.js', AUTH_BUNDLE_VERSION);
 const CLAIM_HTML = precacheHtml('claim.html', './claim.bundle.js', CLAIM_BUNDLE_VERSION);
 
 const rooms = new Map();  // code → GameRoom
@@ -335,7 +335,7 @@ function serveCachedHtml(req, res, buf) {
 
 function serveStatic(req, res) {
   let urlPath = req.url.split('?')[0];
-  if (urlPath === '/' || urlPath === '') urlPath = '/plate-shapes.html';
+  if (urlPath === '/' || urlPath === '') urlPath = '/index.html';
   // Friendly /claim alias for the rev-share page. Matches both /claim
   // and /claim/ so a trailing-slash bookmark also lands.
   if (urlPath === '/claim' || urlPath === '/claim/') urlPath = '/claim.html';
@@ -347,12 +347,12 @@ function serveStatic(req, res) {
     return;
   }
 
-  // Special case: plate-shapes.html and claim.html are served from
+  // Special case: index.html and claim.html are served from
   // in-memory buffers with their bundle URLs cache-busted. If the
   // pre-cache failed (e.g., file not on disk where we expected at
   // startup), serveCachedHtml returns false and we fall through to
   // plain streaming.
-  if (filePath === path.join(STATIC_ROOT, 'plate-shapes.html')) {
+  if (filePath === path.join(STATIC_ROOT, 'index.html')) {
     if (serveCachedHtml(req, res, PLATE_HTML)) return;
   }
   if (filePath === path.join(STATIC_ROOT, 'claim.html')) {

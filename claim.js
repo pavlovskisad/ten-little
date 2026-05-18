@@ -28,28 +28,29 @@ import {
 import { BorshCoder, BorshAccountsCoder } from '@coral-xyz/anchor';
 import escrowIdl from './contracts/escrow/target/idl/escrow.json';
 
-const PRIVY_APP_ID = 'cmp5itgpu000j0dk4zp6r05rs';
+const PRIVY_APP_ID = 'cmpappljb019s0cjrqmfgp5wc';
 const ESCROW_PROGRAM_ID = new PublicKey('DsFoEFQw6uPGgXDztmuPUozi1AqP9KWC6N71H2MLVG5z');
 const MPL_TOKEN_METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
 const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 
-// Standard Solana RPC for getAccountInfo (config + rev-share + claim
-// state PDAs). The public api.devnet.solana.com is rate-limited to
-// the point of unusability during the test window, so we default to
-// the same Helius endpoint that handles getAssetsByOwner — it also
-// serves standard RPC methods.
+// Both RPCs default to SOLANA_RPC (build-time env injection on
+// Railway). Same chain for getAccountInfo (program state) + Helius
+// getAssetsByOwner (NFT list) — one Helius endpoint serves both.
+// Public fallback is rate-limited; production uses the env-injected
+// Helius URL with key baked into the bundle at build time. Never
+// check the key into source.
 const ESCROW_RPC = (() => {
   const params = new URLSearchParams(location.search);
-  return params.get('escrowRpc') ||
-    'https://devnet.helius-rpc.com/?api-key=f06fa0f0-ba74-43b6-afef-dfa9928341cc';
+  if (params.get('escrowRpc')) return params.get('escrowRpc');
+  if (typeof process !== 'undefined' && process.env.SOLANA_RPC) return process.env.SOLANA_RPC;
+  return 'https://api.mainnet-beta.solana.com';
 })();
-// Helius RPC for getAssetsByOwner. Hardcoded devnet key during the
-// devnet-testing window; flip to mainnet alongside the program promotion.
 const HELIUS_RPC = (() => {
   const params = new URLSearchParams(location.search);
-  return params.get('helius') ||
-    'https://devnet.helius-rpc.com/?api-key=f06fa0f0-ba74-43b6-afef-dfa9928341cc';
+  if (params.get('helius')) return params.get('helius');
+  if (typeof process !== 'undefined' && process.env.SOLANA_RPC) return process.env.SOLANA_RPC;
+  return 'https://api.mainnet-beta.solana.com';
 })();
 
 const _coder = new BorshCoder(escrowIdl);

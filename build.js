@@ -10,7 +10,7 @@
 // on top of Preact.
 //
 // Outputs:
-//   ./auth.bundle.js   — used by plate-shapes.html
+//   ./auth.bundle.js   — used by index.html
 //   ./claim.bundle.js  — used by claim.html
 // Both served by the unified static handler the same as any other
 // static asset. Self-contained, no runtime CDN, no import map.
