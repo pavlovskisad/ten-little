@@ -45,11 +45,11 @@ function nextRoomIdBigInt() {
 }
 
 // On-chain rake bps must match the program's ProgramConfig.rake_bps
-// (default 500 = 5%). If the admin changes it via set_rake_bps, this
+// (default 800 = 8%). If the admin changes it via set_rake_bps, this
 // constant has to be updated too — or we can fetch ProgramConfig on
 // boot. For v0 we hardcode the default; revisit when the admin
 // instruction sees use.
-const RAKE_BPS = 500n;
+const RAKE_BPS = 800n;
 
 // Compute winners + amounts and call escrow.finalizePot. Skips the
 // on-chain call when no eligible human winners exist — the pot

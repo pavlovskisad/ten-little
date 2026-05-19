@@ -14,7 +14,7 @@ If you bail mid-match, your entry is forfeit — you knew that going in. If your
 
 ## Where the money goes
 
-Out of every paid match, **5% is rake** — the house take. The other 95% goes to the winners (split between top 1, 2, or 3 depending on how many humans paid in).
+Out of every paid match, **8% is rake** — the house take. The other 92% goes to the winners (split between top 1, 2, or 3 depending on how many humans paid in).
 
 The rake itself splits two ways:
 
@@ -92,6 +92,6 @@ Every paid match generates:
 - A small win for token holders (buyback + burn)
 - A very small win for you (the operator gets the rent SOL back when each pot closes, plus you control the buyback pace)
 
-It's intentionally aligned: no single party wins at another's expense. The house edge is the 5%, and even that doesn't go to the house — it goes back into the holder communities. The "house" is everyone holding the token and the NFTs.
+It's intentionally aligned: no single party wins at another's expense. The house edge is the 8%, and even that doesn't go to the house — it goes back into the holder communities. The "house" is everyone holding the token and the NFTs.
 
 For the operator (you), the day-to-day is mostly watching that everything keeps running, occasionally executing a buyback, occasionally rotating a key or topping up the oracle. The game runs itself.

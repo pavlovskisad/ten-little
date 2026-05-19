@@ -111,7 +111,7 @@ fn parse_metaplex_collection(data: &[u8]) -> Result<(Pubkey, bool, Pubkey)> {
 declare_id!("DsFoEFQw6uPGgXDztmuPUozi1AqP9KWC6N71H2MLVG5z");
 
 const MAX_PLAYERS: usize = 10;
-const RAKE_BPS_DEFAULT: u16 = 500; // 5%
+const RAKE_BPS_DEFAULT: u16 = 800; // 8%
 const BUYBACK_BPS: u64 = 2000;     // 20% of every rake drain
 
 #[program]

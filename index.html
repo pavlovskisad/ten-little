@@ -3810,7 +3810,7 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
   const potPaidEl = document.getElementById('lobby-pot-paid');
   const potPrizeEl = document.getElementById('lobby-pot-prize');
   const LAMPORTS_PER_SOL = 1_000_000_000;
-  const POT_RAKE_BPS = 500; // mirrors RAKE_BPS in the server.
+  const POT_RAKE_BPS = 800; // mirrors RAKE_BPS in the server.
   function lamportsToSol(lam) {
     const n = Number(lam) / LAMPORTS_PER_SOL;
     return (n < 0.0001 && n > 0) ? n.toFixed(6) : n.toFixed(4);

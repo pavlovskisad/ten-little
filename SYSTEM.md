@@ -17,8 +17,8 @@ Two modes: **quickmatch** (paid, 0.01 SOL entry, Privy auth required) and **prac
 ## Money flow
 
 ```
-player wallets ──0.01 SOL each──> Pot PDA ──finalize_pot─┬─> winners (95% of pot, tier-split)
-                                                          └─> rake_vault (5%)
+player wallets ──0.01 SOL each──> Pot PDA ──finalize_pot─┬─> winners (92% of pot, tier-split)
+                                                          └─> rake_vault (8%)
                                                               │
                                                   ──drain_rake_vault──
                                                   │                  │
@@ -33,7 +33,7 @@ player wallets ──0.01 SOL each──> Pot PDA ──finalize_pot─┬─> w
                                                                 swap → SPL burn)
 ```
 
-Per-match math at 2 humans × 0.01 SOL: pot = 0.02 SOL, winner gets 0.019, rake = 0.001 (0.0008 to rev-share, 0.0002 to buyback).
+Per-match math at 2 humans × 0.01 SOL: pot = 0.02 SOL, winner gets 0.0184, rake = 0.0016 (0.00128 to rev-share, 0.00032 to buyback).
 
 ## Quickmatch player flow
 
@@ -117,7 +117,7 @@ Buyback receiver:   5zUwoqGznieSx1kbHyW3enZmvkU2nbpNts4bcqn16Cw4
 - Single entry-fee tier (0.01 SOL) — tiered rooms deferred
 - 90s grace before stale-lobby refund
 - 60s lobby countdown
-- 5% rake (configurable via `set_rake_bps`)
+- 8% rake (configurable via `set_rake_bps`)
 - 20/80 buyback/rev-share split (compile-time constant, not configurable)
 - Session token TTL: 10 min
 - NFT supply: 420 (configurable via `set_nft_supply`)
