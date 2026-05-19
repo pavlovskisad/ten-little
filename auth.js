@@ -252,23 +252,27 @@ function WalletDrawer({ address, onClose }) {
             title: 'refresh balance',
           }, refreshing ? '…' : '↻'),
         ]),
-        h('div', {
-          className: 'wd-balance'
-            + (balance && balance.ok === false ? ' wd-balance-err' : '')
-            + (refreshing ? ' wd-balance-fetching' : ''),
-        },
-          balance == null ? '…'
-            : balance.ok ? balance.sol.toFixed(4) + ' SOL'
-            : 'rpc error: ' + (balance.error || 'unknown')
-        ),
-      ]),
-      !sending && h('div', { className: 'wd-row wd-actions' }, [
-        h('button', {
-          className: 'wd-send',
-          onClick: () => setSending(true),
-          disabled: !wallet,
-          title: wallet ? 'send SOL to any address' : 'wallet not ready',
-        }, 'send'),
+        // Balance value sits on the left of its row; the 'send' link
+        // sits on the right, directly under the refresh icon. Send is
+        // only rendered when we're not in the send-form state — when
+        // the user clicks it, the form replaces the whole row block.
+        h('div', { className: 'wd-balance-row' }, [
+          h('div', {
+            className: 'wd-balance'
+              + (balance && balance.ok === false ? ' wd-balance-err' : '')
+              + (refreshing ? ' wd-balance-fetching' : ''),
+          },
+            balance == null ? '…'
+              : balance.ok ? balance.sol.toFixed(4) + ' SOL'
+              : 'rpc error: ' + (balance.error || 'unknown')
+          ),
+          !sending && h('button', {
+            className: 'wd-send',
+            onClick: () => setSending(true),
+            disabled: !wallet,
+            title: wallet ? 'send SOL to any address' : 'wallet not ready',
+          }, 'send'),
+        ]),
       ]),
       !sending && h('div', { className: 'wd-row wd-actions' }, [
         h('button', {

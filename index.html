@@ -168,7 +168,10 @@
     font-size: 12px;
     color: #ffffff; opacity: 0.50; white-space: nowrap;
     font-style: normal;
+    display: none;
   }
+  #tilt { display: none; }
+  #tilt-arrow { display: none; }
 
   /* title at intro — two lines stacked, each letter a different
      primary from the palette, big chunky pixel signage in Press
@@ -516,6 +519,13 @@
     display: flex; flex-direction: column; gap: 14px;
   }
   .wd-header { display: flex; justify-content: space-between; align-items: center; }
+  /* Balance value left, send link right — same row underneath the
+     'balance' label + refresh button row. Send button keeps its
+     hyperlink styling (via #lobby .wd-send rule) but sits aligned
+     to the value's baseline. */
+  .wd-balance-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
   .wd-title { font-size: 22px; letter-spacing: 0.12em; text-transform: lowercase; }
   .wd-close {
     background: transparent; color: #f1e5cd; border: 1px solid #f1e5cd33;
@@ -748,7 +758,7 @@
   <button id="start" style="pointer-events:none;opacity:0.65">loading...</button>
   <div id="imprint">
     <div>published for</div>
-    <div>the crime club</div>
+    <div>jans crime club</div>
   </div>
 </div>
 
