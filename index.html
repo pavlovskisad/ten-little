@@ -515,6 +515,7 @@
     background: rgba(20,17,13,0.98);
     border: 1px solid #ff1a1a44;
     width: 100%; max-width: 360px;
+    min-height: min(50vh, 380px);
     padding: 20px 22px 24px;
     display: flex; flex-direction: column; gap: 14px;
   }
@@ -576,7 +577,7 @@
     letter-spacing: 0.06em; margin-top: 2px;
     color: #f1e5cd;
   }
-  .wd-actions { margin-top: 4px; }
+  .wd-actions { margin-top: auto; }
   .wd-actions-row { flex-direction: row !important; gap: 8px; }
   /* Inputs: compact system monospace so a 44-char Solana address
      fits inside the 360 px drawer without overflowing. Selector is
