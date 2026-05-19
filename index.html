@@ -515,18 +515,10 @@
     background: rgba(20,17,13,0.98);
     border: 1px solid #ff1a1a44;
     width: 100%; max-width: 360px;
-    min-height: min(50vh, 380px);
     padding: 20px 22px 24px;
     display: flex; flex-direction: column; gap: 14px;
   }
   .wd-header { display: flex; justify-content: space-between; align-items: center; }
-  /* Balance value left, send link right — same row underneath the
-     'balance' label + refresh button row. Send button keeps its
-     hyperlink styling (via #lobby .wd-send rule) but sits aligned
-     to the value's baseline. */
-  .wd-balance-row {
-    display: flex; justify-content: space-between; align-items: baseline;
-  }
   .wd-title { font-size: 22px; letter-spacing: 0.12em; text-transform: lowercase; }
   .wd-close {
     background: transparent; color: #f1e5cd; border: 1px solid #f1e5cd33;
@@ -577,7 +569,14 @@
     letter-spacing: 0.06em; margin-top: 2px;
     color: #f1e5cd;
   }
-  .wd-actions { margin-top: auto; }
+  .wd-actions { margin-top: 4px; }
+  /* Send link sits left-aligned under balance, self-sized so the
+     underline only spans the word — looks like a hyperlink, not
+     a stretched-full-width button. */
+  #lobby .wd-send {
+    align-self: flex-start;
+    padding: 0; font-size: 22px;
+  }
   .wd-actions-row { flex-direction: row !important; gap: 8px; }
   /* Inputs: compact system monospace so a 44-char Solana address
      fits inside the 360 px drawer without overflowing. Selector is
@@ -630,9 +629,9 @@
   .wd-cancel:hover { border-color: #ff1a1a; color: #ff1a1a; }
   .wd-cancel:disabled { opacity: 0.35; cursor: default; }
   /* Drawer action buttons inherit the simple #lobby button hyperlink
-     style (transparent bg, blue underlined). Top-up is slightly
-     bigger than send to indicate it's the headline action. */
-  #lobby .wd-send { font-size: 22px; }
+     style (transparent bg, blue underlined). Top-up is bigger and
+     centered as the headline action; send is smaller and left-
+     aligned under the balance value (rule above). */
   #lobby .wd-fund { font-size: 28px; }
   .wd-send:disabled,
   .wd-fund:disabled { opacity: 0.35; cursor: default; }
@@ -769,10 +768,11 @@
     <!-- Preact mounts the auth UI (login button, wallet drawer) here.
          Until the user is logged in we render a "log in to join"
          button; once authed, we render the wallet badge + the real
-         "join" button. The solo button below is vanilla and always
-         clickable. -->
+         "join" button. The free + solo buttons below are vanilla
+         and always clickable (no login required). -->
     <div id="auth-root"></div>
     <div class="lobby-disclaimer">paid match: no refunds. once you pay, leaving or disconnecting forfeits your entry to the pot.</div>
+    <button id="lobby-free">free multiplayer</button>
     <button id="lobby-solo">solo (bots)</button>
     <div class="err" id="lobby-err"></div>
   </div>
@@ -2728,6 +2728,12 @@ function netConnect() {
       // validation + matchmaking happen atomically (no race between
       // separate auth and quickjoin messages).
       ws.send(JSON.stringify({ type: 'quickjoin', token: NET.privyToken }));
+    } else if (mode === 'freematch') {
+      // Free multiplayer — same matchmaking surface as quickjoin but
+      // server-side: no auth required, no pot, no payment, no payout.
+      // 'mode: freematch' flag tells the server to use the freematch
+      // room pool (siloed from paid quickmatch rooms).
+      ws.send(JSON.stringify({ type: 'quickjoin', mode: 'freematch' }));
     } else {
       // 'solo' (practice) — no auth, no on-chain side effects.
       ws.send(JSON.stringify({ type: 'create' }));
@@ -3766,17 +3772,24 @@ setTimeout(function autoReplay() {
     try { sessionStorage.removeItem('tlAgain'); } catch (e) {}
     const btn = document.getElementById('lobby-solo');
     if (btn) btn.click();
+  } else if (flag === 'freematch') {
+    try { sessionStorage.removeItem('tlAgain'); } catch (e) {}
+    const btn = document.getElementById('lobby-free');
+    if (btn) btn.click();
   }
   // For 'quickmatch' the flag stays set; auth.js's useEffect consumes
   // it once Privy is authenticated and fires window.startQuickjoin.
 }, 0);
 document.getElementById('again').addEventListener('click', () => {
   // Stash the previous mode so the page-load handler can auto-trigger
-  // the same kind of round (solo or quickmatch) without making the
-  // player click through the title → lobby → join flow again. Cleared
-  // on page load right before use.
+  // the same kind of round (solo / freematch / quickmatch) without
+  // making the player click through the title → lobby → join flow
+  // again. Cleared on page load right before use.
   try {
-    sessionStorage.setItem('tlAgain', NET.joinMode === 'solo' ? 'solo' : 'quickmatch');
+    const replayMode = NET.joinMode === 'solo' ? 'solo'
+                     : NET.joinMode === 'freematch' ? 'freematch'
+                     : 'quickmatch';
+    sessionStorage.setItem('tlAgain', replayMode);
   } catch (e) {}
   location.reload();
 });
@@ -4018,6 +4031,17 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
   document.getElementById('lobby-solo').addEventListener('click', () => {
     errEl.textContent = '';
     NET.joinMode = 'solo';
+    NET.privyToken = null;
+    netConnect();
+  });
+  // Free multiplayer: matchmaking like quickmatch but no auth and
+  // no on-chain interaction. Server creates 'freematch' rooms in a
+  // separate pool from 'quickmatch'. Good for testing the full
+  // multiplayer loop without spending SOL, and as a free path for
+  // users who haven't funded a wallet yet.
+  document.getElementById('lobby-free').addEventListener('click', () => {
+    errEl.textContent = '';
+    NET.joinMode = 'freematch';
     NET.privyToken = null;
     netConnect();
   });

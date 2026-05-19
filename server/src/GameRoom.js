@@ -49,12 +49,15 @@ class GameRoom {
   }
 
   // Arm the auto-start countdown the first time conditions are met.
-  // Practice rooms: arm on first joiner. Quickmatch: arm only when
-  // at least 2 humans are present, so a lone player waits indefinitely
-  // without paying anything (pot init is gated on 2 humans too).
+  // Practice rooms (solo+bots): arm on first joiner. Quickmatch and
+  // freematch (both multi-human modes): arm only when at least 2
+  // humans are present, so a lone player waits indefinitely without
+  // anything happening (no pot init for paid, no round-start for
+  // free).
   armAutoStart() {
     if (this.autoStartHandle) return;
-    if (this.mode === 'quickmatch' && this.players.size < 2) return;
+    const multiHumanMode = this.mode === 'quickmatch' || this.mode === 'freematch';
+    if (multiHumanMode && this.players.size < 2) return;
     this.lobbyDeadline = Date.now() + COUNTDOWN_MS;
     this.autoStartHandle = setTimeout(() => this.start('auto'), COUNTDOWN_MS);
   }
@@ -128,7 +131,8 @@ class GameRoom {
     // "Waiting" mode: quickmatch room with a single human in it.
     // Countdown is intentionally not armed; client renders "waiting
     // for opponents…" instead of a ticking timer.
-    const waiting = (this.mode === 'quickmatch' && this.players.size < 2);
+    const multiHumanMode = this.mode === 'quickmatch' || this.mode === 'freematch';
+    const waiting = (multiHumanMode && this.players.size < 2);
     const msg = {
       type: 'roster',
       code: this.code,
@@ -261,7 +265,8 @@ class GameRoom {
     // 2 humans (e.g., 2nd joiner cancelled during countdown). Disarm
     // the timer so the next addPlayer can re-arm it once we're back
     // at 2+ humans.
-    if (this.mode === 'quickmatch' && this.players.size < 2 && reason === 'auto') {
+    const multiHumanMode = this.mode === 'quickmatch' || this.mode === 'freematch';
+    if (multiHumanMode && this.players.size < 2 && reason === 'auto') {
       console.log('[room]', this.code, 'auto-start blocked — only', this.players.size, 'human(s)');
       if (this.autoStartHandle) { clearTimeout(this.autoStartHandle); this.autoStartHandle = null; }
       this.lobbyDeadline = 0;
