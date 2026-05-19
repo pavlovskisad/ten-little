@@ -1,4 +1,4 @@
-# ten little — system overview
+# ten lil — system overview
 
 ## What it is
 

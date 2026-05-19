@@ -1,4 +1,4 @@
-# ten little — what it is, how it works
+# ten lil — what it is, how it works
 
 ## The game
 

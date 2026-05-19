@@ -261,15 +261,6 @@ function WalletDrawer({ address, onClose }) {
             : balance.ok ? balance.sol.toFixed(4) + ' SOL'
             : 'rpc error: ' + (balance.error || 'unknown')
         ),
-        // Devnet sub-line — same wallet, just on devnet. Useful for
-        // verifying entry-fee payments + payouts during testing.
-        // Hides itself once devnet balance reads zero and we promote
-        // the program to mainnet (ESCROW_RPC default flips).
-        h('div', { className: 'wd-balance-sub' },
-          devBalance == null ? 'devnet · …'
-            : devBalance.ok ? `devnet · ${devBalance.sol.toFixed(4)} SOL`
-            : `devnet · rpc error`
-        ),
       ]),
       !sending && h('div', { className: 'wd-row wd-actions' }, [
         h('button', {
@@ -279,7 +270,7 @@ function WalletDrawer({ address, onClose }) {
           title: wallet ? 'send SOL to any address' : 'wallet not ready',
         }, 'send'),
       ]),
-      !sending && h('div', { className: 'wd-row wd-actions wd-actions-fund' }, [
+      !sending && h('div', { className: 'wd-row wd-actions' }, [
         h('button', {
           className: 'wd-fund',
           onClick: () => {
