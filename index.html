@@ -601,15 +601,43 @@
   }
   .wd-cancel:hover { border-color: #ff1a1a; color: #ff1a1a; }
   .wd-cancel:disabled { opacity: 0.35; cursor: default; }
-  .wd-send {
+  .wd-send,
+  .wd-fund {
     flex: 1;
     background: #ff1a1a; color: #f1e5cd; border: none;
     padding: 10px 0; cursor: pointer; width: 100%;
     font-family: 'VT323', monospace; font-size: 20px;
     letter-spacing: 0.1em; text-transform: lowercase;
   }
+  .wd-fund {
+    background: #14110d; color: #ffd000; border: 1px solid #ffd000;
+  }
   .wd-send:hover { background: #ff3030; }
-  .wd-send:disabled { opacity: 0.35; cursor: default; }
+  .wd-fund:hover { background: #ffd000; color: #14110d; }
+  .wd-send:disabled,
+  .wd-fund:disabled { opacity: 0.35; cursor: default; }
+
+  /* Low-balance CTA shown under the join button when balance < entry
+     fee. Single line of context + a button that opens Privy's fund
+     flow. */
+  #auth-root .auth-low-balance {
+    margin-top: 10px;
+    text-align: center;
+    font-family: 'VT323', monospace;
+  }
+  #auth-root .auth-low-balance-msg {
+    color: #ff8c00; font-size: 14px; opacity: 0.9;
+    margin-bottom: 6px;
+  }
+  #auth-root .auth-low-balance-cta {
+    background: #14110d; color: #ffd000; border: 1px solid #ffd000;
+    padding: 8px 14px; cursor: pointer;
+    font-family: 'VT323', monospace; font-size: 18px;
+    letter-spacing: 0.08em; text-transform: lowercase;
+  }
+  #auth-root .auth-low-balance-cta:hover {
+    background: #ffd000; color: #14110d;
+  }
 
   /* Spectator caption — shown once the local player is eliminated.
      Sits where the joystick used to be, dims everything else. */
