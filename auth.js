@@ -271,27 +271,28 @@ function WalletDrawer({ address, onClose }) {
             : `devnet · rpc error`
         ),
       ]),
-      !sending && h('div', { className: 'wd-row wd-actions wd-actions-row' }, [
+      !sending && h('div', { className: 'wd-row wd-actions' }, [
         h('button', {
           className: 'wd-send',
           onClick: () => setSending(true),
           disabled: !wallet,
           title: wallet ? 'send SOL to any address' : 'wallet not ready',
         }, 'send'),
+      ]),
+      !sending && h('div', { className: 'wd-row wd-actions wd-actions-fund' }, [
         h('button', {
           className: 'wd-fund',
           onClick: () => {
-            // Privy opens its fund modal: card / Apple Pay / bank → SOL
-            // into this wallet. Provider (MoonPay or Coinbase Onramp)
-            // is auto-picked by user region. Modal handles KYC + payment.
-            // Address tap-to-copy on the address row above covers the
-            // "send from another wallet" path.
+            // Privy opens its fund modal with both paths enabled in
+            // the dashboard: 'buy with card / Apple Pay' (MoonPay)
+            // and 'send from another wallet' (deposit address + QR).
+            // User picks which one inside the modal.
             try { fundWallet(address, { cluster: { name: 'mainnet-beta' } }); }
             catch (e) { console.warn('[fund] failed to open:', e); }
           },
           disabled: !wallet,
-          title: wallet ? 'buy SOL with card / Apple Pay' : 'wallet not ready',
-        }, 'top up'),
+          title: wallet ? 'add SOL: buy with card or send from another wallet' : 'wallet not ready',
+        }, 'top-up with fiat or crypto'),
       ]),
       sending && h(SendForm, {
         fromAddress: address,

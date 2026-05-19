@@ -495,6 +495,7 @@
     background: rgba(20,17,13,0.98);
     border: 1px solid #ff1a1a44;
     width: 100%; max-width: 360px;
+    min-height: min(70vh, 520px);
     padding: 20px 22px 24px;
     display: flex; flex-direction: column; gap: 14px;
   }
@@ -609,8 +610,13 @@
     font-family: 'VT323', monospace; font-size: 20px;
     letter-spacing: 0.1em; text-transform: lowercase;
   }
+  /* Top-up is the headline action — bigger, anchored to bottom of
+     drawer so it's always thumb-reachable on mobile. wd-actions-fund
+     gets margin-top:auto to absorb the gap above. */
+  .wd-actions-fund { margin-top: auto; }
   .wd-fund {
     background: #14110d; color: #ffd000; border: 1px solid #ffd000;
+    padding: 16px 0; font-size: 24px;
   }
   .wd-send:hover { background: #ff3030; }
   .wd-fund:hover { background: #ffd000; color: #14110d; }
