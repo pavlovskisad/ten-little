@@ -14,14 +14,25 @@
                        turns the filter knob
      player slide    → tremolo depth (fast movement shivers the bed)
      edge closeness  → filter resonance (tension whistle near death)
+     crowd scramble  → sparkle-layer brightness
      claw telegraph  → rising shimmer synced to the reticle fill
      claw grab       → downward sweep + bed duck
-     any bump        → on-scale pluck (louder when the player is in it)
+     any bump        → on-scale pluck into a feedback delay
      death           → one drone voice drops out (bed thins as the
                        plate empties)
      plate shrink    → dropped voices return + the bed deepens
      win             → weird synthesized fanfare (routed around the
                        round-end fade)
+
+   EVERY ROUND ROLLS A NEW PATCH: root key, mode (minor / dorian /
+   major / sus), chord voicings, oscillator waveform pair, detune
+   spread, sparkle register, wobble character, delay time, chord
+   drift pace. Two rounds never sit in the same harmonic world.
+
+   The space: a convolution reverb whose impulse response is
+   procedurally generated decaying noise (a free ~3s hall), fed
+   post-master so the tail rings out naturally when the round fades.
+   Plucks also feed a filtered feedback delay for dub-style echoes.
 
    Contract with the shell/game (same shape as the JUNGLE module):
      ensure()            build graph early (ctx starts suspended)
@@ -30,12 +41,14 @@
      ready()             graph built (splash readiness probe)
      start()             menu wake: bed fades up
      stop(fadeSec)       LINEAR master fade (countdown uses 2.7s)
-     roundStart()        round bed: starts low, builds over ~30s
+     roundStart()        new patch + bed builds over ~30s
      setMuted(b)         ad-break mute        (composes with user)
      setUserMuted(b)     boombox tape eject   (composes with ads)
      setTilt(tx,tz,mag,speed,edge)  per-frame effector feed
+     setCrowd(energy)    mean crowd scramble 0..1
      telegraph(k)        0..1 reticle fill, 0 = off
      pluck(isPlayer) grab() onDeath() thicken() fanfare()
+     state()             {chordIdx, dropped, patchName} for visuals
 
    Scheduler discipline: every audible change is scheduled against
    ctx.currentTime (setTargetAtTime / linearRamp). No Date.now().
@@ -53,6 +66,8 @@ const DRIFT = (() => {
   let tremOsc, tremDepth;            // tremolo LFO
   let shimmerOsc, shimmerGain;       // claw telegraph riser
   let sparkleBus;                    // crowd energy scales the air
+  let revSend, convolver;            // the hall (post-master send)
+  let delayIn, delayNode, delayFb, delayFilter;  // pluck echoes
   const voices = [];                 // drone stack
   let sparkles = [];                 // high sine cluster
   let chordTimer = null;
@@ -60,19 +75,81 @@ const DRIFT = (() => {
   let droppedVoices = 0;
   let userMuted = false, adMuted = false;
 
-  // A minor, ambient voicings. Each chord = semitone offsets from A2
-  // (110 Hz) for the 4 drone voices (root, fifth, octave, color).
-  const CHORDS = [
-    [0, 7, 12, 16],    // Am(add9)-ish
-    [-4, 3, 8, 15],    // Fmaj7-ish
-    [-9, -2, 3, 10],   // C-ish
-    [-2, 5, 10, 14],   // G-ish
+  // ============================================================
+  // THE PATCH — rolled fresh every round. Chords are semitone
+  // offsets from the patch root for the 4 drone voices; pent is the
+  // pluck pool. Each mode carries its own harmonic personality.
+  // ============================================================
+  const MODES = [
+    { name: 'nightshade',   // natural minor (the original feel)
+      chords: [[0, 7, 12, 16], [-4, 3, 8, 15], [-9, -2, 3, 10], [-2, 5, 10, 14]],
+      pent: [12, 15, 17, 19, 22, 24, 27, 29, 31, 34] },
+    { name: 'seaglass',     // dorian — minor with a lifted 6th
+      chords: [[0, 7, 12, 17], [3, 10, 15, 19], [-2, 5, 10, 14], [5, 12, 17, 21]],
+      pent: [12, 15, 17, 19, 21, 24, 27, 29, 31, 33] },
+    { name: 'daylight',     // major-ish, lydian color note
+      chords: [[0, 7, 12, 16], [5, 12, 16, 21], [-3, 4, 9, 14], [7, 14, 19, 23]],
+      pent: [12, 14, 16, 19, 21, 24, 26, 28, 31, 33] },
+    { name: 'openwater',    // sus voicings — neither major nor minor
+      chords: [[0, 7, 12, 14], [-2, 5, 12, 17], [3, 10, 14, 19], [-4, 3, 10, 15]],
+      pent: [12, 14, 17, 19, 22, 24, 26, 29, 31, 34] },
   ];
-  const ROOT_HZ = 110;
-  // Pentatonic pool for plucks (A minor pent, two octaves up)
-  const PLUCK_SEMIS = [12, 15, 17, 19, 22, 24, 27, 29, 31, 34];
+  const WAVE_PAIRS = [
+    ['sawtooth', 'triangle'],
+    ['triangle', 'sine'],
+    ['sawtooth', 'sine'],
+    ['triangle', 'triangle'],
+  ];
+  const DELAY_TIMES = [0.31, 0.42, 0.5, 0.56];
 
-  const semiHz = (s) => ROOT_HZ * Math.pow(2, s / 12);
+  let patch = null;
+  function rollPatch() {
+    const mode = MODES[Math.floor(Math.random() * MODES.length)];
+    // rotate the chord cycle so even a repeated mode starts elsewhere
+    const rot = Math.floor(Math.random() * mode.chords.length);
+    const chords = mode.chords.slice(rot).concat(mode.chords.slice(0, rot));
+    patch = {
+      name: mode.name,
+      root: 110 * Math.pow(2, (Math.floor(Math.random() * 12) - 5) / 12),
+      chords,
+      pent: mode.pent,
+      waves: WAVE_PAIRS[Math.floor(Math.random() * WAVE_PAIRS.length)],
+      detune: 4 + Math.random() * 8,            // cents of spread
+      sawGain: 0.25 + Math.random() * 0.18,     // how present the edgier osc is
+      sparkleOct: Math.random() < 0.5 ? 0 : 12, // sparkle register
+      lfoBase: 0.3 + Math.random() * 0.3,       // wobble at rest
+      delayTime: DELAY_TIMES[Math.floor(Math.random() * DELAY_TIMES.length)],
+      driftMs: 12000 + Math.random() * 10000,   // chord change pace
+      pluckWave: Math.random() < 0.6 ? 'triangle' : 'sine',
+    };
+    chordIdx = 0;
+    return patch;
+  }
+
+  const semiHz = (s) => patch.root * Math.pow(2, s / 12);
+
+  // Retune the live graph into the current patch. Glides, no clicks.
+  function applyPatch() {
+    if (!built) return;
+    const t = ctx.currentTime;
+    const chord = patch.chords[0];
+    voices.forEach((v, i) => {
+      v.oA.type = patch.waves[0];
+      v.oB.type = patch.waves[1];
+      v.oA.detune.setTargetAtTime(-patch.detune, t, 0.5);
+      v.oB.detune.setTargetAtTime(patch.detune * 1.15, t, 0.5);
+      v.oAG.gain.setTargetAtTime(patch.sawGain, t, 0.5);
+      v.oA.frequency.setTargetAtTime(semiHz(chord[i]), t, 1.2);
+      v.oB.frequency.setTargetAtTime(semiHz(chord[i]), t, 1.5);
+    });
+    for (let i = 0; i < sparkles.length; i++) {
+      const semi = 24 + patch.sparkleOct + i * 7;
+      sparkles[i].o.frequency.setTargetAtTime(
+        semiHz(semi) * (1 + Math.random() * 0.01), t, 1.0);
+    }
+    lfoOsc.frequency.setTargetAtTime(patch.lfoBase, t, 0.5);
+    delayNode.delayTime.setTargetAtTime(patch.delayTime, t, 0.3);
+  }
 
   function ensure() {
     if (ctx) return;
@@ -82,9 +159,27 @@ const DRIFT = (() => {
     buildGraph();
   }
 
+  // A hall from nothing: stereo exponentially-decaying noise. The
+  // classic free-reverb trick — at ambient settings it is
+  // indistinguishable from a sampled IR and costs zero bytes.
+  function makeImpulse(seconds, decay) {
+    const rate = ctx.sampleRate;
+    const len = Math.floor(rate * seconds);
+    const buf = ctx.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        const k = i / len;
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - k, decay);
+      }
+    }
+    return buf;
+  }
+
   function buildGraph() {
     if (built || !ctx) return;
     const t = ctx.currentTime;
+    rollPatch();
 
     userGate = ctx.createGain(); userGate.gain.value = 1;
     adGate = ctx.createGain(); adGate.gain.value = 1;
@@ -92,6 +187,30 @@ const DRIFT = (() => {
     userGate.connect(ctx.destination);
     adGate.connect(userGate);
     master.connect(adGate);
+
+    // The hall: post-master send so the master fade also silences the
+    // reverb FEED while the tail rings out naturally through adGate.
+    revSend = ctx.createGain(); revSend.gain.value = 0.42;
+    convolver = ctx.createConvolver();
+    convolver.buffer = makeImpulse(2.9, 2.6);
+    master.connect(revSend);
+    revSend.connect(convolver);
+    convolver.connect(adGate);
+
+    // Pluck echo: filtered feedback delay. Echoes obey the master
+    // fade and pick up the hall on the way through.
+    delayIn = ctx.createGain(); delayIn.gain.value = 0.55;
+    delayNode = ctx.createDelay(1.0);
+    delayNode.delayTime.value = patch.delayTime;
+    delayFb = ctx.createGain(); delayFb.gain.value = 0.34;
+    delayFilter = ctx.createBiquadFilter();
+    delayFilter.type = 'lowpass';
+    delayFilter.frequency.value = 1800;
+    delayIn.connect(delayNode);
+    delayNode.connect(delayFilter);
+    delayFilter.connect(delayFb);
+    delayFb.connect(delayNode);
+    delayFilter.connect(master);
 
     // Bed chain: voices → bedBus → tremolo → filter → pan → master
     bedBus = ctx.createGain(); bedBus.gain.value = 0.9;
@@ -109,7 +228,7 @@ const DRIFT = (() => {
     // Filter wobble LFO — rate + depth driven by tilt
     lfoOsc = ctx.createOscillator();
     lfoOsc.type = 'sine';
-    lfoOsc.frequency.value = 0.4;
+    lfoOsc.frequency.value = patch.lfoBase;
     lfoGain = ctx.createGain();
     lfoGain.gain.value = 0;
     lfoOsc.connect(lfoGain);
@@ -126,24 +245,40 @@ const DRIFT = (() => {
     tremDepth.connect(tremGain.gain);
     tremOsc.start(t);
 
-    // Drone voices: two detuned oscillators each, per-voice gain
-    const chord = CHORDS[0];
+    // Drone voices: two detuned oscillators each, per-voice gain.
+    // Each voice also breathes on its own slow cycle (scheduleBreath)
+    // so the bed evolves instead of holding a static organ chord.
+    const chord = patch.chords[0];
     for (let i = 0; i < 4; i++) {
       const g = ctx.createGain();
       g.gain.value = [0.16, 0.12, 0.09, 0.06][i];
       const oA = ctx.createOscillator();
       const oB = ctx.createOscillator();
-      oA.type = 'sawtooth'; oB.type = 'triangle';
+      oA.type = patch.waves[0]; oB.type = patch.waves[1];
       oA.frequency.value = semiHz(chord[i]);
       oB.frequency.value = semiHz(chord[i]);
-      oA.detune.value = -6; oB.detune.value = 7;
-      const oAG = ctx.createGain(); oAG.gain.value = 0.35;
+      oA.detune.value = -patch.detune;
+      oB.detune.value = patch.detune * 1.15;
+      const oAG = ctx.createGain(); oAG.gain.value = patch.sawGain;
       oA.connect(oAG); oAG.connect(g);
       oB.connect(g);
       g.connect(bedBus);
       oA.start(t); oB.start(t);
-      voices.push({ oA, oB, g, base: g.gain.value, dropped: false });
+      const v = { oA, oB, oAG, g, base: g.gain.value, dropped: false };
+      voices.push(v);
+      scheduleBreath(v, i);
     }
+
+    // Warm sub under the root voice — one quiet sine an octave down.
+    // Follows voice 0's retunes via the same chord updates (driftChord
+    // + applyPatch set it too).
+    const sub = ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.value = semiHz(chord[0]) / 2;
+    const subG = ctx.createGain(); subG.gain.value = 0.10;
+    sub.connect(subG); subG.connect(bedBus);
+    sub.start(t);
+    voices.sub = sub;
 
     // Sparkle cluster: three quiet high sines with slow independent
     // drift — reads as air, not melody. All routed through sparkleBus
@@ -154,7 +289,7 @@ const DRIFT = (() => {
     for (let i = 0; i < 3; i++) {
       const o = ctx.createOscillator();
       o.type = 'sine';
-      o.frequency.value = semiHz(24 + i * 7) * (1 + Math.random() * 0.01);
+      o.frequency.value = semiHz(24 + patch.sparkleOct + i * 7) * (1 + Math.random() * 0.01);
       const g = ctx.createGain();
       g.gain.value = 0.0;
       o.connect(g); g.connect(sparkleBus);
@@ -176,6 +311,22 @@ const DRIFT = (() => {
     built = true;
   }
 
+  // Each drone voice slowly wanders around its base level — the bed
+  // becomes a living texture instead of a held chord.
+  function scheduleBreath(v, i) {
+    const cycle = () => {
+      if (!ctx) return;
+      if (!v.dropped) {
+        const t = ctx.currentTime;
+        const target = v.base * (0.65 + Math.random() * 0.7);
+        const glide = 3 + Math.random() * 5;
+        v.g.gain.setTargetAtTime(target, t, glide / 3);
+      }
+      setTimeout(cycle, 6000 + Math.random() * 6000);
+    };
+    setTimeout(cycle, i * 2100 + Math.random() * 1500);
+  }
+
   // Sparkle voices breathe on their own slow randomized cycles.
   function scheduleSparkle(s, i) {
     const cycle = () => {
@@ -190,7 +341,7 @@ const DRIFT = (() => {
       s.g.gain.linearRampToValueAtTime(0.001, t + rise + fall);
       // occasionally re-pitch within the scale
       if (Math.random() < 0.4) {
-        const semi = PLUCK_SEMIS[Math.floor(Math.random() * PLUCK_SEMIS.length)] + 12;
+        const semi = patch.pent[Math.floor(Math.random() * patch.pent.length)] + 12 + patch.sparkleOct;
         s.o.frequency.setTargetAtTime(semiHz(semi), t, 1.5);
       }
       setTimeout(cycle, (rise + fall) * 1000 + Math.random() * 2000);
@@ -201,17 +352,18 @@ const DRIFT = (() => {
   // Slow chord drift: glide all voices to the next chord.
   function driftChord() {
     if (!ctx || !built) return;
-    chordIdx = (chordIdx + 1) % CHORDS.length;
-    const chord = CHORDS[chordIdx];
+    chordIdx = (chordIdx + 1) % patch.chords.length;
+    const chord = patch.chords[chordIdx];
     const t = ctx.currentTime;
     voices.forEach((v, i) => {
       v.oA.frequency.setTargetAtTime(semiHz(chord[i]), t, 1.8);
       v.oB.frequency.setTargetAtTime(semiHz(chord[i]), t, 2.2);
     });
+    if (voices.sub) voices.sub.frequency.setTargetAtTime(semiHz(chord[0]) / 2, t, 2.0);
   }
   function startChordDrift() {
     stopChordDrift();
-    chordTimer = setInterval(driftChord, 14000 + Math.random() * 6000);
+    chordTimer = setInterval(driftChord, patch.driftMs);
   }
   function stopChordDrift() {
     if (chordTimer) { clearInterval(chordTimer); chordTimer = null; }
@@ -249,8 +401,12 @@ const DRIFT = (() => {
   function roundStart() {
     ensure();
     if (!built) return;
-    // Restore any voices lost to deaths last round.
+    // NEW WORLD: every round rolls its own key, mode, waveforms,
+    // detune, sparkle register, delay time, drift pace.
+    rollPatch();
+    applyPatch();
     const t = ctx.currentTime;
+    // Restore any voices lost to deaths last round.
     for (const v of voices) {
       v.dropped = false;
       v.g.gain.setTargetAtTime(v.base, t, 0.5);
@@ -285,7 +441,7 @@ const DRIFT = (() => {
     const cutoff = 650 + mag * 2400;
     bedFilter.frequency.setTargetAtTime(cutoff, t, 0.12);
     lfoGain.gain.setTargetAtTime(mag * 850, t, 0.15);
-    lfoOsc.frequency.setTargetAtTime(0.4 + mag * 5.5, t, 0.2);
+    lfoOsc.frequency.setTargetAtTime(patch.lfoBase + mag * 5.5, t, 0.2);
     // Resonance: tension whistle as the player nears the edge.
     bedFilter.Q.setTargetAtTime(1.2 + edge * 9, t, 0.2);
     // Pan follows tilt direction (gently).
@@ -316,18 +472,22 @@ const DRIFT = (() => {
 
   // ---- events ----
   function pluck(isPlayer) {
-    const semi = PLUCK_SEMIS[Math.floor(Math.random() * PLUCK_SEMIS.length)];
+    const semi = patch
+      ? patch.pent[Math.floor(Math.random() * patch.pent.length)]
+      : 12;
     if (!built || !running()) return semi;
     const t = ctx.currentTime;
     const o = ctx.createOscillator();
-    o.type = 'triangle';
+    o.type = patch.pluckWave;
     o.frequency.value = semiHz(semi);
     const g = ctx.createGain();
     const peak = isPlayer ? 0.16 : 0.07;
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(peak, t + 0.012);
     g.gain.exponentialRampToValueAtTime(0.0008, t + 0.6);
-    o.connect(g); g.connect(master);
+    o.connect(g);
+    g.connect(master);
+    g.connect(delayIn);   // dub trail: the echo repeats on-scale
     o.start(t); o.stop(t + 0.7);
     return semi;
   }
@@ -345,7 +505,9 @@ const DRIFT = (() => {
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
     const f = ctx.createBiquadFilter();
     f.type = 'lowpass'; f.frequency.value = 1600;
-    o.connect(f); f.connect(g); g.connect(master);
+    o.connect(f); f.connect(g);
+    g.connect(master);
+    g.connect(delayIn);
     o.start(t); o.stop(t + 0.6);
     // Duck the bed for a beat
     bedBus.gain.setTargetAtTime(0.45, t, 0.05);
@@ -388,13 +550,18 @@ const DRIFT = (() => {
   // different recipe from the sibling game: six AM-buzzed triangle
   // blips climbing a not-quite-whole-tone row, a 7Hz-gated detuning
   // triad smear, and an upward tape-spin. Routed around `master`
-  // (straight into adGate) so the round-end fade can't kill it.
+  // (straight into adGate) so the round-end fade can't kill it; a
+  // separate send drops it into the hall so it sits in the same room.
   function fanfare() {
     if (!built || !running()) return;
     const t0 = ctx.currentTime + 0.05;
     const out = ctx.createGain();
     out.gain.value = 0.7;
     out.connect(adGate);
+    const fanRev = ctx.createGain();
+    fanRev.gain.value = 0.35;
+    out.connect(fanRev);
+    fanRev.connect(convolver);
 
     // 1. climbing AM blips (not-quite-whole-tone: +2.3 semis each)
     for (let i = 0; i < 6; i++) {
@@ -457,9 +624,14 @@ const DRIFT = (() => {
   }
 
   // Read-only snapshot for the visual layer (Kaoss pad surface):
-  // which chord the bed is on, and how thinned the drone stack is.
+  // which chord the bed is on, how thinned the drone stack is, and
+  // which patch/world this round rolled.
   function state() {
-    return { chordIdx, dropped: droppedVoices };
+    return {
+      chordIdx,
+      dropped: droppedVoices,
+      patchName: patch ? patch.name : '',
+    };
   }
 
   return {
