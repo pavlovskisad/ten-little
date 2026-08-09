@@ -1960,6 +1960,8 @@ function captureFiguresInZone() {
     eliminate(f, 'picked');
   }
   S.hand.captured = captured;
+  // The claw touching down is the downbeat — boom fires caught or not.
+  DRIFT.clawLand(captured.length);
   if (captured.length > 0) {
     DRIFT.grab();
     KAOSS.flash(S.hand.x, S.hand.z);

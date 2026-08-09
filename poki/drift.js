@@ -64,7 +64,10 @@ const DRIFT = (() => {
   let bedBus, bedFilter, bedPan, tremGain;
   let lfoOsc, lfoGain;               // filter wobble LFO
   let tremOsc, tremDepth;            // tremolo LFO
-  let shimmerOsc, shimmerGain;       // claw telegraph riser
+  let shimmerOsc, shimmerOsc2, shimmerGain, shimmerFilter;  // claw whistle rig
+  let shimVibO, shimVibG, shimTremO, shimTremG, shimEcho;
+  let whistle = null, lastTeleK = 0;  // per-cycle whistle roll
+  let boomIn, boomDelayNode, boomLP, boomFb;  // the deep end
   let sparkleBus;                    // crowd energy scales the air
   let revSend, convolver;            // the hall (post-master send)
   let comp, compTrim;                // master glue compressor + trim
@@ -218,6 +221,8 @@ const DRIFT = (() => {
     }
     lfoOsc.frequency.setTargetAtTime(patch.lfoBase, t, 0.5);
     delayNode.delayTime.setTargetAtTime(patch.delayTime, t, 0.3);
+    boomDelayNode.delayTime.setTargetAtTime(patch.delayTime * 1.5, t, 0.3);
+    boomFb.gain.setTargetAtTime(0.36 + Math.random() * 0.18, t, 0.3);
     const fchord = patch.chords[0];
     for (const fv of figVoices.values()) {
       fv.o.frequency.setTargetAtTime(semiHz(fchord[fv.deg] + fv.oct), t, 1.2);
@@ -387,15 +392,60 @@ const DRIFT = (() => {
       scheduleSparkle(sparkles[i], i);
     }
 
-    // Claw telegraph shimmer: dedicated riser voice, silent until fed
+    // CLAW WHISTLE RIG — main + detuned partner osc through a
+    // bandpass formant into the mix, with vibrato + gating-tremolo
+    // LFOs and an optional echo send. Every telegraph cycle rolls a
+    // fresh whistle character (rollWhistle), so no two claw
+    // approaches sing the same.
     shimmerOsc = ctx.createOscillator();
     shimmerOsc.type = 'sine';
     shimmerOsc.frequency.value = 400;
+    shimmerOsc2 = ctx.createOscillator();
+    shimmerOsc2.type = 'sine';
+    shimmerOsc2.frequency.value = 400;
+    shimmerOsc2.detune.value = 12;
+    shimmerFilter = ctx.createBiquadFilter();
+    shimmerFilter.type = 'bandpass';
+    shimmerFilter.frequency.value = 700;
+    shimmerFilter.Q.value = 2;
     shimmerGain = ctx.createGain();
     shimmerGain.gain.value = 0;
-    shimmerOsc.connect(shimmerGain);
+    shimVibO = ctx.createOscillator();
+    shimVibO.frequency.value = 5;
+    shimVibG = ctx.createGain(); shimVibG.gain.value = 0;
+    shimVibO.connect(shimVibG);
+    shimVibG.connect(shimmerOsc.frequency);
+    shimVibG.connect(shimmerOsc2.frequency);
+    shimTremO = ctx.createOscillator();
+    shimTremO.frequency.value = 6;
+    shimTremG = ctx.createGain(); shimTremG.gain.value = 0;
+    shimTremO.connect(shimTremG);
+    shimTremG.connect(shimmerGain.gain);
+    shimEcho = ctx.createGain(); shimEcho.gain.value = 0;
+    shimmerOsc.connect(shimmerFilter);
+    shimmerOsc2.connect(shimmerFilter);
+    shimmerFilter.connect(shimmerGain);
     shimmerGain.connect(master);
-    shimmerOsc.start(t);
+    shimmerGain.connect(shimEcho);
+    shimEcho.connect(delayIn);
+    shimmerOsc.start(t); shimmerOsc2.start(t);
+    shimVibO.start(t); shimTremO.start(t);
+
+    // THE DEEP END — sub-bass booms land in their own feedback delay
+    // so one hit becomes a decaying pulse train: an emergent beat.
+    // The loop is lowpassed at 240Hz so the repeats stay pure sub.
+    boomIn = ctx.createGain(); boomIn.gain.value = 1;
+    boomDelayNode = ctx.createDelay(2.0);
+    boomDelayNode.delayTime.value = 0.63;
+    boomLP = ctx.createBiquadFilter();
+    boomLP.type = 'lowpass';
+    boomLP.frequency.value = 240;
+    boomFb = ctx.createGain(); boomFb.gain.value = 0.45;
+    boomIn.connect(boomDelayNode);
+    boomDelayNode.connect(boomLP);
+    boomLP.connect(boomFb);
+    boomFb.connect(boomDelayNode);
+    boomLP.connect(master);
 
     built = true;
   }
@@ -611,15 +661,91 @@ const DRIFT = (() => {
     sparkleBus.gain.setTargetAtTime(0.6 + energy * 1.8, ctx.currentTime, 0.25);
   }
 
+  // Roll a fresh whistle character at the start of each claw cycle:
+  // waveform, sweep range, vibrato, gating, formant color, dynamics
+  // curve, echo. Tone AND dynamics land differently every time.
+  function rollWhistle() {
+    const t = ctx.currentTime;
+    whistle = {
+      f0: 180 + Math.random() * 380,          // where the rise starts
+      span: 500 + Math.random() * 1500,       // how far it climbs
+      formant: 0.9 + Math.random() * 1.4,     // bandpass vs pitch ratio
+      peak: 0.012 + Math.random() * 0.040,    // whispered ↔ prominent
+      curve: 0.6 + Math.random() * 1.3,       // swell shape (k^curve)
+    };
+    shimmerOsc.type = Math.random() < 0.6 ? 'sine' : 'triangle';
+    shimmerOsc2.type = shimmerOsc.type;
+    // partner voice: off / tight / wide-beat detune
+    shimmerOsc2.detune.setValueAtTime(
+      Math.random() < 0.35 ? 0 : 6 + Math.random() * 22, t);
+    shimVibO.frequency.setValueAtTime(3 + Math.random() * 6, t);
+    shimVibG.gain.setValueAtTime(Math.random() < 0.3 ? 0 : 5 + Math.random() * 30, t);
+    shimTremO.frequency.setValueAtTime(3 + Math.random() * 8, t);
+    shimTremG.gain.setValueAtTime(Math.random() < 0.4 ? 0 : whistle.peak * (0.3 + Math.random() * 0.4), t);
+    shimmerFilter.Q.setValueAtTime(0.8 + Math.random() * 9, t);
+    shimEcho.gain.setValueAtTime(Math.random() < 0.3 ? 0.4 : 0, t);
+  }
+
   function telegraph(k) {
     if (!built || !running()) return;
     const t = ctx.currentTime;
     if (k <= 0) {
-      shimmerGain.gain.setTargetAtTime(0, t, 0.1);
+      if (lastTeleK > 0) shimmerGain.gain.setTargetAtTime(0, t, 0.1);
+      lastTeleK = 0;
       return;
     }
-    shimmerOsc.frequency.setTargetAtTime(320 + k * 1100, t, 0.08);
-    shimmerGain.gain.setTargetAtTime(0.006 + k * 0.026, t, 0.08);
+    if (lastTeleK <= 0) rollWhistle();
+    lastTeleK = k;
+    const w = whistle;
+    const freq = w.f0 + k * w.span;
+    shimmerOsc.frequency.setTargetAtTime(freq, t, 0.08);
+    shimmerOsc2.frequency.setTargetAtTime(freq, t, 0.09);
+    shimmerFilter.frequency.setTargetAtTime(freq * w.formant, t, 0.09);
+    shimmerGain.gain.setTargetAtTime(0.004 + w.peak * Math.pow(k, w.curve), t, 0.08);
+  }
+
+  // A boom from the deep end. Depth and presence are rolled per hit:
+  // sometimes ~35Hz and barely there (felt, not heard), sometimes
+  // higher and present. Some hits echo into the beat delay, some
+  // land once and vanish. A faint 2nd harmonic keeps a trace of each
+  // boom alive on phone speakers.
+  function boom(kind) {
+    if (!built || !running()) return;
+    const t = ctx.currentTime;
+    const depth = 34 + Math.random() * 36;                  // fundamental Hz
+    const peak = kind === 'claw' ? 0.10 + Math.random() * 0.22
+               : kind === 'heart' ? 0.05 + Math.random() * 0.06
+               : 0.035 + Math.random() * 0.075;             // bump
+    const decay = 0.18 + Math.random() * 0.28;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(depth * 2.4, t);
+    o.frequency.exponentialRampToValueAtTime(depth, t + 0.05 + Math.random() * 0.07);
+    const h = ctx.createOscillator();
+    h.type = 'sine';
+    h.frequency.value = depth * 2;
+    const hG = ctx.createGain(); hG.gain.value = 0.22;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(peak, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + decay);
+    o.connect(g);
+    h.connect(hG); hG.connect(g);
+    g.connect(master);
+    // roughly half the hits feed the beat delay and become a sequence
+    if (Math.random() < 0.55) {
+      const send = ctx.createGain();
+      send.gain.value = 0.45 + Math.random() * 0.4;
+      g.connect(send);
+      send.connect(boomIn);
+    }
+    o.start(t); o.stop(t + decay + 0.1);
+    h.start(t); h.stop(t + decay + 0.1);
+  }
+
+  // The claw touching down is the downbeat, caught or not.
+  function clawLand(caught) {
+    boom('claw');
   }
 
   // ---- events ----
@@ -655,6 +781,7 @@ const DRIFT = (() => {
     if (!built || !running()) return semi;
     const t = ctx.currentTime;
     const peak = isPlayer ? 0.13 : 0.06;
+    if (Math.random() < 0.35) boom('bump');
     shapeVoice(shapeA || 'sphere', semi, peak, r, pan, t);
     if (shapeB) {
       // harmony: two scale steps up, a hair later, slightly softer,
@@ -703,6 +830,7 @@ const DRIFT = (() => {
   // note map, so even healing is part of the tune.
   function pickup(nx, nz) {
     if (!built || !running()) return;
+    if (Math.random() < 0.6) boom('heart');
     const sn = spatialNote(nx || 0, nz || 0);
     const t0 = ctx.currentTime;
     const idx = patch.pent.indexOf(sn.semi > 12 ? sn.semi - 12 : (sn.semi < 0 ? sn.semi + 12 : sn.semi));
@@ -878,6 +1006,6 @@ const DRIFT = (() => {
     setMuted, setUserMuted,
     setTilt, setCrowd, telegraph,
     registerFigures, setFigures, figureGone,
-    pluck, pickup, farewell, grab, onDeath, thicken, fanfare,
+    pluck, pickup, farewell, grab, clawLand, onDeath, thicken, fanfare,
   };
 })();
