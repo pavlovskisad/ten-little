@@ -303,9 +303,9 @@ const DRIFT = (() => {
 
   // ---- events ----
   function pluck(isPlayer) {
-    if (!built || !running()) return;
-    const t = ctx.currentTime;
     const semi = PLUCK_SEMIS[Math.floor(Math.random() * PLUCK_SEMIS.length)];
+    if (!built || !running()) return semi;
+    const t = ctx.currentTime;
     const o = ctx.createOscillator();
     o.type = 'triangle';
     o.frequency.value = semiHz(semi);
@@ -316,6 +316,7 @@ const DRIFT = (() => {
     g.gain.exponentialRampToValueAtTime(0.0008, t + 0.6);
     o.connect(g); g.connect(master);
     o.start(t); o.stop(t + 0.7);
+    return semi;
   }
 
   function grab() {
@@ -442,8 +443,14 @@ const DRIFT = (() => {
     wob.start(spinT); wob.stop(spinT + 1.05);
   }
 
+  // Read-only snapshot for the visual layer (Kaoss pad surface):
+  // which chord the bed is on, and how thinned the drone stack is.
+  function state() {
+    return { chordIdx, dropped: droppedVoices };
+  }
+
   return {
-    ensure, unlock, running, ready,
+    ensure, unlock, running, ready, state,
     start, stop, roundStart,
     setMuted, setUserMuted,
     setTilt, telegraph,
