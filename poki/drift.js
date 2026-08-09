@@ -73,6 +73,7 @@ const DRIFT = (() => {
   let dreamSend;                     // extra-wet path for melodic events
   let halls = [];                    // pre-generated IRs, rolled per round
   let comp, compTrim;                // master glue compressor + trim
+  let thinner;                       // narrows the mix as figures die
   let eqShelf, softClip;             // de-harsh EQ + warm output saturator
   let delayIn, delayNode, delayFb, delayFilter;  // pluck echoes
   let bedDry, washDelayNode, washFb, washLP, washOut;  // the bed's wash
@@ -309,7 +310,7 @@ const DRIFT = (() => {
     comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -22;
     comp.knee.value = 24;
-    comp.ratio.value = 3.5;
+    comp.ratio.value = 4.2;
     comp.attack.value = 0.012;
     comp.release.value = 0.32;
     // De-harsh EQ: one broad high-shelf cut takes the sizzle off
@@ -334,12 +335,18 @@ const DRIFT = (() => {
       softClip.curve = curve;
       softClip.oversample = '2x';
     }
-    compTrim = ctx.createGain(); compTrim.gain.value = 0.54;
+    compTrim = ctx.createGain(); compTrim.gain.value = 0.50;
     comp.connect(eqShelf);
     eqShelf.connect(compTrim);
     compTrim.connect(softClip);
     softClip.connect(adGate);
-    master.connect(comp);
+    // the mix thins as the plate empties: each death steps this down
+    // (figureGone), so the endgame is intimate instead of climactic —
+    // the late-round overdrive was survivors' density + wild tilt all
+    // peaking at once
+    thinner = ctx.createGain(); thinner.gain.value = 1;
+    master.connect(thinner);
+    thinner.connect(comp);
 
     // The hall: post-master send so the master fade also silences the
     // reverb FEED while the tail rings out naturally through adGate.
@@ -348,7 +355,7 @@ const DRIFT = (() => {
     // three rooms, rolled per round: tight / hall / huge wash
     halls = [makeImpulse(1.2, 3.2), makeImpulse(2.9, 2.6), makeImpulse(4.6, 2.1)];
     convolver.buffer = halls[patch.hallIdx];
-    master.connect(revSend);
+    thinner.connect(revSend);
     revSend.connect(convolver);
     convolver.connect(comp);
     // melodic events (bumps, chimes, farewells) take this extra-wet
@@ -578,6 +585,7 @@ const DRIFT = (() => {
       } catch (e) {}
     }
     figVoices.clear();
+    thinner.gain.setTargetAtTime(1, ctx.currentTime, 0.5);
     const chord = patch.chords[chordIdx % patch.chords.length];
     list.forEach((fig, idx) => {
       const deg = idx % 4;
@@ -633,6 +641,10 @@ const DRIFT = (() => {
     if (!fv) return;
     const t = ctx.currentTime;
     fv.g.gain.setTargetAtTime(0, t, 0.9);
+    // step the whole mix down with the body count (10 alive = 1.0,
+    // 3 alive ≈ 0.78)
+    thinner.gain.setTargetAtTime(
+      0.68 + 0.32 * Math.min(1, Math.max(0, figVoices.size - 1) / 10), t, 1.5);
     if (fv.gateG) fv.gateG.gain.setTargetAtTime(0, t, 0.5);
     try { fv.o.stop(t + 4); if (fv.gate) fv.gate.stop(t + 4); } catch (e) {}
     figVoices.delete(id);
