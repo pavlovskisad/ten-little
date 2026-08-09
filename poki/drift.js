@@ -67,6 +67,7 @@ const DRIFT = (() => {
   let shimmerOsc, shimmerGain;       // claw telegraph riser
   let sparkleBus;                    // crowd energy scales the air
   let revSend, convolver;            // the hall (post-master send)
+  let comp, compTrim;                // master glue compressor + trim
   let delayIn, delayNode, delayFb, delayFilter;  // pluck echoes
   const voices = [];                 // drone stack (faint foundation)
   const figVoices = new Map();       // figure id → continuous shape voice
@@ -258,7 +259,21 @@ const DRIFT = (() => {
     master = ctx.createGain(); master.gain.value = 0;
     userGate.connect(ctx.destination);
     adGate.connect(userGate);
-    master.connect(adGate);
+    // Master glue: a gentle bus compressor between everything and the
+    // output. Sustained drones stack up → the compressor pushes the
+    // whole bed down; a pluck or chime lands → it still punches
+    // through the reduced bed. This is what keeps long drone lines
+    // from dominating even when the pressure math makes them loud.
+    comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -26;
+    comp.knee.value = 24;
+    comp.ratio.value = 3.5;
+    comp.attack.value = 0.012;
+    comp.release.value = 0.32;
+    compTrim = ctx.createGain(); compTrim.gain.value = 0.88;
+    comp.connect(compTrim);
+    compTrim.connect(adGate);
+    master.connect(comp);
 
     // The hall: post-master send so the master fade also silences the
     // reverb FEED while the tail rings out naturally through adGate.
@@ -267,7 +282,7 @@ const DRIFT = (() => {
     convolver.buffer = makeImpulse(2.9, 2.6);
     master.connect(revSend);
     revSend.connect(convolver);
-    convolver.connect(adGate);
+    convolver.connect(comp);
 
     // Pluck echo: filtered feedback delay. Echoes obey the master
     // fade and pick up the hall on the way through.
@@ -419,7 +434,7 @@ const DRIFT = (() => {
       figVoices.set(fig.id, {
         o, g, deg, oct,
         // higher registers whisper, low ones ground; per-shape trim
-        base: (oct === 0 ? 0.040 : oct === 12 ? 0.026 : 0.014) * tim.gain,
+        base: (oct === 0 ? 0.030 : oct === 12 ? 0.019 : 0.010) * tim.gain,
       });
     });
   }
@@ -551,8 +566,9 @@ const DRIFT = (() => {
     // Bed starts quiet and builds over ~30s — the round grows its own
     // intensity instead of starting at full menu loudness.
     master.gain.cancelScheduledValues(t);
-    master.gain.setValueAtTime(0, t);
-    master.gain.linearRampToValueAtTime(0.30, t + 2);
+    master.gain.setValueAtTime(master.gain.value, t);
+    master.gain.linearRampToValueAtTime(0.15, t + 0.5);
+    master.gain.linearRampToValueAtTime(0.32, t + 3);
     master.gain.linearRampToValueAtTime(0.85, t + 30);
     startChordDrift();
   }
@@ -779,7 +795,7 @@ const DRIFT = (() => {
     const t0 = ctx.currentTime + 0.05;
     const out = ctx.createGain();
     out.gain.value = 0.7;
-    out.connect(adGate);
+    out.connect(comp);
     const fanRev = ctx.createGain();
     fanRev.gain.value = 0.35;
     out.connect(fanRev);

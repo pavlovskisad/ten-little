@@ -2462,9 +2462,11 @@ function loop(now) {
         }
         const density = Math.min(1, near / 4);
         const spd = Math.min(1, Math.hypot(f.vx, f.vz) / 6);
-        const gain = Math.max(0.15, Math.min(1.8,
-          0.30 + Math.max(0, align) * (0.55 + tmag / CFG.maxTilt * 0.5)
-               + density * 0.55 + spd * 0.30));
+        // sqrt softens the top: doubling the pressure no longer
+        // doubles the voice — loud stays present, never dominating
+        const raw = Math.max(0, align) * (0.55 + tmag / CFG.maxTilt * 0.5)
+                  + density * 0.55 + spd * 0.30;
+        const gain = Math.max(0.15, Math.min(1.35, 0.28 + Math.sqrt(raw) * 0.75));
         states.push({ id: f.id, gain });
       }
       DRIFT.setFigures(states);
@@ -2581,27 +2583,18 @@ function startRound() {
   document.getElementById('menu').classList.remove('show');
   reset(true);
   updateHud();
-  // 3-2-1-go over frozen figures; the menu ambient fades out across
-  // the count so silence lands just before "go".
-  DRIFT.stop(2.7);
+  // Instant start — no countdown. A non-blocking "go!" flash pops
+  // while the round is already live; the menu ambient hands off to
+  // the round bed inside DRIFT.roundStart's own fade.
+  S.phase = 'play';
+  S.startedAt = performance.now();
+  Poki.gameplayStart();
+  DRIFT.roundStart();
+  if (isTouchDevice()) showStickAtRest();
   const cd = document.getElementById('countdown');
-  const steps = ['3', '2', '1', 'go!'];
-  let i = 0;
+  cd.textContent = 'go!';
   cd.classList.add('on');
-  const step = () => {
-    if (i < steps.length) {
-      cd.textContent = steps[i++];
-      setTimeout(step, i === steps.length ? 550 : 900);
-    } else {
-      cd.classList.remove('on');
-      S.phase = 'play';
-      S.startedAt = performance.now();
-      Poki.gameplayStart();
-      DRIFT.roundStart();
-      if (isTouchDevice()) showStickAtRest();
-    }
-  };
-  step();
+  setTimeout(() => cd.classList.remove('on'), 650);
 }
 
 function isTouchDevice() {
