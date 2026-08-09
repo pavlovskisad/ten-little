@@ -2208,6 +2208,7 @@ function eliminate(f, reason) {
   S.alive--;
   S.eliminated.push({ id: f.id, isPlayer: f.isPlayer, reason, atMs: S.t });
   DRIFT.onDeath();
+  DRIFT.figureGone(f.id);
   DRIFT.farewell(f.def && f.def.type, f.x / Math.max(0.01, S.plateR), f.z / Math.max(0.01, S.plateR));
   KAOSS.death(f.x, f.z);
   if (f.isPlayer) {
@@ -2431,12 +2432,43 @@ function loop(now) {
     DRIFT.setTilt(S.tilt.x / CFG.maxTilt, S.tilt.z / CFG.maxTilt, tiltMag, speed, edge);
     // Crowd energy: mean slide speed of everyone still standing.
     let crowd = 0, aliveN = 0;
+    const aliveFigs = [];
     for (const f of S.figs) {
       if (!f.alive || f.picked || f.dropping || f.draining) continue;
       crowd += Math.min(1, Math.hypot(f.vx, f.vz) / 6);
       aliveN++;
+      aliveFigs.push(f);
     }
     DRIFT.setCrowd(aliveN ? crowd / aliveN : 0);
+
+    // Per-figure pressure: each shape's continuous voice swells with
+    //   - heavy-side alignment: standing where the plate leans is
+    //     standing where the weight is — the crowd side sings
+    //   - local density: neighbours within a couple of units
+    //   - its own slide speed
+    // and recedes toward a whisper alone on the light side.
+    {
+      const tmag = Math.hypot(S.tilt.x, S.tilt.z);
+      const states = [];
+      for (const f of aliveFigs) {
+        let align = 0;
+        if (tmag > 0.005) {
+          align = (f.x * S.tilt.x + f.z * S.tilt.z) /
+                  (tmag * Math.max(0.01, S.plateR));
+        }
+        let near = 0;
+        for (const o of aliveFigs) {
+          if (o !== f && Math.hypot(o.x - f.x, o.z - f.z) < 2.3) near++;
+        }
+        const density = Math.min(1, near / 4);
+        const spd = Math.min(1, Math.hypot(f.vx, f.vz) / 6);
+        const gain = Math.max(0.15, Math.min(1.8,
+          0.30 + Math.max(0, align) * (0.55 + tmag / CFG.maxTilt * 0.5)
+               + density * 0.55 + spd * 0.30));
+        states.push({ id: f.id, gain });
+      }
+      DRIFT.setFigures(states);
+    }
     // Claw telegraph: rising shimmer synced to the reticle fill.
     const k = (S.hand.phase === 'telegraph')
       ? Math.min(1, S.hand.t / CFG.handTelegraphMs) : 0;
@@ -2487,6 +2519,7 @@ function reset(withPlayer) {
   camInitialized = false;
   clearHearts();
   spawnFigures(withPlayer);
+  DRIFT.registerFigures(S.figs.map(f => ({ id: f.id, type: f.def && f.def.type })));
   S.attract = !withPlayer;
   S.phase = withPlayer ? 'countdown' : 'play';
   if (withPlayer) {

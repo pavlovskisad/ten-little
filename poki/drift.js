@@ -68,7 +68,8 @@ const DRIFT = (() => {
   let sparkleBus;                    // crowd energy scales the air
   let revSend, convolver;            // the hall (post-master send)
   let delayIn, delayNode, delayFb, delayFilter;  // pluck echoes
-  const voices = [];                 // drone stack
+  const voices = [];                 // drone stack (faint foundation)
+  const figVoices = new Map();       // figure id → continuous shape voice
   let sparkles = [];                 // high sine cluster
   let chordTimer = null;
   let chordIdx = 0;
@@ -216,6 +217,10 @@ const DRIFT = (() => {
     }
     lfoOsc.frequency.setTargetAtTime(patch.lfoBase, t, 0.5);
     delayNode.delayTime.setTargetAtTime(patch.delayTime, t, 0.3);
+    const fchord = patch.chords[0];
+    for (const fv of figVoices.values()) {
+      fv.o.frequency.setTargetAtTime(semiHz(fchord[fv.deg] + fv.oct), t, 1.2);
+    }
   }
 
   function ensure() {
@@ -318,7 +323,9 @@ const DRIFT = (() => {
     const chord = patch.chords[0];
     for (let i = 0; i < 4; i++) {
       const g = ctx.createGain();
-      g.gain.value = [0.16, 0.12, 0.09, 0.06][i];
+      // Faint foundation only — the per-figure voices carry the
+      // texture; the drones just glue the harmony underneath.
+      g.gain.value = [0.085, 0.06, 0.04, 0.03][i];
       const oA = ctx.createOscillator();
       const oB = ctx.createOscillator();
       oA.type = patch.waves[0]; oB.type = patch.waves[1];
@@ -342,7 +349,7 @@ const DRIFT = (() => {
     const sub = ctx.createOscillator();
     sub.type = 'sine';
     sub.frequency.value = semiHz(chord[0]) / 2;
-    const subG = ctx.createGain(); subG.gain.value = 0.10;
+    const subG = ctx.createGain(); subG.gain.value = 0.07;
     sub.connect(subG); subG.connect(bedBus);
     sub.start(t);
     voices.sub = sub;
@@ -376,6 +383,65 @@ const DRIFT = (() => {
     shimmerOsc.start(t);
 
     built = true;
+  }
+
+  // ============================================================
+  // FIGURE VOICES — the crowd IS the ambient. Every alive figure
+  // holds a continuous chord tone in its own geometric timbre.
+  // The game feeds per-frame "pressure" (heavy-side alignment +
+  // local crowd density + slide speed) and each voice swells and
+  // recedes with it: ten layers, evolving forever, never the same
+  // because the crowd never stands the same. A death silences its
+  // voice for good.
+  // ============================================================
+  function registerFigures(list) {
+    if (!built) return;
+    const t = ctx.currentTime;
+    // clear previous round's voices
+    for (const fv of figVoices.values()) {
+      try { fv.g.gain.setTargetAtTime(0, t, 0.1); fv.o.stop(t + 0.8); } catch (e) {}
+    }
+    figVoices.clear();
+    const chord = patch.chords[chordIdx % patch.chords.length];
+    list.forEach((fig, idx) => {
+      const deg = idx % 4;
+      const oct = idx < 4 ? 0 : (idx < 8 ? 12 : 24);
+      const tim = shapeTimbre(fig.type);
+      const o = ctx.createOscillator();
+      o.setPeriodicWave(shapeWave(fig.type));
+      o.frequency.value = semiHz(chord[deg] + oct);
+      o.detune.value = (Math.random() - 0.5) * 10;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      o.connect(g);
+      g.connect(bedBus);
+      o.start(t);
+      figVoices.set(fig.id, {
+        o, g, deg, oct,
+        // higher registers whisper, low ones ground; per-shape trim
+        base: (oct === 0 ? 0.040 : oct === 12 ? 0.026 : 0.014) * tim.gain,
+      });
+    });
+  }
+
+  // Per-frame: pressure 0..~1.8 per figure id.
+  function setFigures(states) {
+    if (!built || !running()) return;
+    const t = ctx.currentTime;
+    for (const s of states) {
+      const fv = figVoices.get(s.id);
+      if (fv) fv.g.gain.setTargetAtTime(fv.base * s.gain, t, 0.22);
+    }
+  }
+
+  function figureGone(id) {
+    if (!built) return;
+    const fv = figVoices.get(id);
+    if (!fv) return;
+    const t = ctx.currentTime;
+    fv.g.gain.setTargetAtTime(0, t, 0.9);
+    try { fv.o.stop(t + 4); } catch (e) {}
+    figVoices.delete(id);
   }
 
   // Each drone voice slowly wanders around its base level — the bed
@@ -427,6 +493,9 @@ const DRIFT = (() => {
       v.oB.frequency.setTargetAtTime(semiHz(chord[i]), t, 2.2);
     });
     if (voices.sub) voices.sub.frequency.setTargetAtTime(semiHz(chord[0]) / 2, t, 2.0);
+    for (const fv of figVoices.values()) {
+      fv.o.frequency.setTargetAtTime(semiHz(chord[fv.deg] + fv.oct), t, 1.9 + Math.random() * 0.6);
+    }
   }
   function startChordDrift() {
     stopChordDrift();
@@ -510,7 +579,7 @@ const DRIFT = (() => {
     lfoGain.gain.setTargetAtTime(mag * 850, t, 0.15);
     lfoOsc.frequency.setTargetAtTime(patch.lfoBase + mag * 5.5, t, 0.2);
     // Resonance: tension whistle as the player nears the edge.
-    bedFilter.Q.setTargetAtTime(1.2 + edge * 9, t, 0.2);
+    bedFilter.Q.setTargetAtTime(1.2 + edge * 4.5, t, 0.2);
     // Pan follows tilt direction (gently).
     if (bedPan.pan) bedPan.pan.setTargetAtTime(Math.max(-0.7, Math.min(0.7, tx * 0.7)), t, 0.25);
     // Tremolo deepens with slide speed.
@@ -533,8 +602,8 @@ const DRIFT = (() => {
       shimmerGain.gain.setTargetAtTime(0, t, 0.1);
       return;
     }
-    shimmerOsc.frequency.setTargetAtTime(400 + k * 1500, t, 0.08);
-    shimmerGain.gain.setTargetAtTime(0.010 + k * 0.050, t, 0.08);
+    shimmerOsc.frequency.setTargetAtTime(320 + k * 1100, t, 0.08);
+    shimmerGain.gain.setTargetAtTime(0.006 + k * 0.026, t, 0.08);
   }
 
   // ---- events ----
@@ -792,6 +861,7 @@ const DRIFT = (() => {
     start, stop, roundStart,
     setMuted, setUserMuted,
     setTilt, setCrowd, telegraph,
+    registerFigures, setFigures, figureGone,
     pluck, pickup, farewell, grab, onDeath, thicken, fanfare,
   };
 })();
