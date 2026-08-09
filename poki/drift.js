@@ -307,7 +307,7 @@ const DRIFT = (() => {
     // through the reduced bed. This is what keeps long drone lines
     // from dominating even when the pressure math makes them loud.
     comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -26;
+    comp.threshold.value = -22;
     comp.knee.value = 24;
     comp.ratio.value = 3.5;
     comp.attack.value = 0.012;
@@ -334,7 +334,7 @@ const DRIFT = (() => {
       softClip.curve = curve;
       softClip.oversample = '2x';
     }
-    compTrim = ctx.createGain(); compTrim.gain.value = 0.62;
+    compTrim = ctx.createGain(); compTrim.gain.value = 0.54;
     comp.connect(eqShelf);
     eqShelf.connect(compTrim);
     compTrim.connect(softClip);
@@ -715,7 +715,10 @@ const DRIFT = (() => {
     const t = ctx.currentTime;
     master.gain.cancelScheduledValues(t);
     master.gain.setValueAtTime(master.gain.value, t);
-    master.gain.linearRampToValueAtTime(0.68, t + 0.8);
+    master.gain.linearRampToValueAtTime(0.58, t + 0.8);
+    // menu wake also restores the beat-delay feedback (the win
+    // moment kills it so the fanfare speaks alone)
+    boomFb.gain.setTargetAtTime(0.55, t, 0.4);
     startChordDrift();
   }
 
@@ -751,8 +754,8 @@ const DRIFT = (() => {
     master.gain.cancelScheduledValues(t);
     master.gain.setValueAtTime(master.gain.value, t);
     master.gain.linearRampToValueAtTime(0.14, t + 0.5);
-    master.gain.linearRampToValueAtTime(0.28, t + 3);
-    master.gain.linearRampToValueAtTime(0.68, t + 30);
+    master.gain.linearRampToValueAtTime(0.26, t + 3);
+    master.gain.linearRampToValueAtTime(0.52, t + 30);
     startChordDrift();
   }
 
@@ -1108,13 +1111,11 @@ const DRIFT = (() => {
       if (v.dropped) {
         v.dropped = false;
         droppedVoices--;
-        v.g.gain.setTargetAtTime(v.base, t, 1.0);
+        // returns at 70% — the room leans in without getting louder
+        v.g.gain.setTargetAtTime(v.base * 0.7, t, 1.2);
         break;
       }
     }
-    // brief swell
-    bedBus.gain.setTargetAtTime(1.15, t, 0.3);
-    bedBus.gain.setTargetAtTime(0.9, t + 1.2, 0.8);
   }
 
   // Win fanfare — deliberately weird per the playbook, and a
@@ -1125,13 +1126,26 @@ const DRIFT = (() => {
   // separate send drops it into the hall so it sits in the same room.
   function fanfare() {
     if (!built || !running()) return;
-    const t0 = ctx.currentTime + 0.05;
+    const tNow = ctx.currentTime;
+    // Clear the stage: kill the beat-delay train and pending staging
+    // so nothing compounds under the stinger. (The game fades the
+    // master fast before calling this — the fanfare speaks alone.)
+    boomFb.gain.setTargetAtTime(0.12, tNow, 0.08);
+    delayFb.gain.setTargetAtTime(0.12, tNow, 0.1);
+    delayFb.gain.setTargetAtTime(0.34, tNow + 2.5, 0.5);
+    staged.bump = 0; staged.heart = 0; staged.claw = 0;
+    const t0 = tNow + 0.05;
     const out = ctx.createGain();
-    out.gain.value = 0.55;
-    out.connect(comp);
+    out.gain.value = 0.42;
+    // rounded top so the gated/AM content can't bite
+    const outLP = ctx.createBiquadFilter();
+    outLP.type = 'lowpass';
+    outLP.frequency.value = 2600;
+    out.connect(outLP);
+    outLP.connect(comp);
     const fanRev = ctx.createGain();
     fanRev.gain.value = 0.35;
-    out.connect(fanRev);
+    outLP.connect(fanRev);
     fanRev.connect(convolver);
 
     // 1. climbing AM blips (not-quite-whole-tone: +2.3 semis each)

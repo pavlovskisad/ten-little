@@ -2254,11 +2254,16 @@ function endGame() {
   const won = placement === 1;
   if (won) {
     saveWin();
+    // Cut the track FAST, then let the fanfare speak alone — a win
+    // used to fire the stinger on top of the full mix and every
+    // ringing tail, which read as overdrive.
+    DRIFT.stop(0.22);
     DRIFT.fanfare();
     screenShake(0.42, 900);
     if (discoBall) discoSpin = 10;   // party spin-up
+  } else {
+    DRIFT.stop(1.2);
   }
-  DRIFT.stop(1.2);
   // Results panel waits so the death splat / win party stays visible.
   setTimeout(() => showOverlay(placement), won ? 1800 : 1500);
 }
