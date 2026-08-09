@@ -523,6 +523,140 @@ plateGroup.add(ring(CFG.plateR0 * 0.55, 0.15));
 plateGroup.add(ring(CFG.plateR0 * 0.25, 0.12));
 
 // ============================================================
+// KAOSS SURFACE — the plate top as an effector-pad display, the
+// visual twin of the DRIFT audio layer. A canvas texture on a thin
+// additive disc riding the plate:
+//   - a slow color wash tinted by the CURRENT CHORD the bed is on
+//   - a pulsing "finger" blob sitting where the crowd's weight is
+//     (that position IS the filter setting), pulse rate synced to
+//     the wobble LFO's actual rate
+//   - note-colored blooms at every bump, right where it happened
+//   - white flash where the claw grabs, red glow under the telegraph
+//   - Kaoss-style trailing decay (destination-out fade each frame)
+// Parented to plateMesh so it tilts + shrinks with the plate free.
+// ============================================================
+const KAOSS = (() => {
+  const SIZE = 256;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = SIZE;
+  const g2 = cv.getContext('2d');
+  const tex = new THREE.CanvasTexture(cv);
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(CFG.plateR0 * 0.985, 64), mat);
+  disc.rotation.x = -Math.PI / 2;
+  disc.position.y = CFG.plateThick / 2 + 0.009;
+  plateMesh.add(disc);
+
+  // chord index → wash hue (Am purple, F green, C gold, G cyan)
+  const CHORD_HUES = [268, 130, 46, 192];
+  // pluck semitone → bloom hue (spread across the wheel by scale step)
+  const NOTE_HUES = { 12: 0, 15: 36, 17: 72, 19: 130, 22: 175, 24: 210, 27: 250, 29: 285, 31: 320, 34: 350 };
+
+  const blobs = [];   // {u, v, hue, sat, age, life, r}
+  const MAX_BLOBS = 24;
+  let washHue = CHORD_HUES[0];
+
+  // world plate coords → canvas uv. The disc is scaled with the
+  // plate mesh, so the canvas always spans the CURRENT plate radius.
+  function uv(x, z) {
+    const r = Math.max(0.01, S.plateR);
+    return [
+      (0.5 + (x / r) * 0.5) * SIZE,
+      (0.5 + (z / r) * 0.5) * SIZE,
+    ];
+  }
+
+  function addBlob(x, z, hue, opts = {}) {
+    if (blobs.length >= MAX_BLOBS) blobs.shift();
+    const [u, v] = uv(x, z);
+    blobs.push({
+      u, v, hue,
+      sat: opts.sat !== undefined ? opts.sat : 90,
+      age: 0,
+      life: opts.life || 0.9,
+      r: (opts.r || 0.16) * SIZE,
+      peak: opts.peak !== undefined ? opts.peak : 0.55,
+    });
+  }
+
+  function paintBlob(u, v, r, hue, sat, alpha) {
+    const grad = g2.createRadialGradient(u, v, 0, u, v, r);
+    grad.addColorStop(0, `hsla(${hue}, ${sat}%, 62%, ${alpha})`);
+    grad.addColorStop(0.55, `hsla(${hue}, ${sat}%, 52%, ${alpha * 0.35})`);
+    grad.addColorStop(1, `hsla(${hue}, ${sat}%, 45%, 0)`);
+    g2.fillStyle = grad;
+    g2.fillRect(u - r, v - r, r * 2, r * 2);
+  }
+
+  function tick(dt, tiltX, tiltZ, mag, chordIdx, tSec) {
+    // Trailing decay — old light fades like a Kaoss pad's afterglow.
+    g2.globalCompositeOperation = 'destination-out';
+    g2.fillStyle = `rgba(0,0,0,${Math.min(0.5, dt * 5.5)})`;
+    g2.fillRect(0, 0, SIZE, SIZE);
+    g2.globalCompositeOperation = 'lighter';
+
+    // Chord wash: whole-pad tint eases toward the bed's current chord.
+    const target = CHORD_HUES[chordIdx % CHORD_HUES.length];
+    let d = target - washHue;
+    while (d > 180) d -= 360;
+    while (d < -180) d += 360;
+    washHue = (washHue + d * Math.min(1, dt * 0.5) + 360) % 360;
+    paintBlob(SIZE / 2, SIZE / 2, SIZE * 0.52, washHue, 65, 0.028);
+
+    // The "finger": the crowd's centre of weight on the pad. Its
+    // pulse rate mirrors the wobble LFO (0.4Hz flat → ~6Hz leaned).
+    const lfoRate = 0.4 + mag * 5.5;
+    const pulse = 1 + 0.28 * Math.sin(tSec * lfoRate * Math.PI * 2);
+    const fu = (0.5 + tiltX * 0.42) * SIZE;
+    const fv = (0.5 + tiltZ * 0.42) * SIZE;
+    const fr = (0.09 + mag * 0.13) * SIZE * pulse;
+    paintBlob(fu, fv, fr, washHue, 85, 0.10 + mag * 0.30);
+
+    // Event blooms
+    for (let i = blobs.length - 1; i >= 0; i--) {
+      const b = blobs[i];
+      b.age += dt;
+      const k = b.age / b.life;
+      if (k >= 1) { blobs.splice(i, 1); continue; }
+      const swell = 0.75 + k * 0.6;
+      paintBlob(b.u, b.v, b.r * swell, b.hue, b.sat, b.peak * (1 - k) * (1 - k));
+    }
+
+    tex.needsUpdate = true;
+  }
+
+  return {
+    tick,
+    // A bump: bloom colored by the pluck's actual note.
+    hit(x, z, semi, isPlayer) {
+      const hue = NOTE_HUES[semi] !== undefined ? NOTE_HUES[semi] : 200;
+      addBlob(x, z, hue, { r: isPlayer ? 0.20 : 0.14, peak: isPlayer ? 0.75 : 0.45, life: 1.1 });
+    },
+    // Claw grab: white flash at the grab point.
+    flash(x, z) {
+      addBlob(x, z, 0, { sat: 0, r: 0.30, peak: 0.9, life: 0.7 });
+    },
+    // Telegraph: continuous red feed under the reticle (fades on its
+    // own the moment the feed stops).
+    telegraph(x, z, k) {
+      if (k <= 0) return;
+      addBlob(x, z, 6, { r: 0.10 + k * 0.10, peak: 0.10 + k * 0.22, life: 0.30 });
+    },
+    // Death: a brief cold violet hole where they went.
+    death(x, z) {
+      addBlob(x, z, 262, { r: 0.24, peak: 0.5, life: 1.3 });
+    },
+    // Shrink: the whole rim flares once.
+    shrinkPulse() {
+      addBlob(0, 0, 46, { r: 0.55, peak: 0.5, life: 0.8 });
+    },
+  };
+})();
+
+// ============================================================
 // SHAPE STORE ROOM — floating plate suspended over a psychedelic void.
 // Distant ring of stacked primary-colored foam cubes hovers as the
 // room perimeter, bases hidden in shadow. A descending tunnel of
@@ -1340,7 +1474,8 @@ function updateFigures(dt) {
           b.hp -= CFG.contactDmg;
           a.invulnT = CFG.iframeMs / 1000;
           b.invulnT = CFG.iframeMs / 1000;
-          DRIFT.pluck(a.isPlayer || b.isPlayer);
+          const bumpNote = DRIFT.pluck(a.isPlayer || b.isPlayer);
+          KAOSS.hit((a.x + b.x) / 2, (a.z + b.z) / 2, bumpNote, a.isPlayer || b.isPlayer);
           if (a.isPlayer || b.isPlayer) playerHitFX();
           a.vx -= nx * CFG.bumpForce;
           a.vz -= nz * CFG.bumpForce;
@@ -1682,7 +1817,10 @@ function captureFiguresInZone() {
     eliminate(f, 'picked');
   }
   S.hand.captured = captured;
-  if (captured.length > 0) DRIFT.grab();
+  if (captured.length > 0) {
+    DRIFT.grab();
+    KAOSS.flash(S.hand.x, S.hand.z);
+  }
 }
 
 function updateHand(dt) {
@@ -1927,6 +2065,7 @@ function eliminate(f, reason) {
   S.alive--;
   S.eliminated.push({ id: f.id, isPlayer: f.isPlayer, reason, atMs: S.t });
   DRIFT.onDeath();
+  KAOSS.death(f.x, f.z);
   if (f.isPlayer) {
     // SPLAT sign + a beat of spectating before results.
     const splat = document.getElementById('splat');
@@ -2011,6 +2150,7 @@ function maybeShrink(dt) {
   shrinkTween = { from: plateMesh.scale.x, to: targetScale, t: 0, dur: 0.6 };
   S.nextShrinkAt = S.t + CFG.shrinkEveryMs;
   DRIFT.thicken();
+  KAOSS.shrinkPulse();
   showHint('the shape shrinks');
 }
 
@@ -2144,6 +2284,9 @@ function loop(now) {
     const k = (S.hand.phase === 'telegraph')
       ? Math.min(1, S.hand.t / CFG.handTelegraphMs) : 0;
     DRIFT.telegraph(k);
+    if (k > 0) KAOSS.telegraph(S.hand.x, S.hand.z, k);
+    KAOSS.tick(dt, S.tilt.x / CFG.maxTilt, S.tilt.z / CFG.maxTilt,
+               tiltMag, DRIFT.state().chordIdx, tSec);
   }
 
   tickAmbient(dt, tSec);
