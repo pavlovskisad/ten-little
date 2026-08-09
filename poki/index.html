@@ -2583,6 +2583,10 @@ function showMenu() {
 function startRound() {
   document.body.classList.remove('in-menu');
   document.getElementById('menu').classList.remove('show');
+  // Roll the round's patch BEFORE spawning: reset() registers the
+  // figure voices, and their construction (pulse gating, sparse
+  // trims) depends on the new arrangement.
+  DRIFT.roundStart();
   reset(true);
   updateHud();
   // Instant start — no countdown. A non-blocking "go!" flash pops
@@ -2591,7 +2595,6 @@ function startRound() {
   S.phase = 'play';
   S.startedAt = performance.now();
   Poki.gameplayStart();
-  DRIFT.roundStart();
   if (isTouchDevice()) showStickAtRest();
   const cd = document.getElementById('countdown');
   cd.textContent = 'go!';
