@@ -128,6 +128,73 @@ const DRIFT = (() => {
 
   const semiHz = (s) => patch.root * Math.pow(2, s / 12);
 
+  // ============================================================
+  // SHAPE INSTRUMENTS — timbre derived from geometry. A waveform's
+  // shape decides its harmonics, and our figures ARE waveform
+  // shapes: the cube is a square wave (hard edges, odd harmonics),
+  // the cone is a sawtooth (its silhouette is literally a ramp),
+  // the cylinder is a triangle (a tube: soft odd harmonics), the
+  // sphere is a pure sine (no edges, no harmonics), the pyramid a
+  // heavily damped saw, the octahedron a sparse glassy bell.
+  // Each also gets its own envelope: spheres bloom, cubes knock,
+  // octahedra ring.
+  //   harmonics: sine-series amplitudes for createPeriodicWave
+  //   attack/decay in seconds, gain trims the recipes to equal
+  //   loudness, bright scales the per-pluck lowpass
+  // ============================================================
+  const SHAPE_TIMBRES = {
+    cube:       { harmonics: [1, 0, 0.33, 0, 0.2, 0, 0.14], attack: 0.006, decay: 0.35, gain: 0.85, bright: 0.9 },
+    sphere:     { harmonics: [1],                            attack: 0.030, decay: 0.70, gain: 1.30, bright: 0.7 },
+    cone:       { harmonics: [1, 0.5, 0.33, 0.25, 0.2, 0.17], attack: 0.005, decay: 0.45, gain: 0.75, bright: 1.25 },
+    cylinder:   { harmonics: [1, 0, 0.11, 0, 0.04],          attack: 0.015, decay: 0.55, gain: 1.10, bright: 0.85 },
+    pyramid:    { harmonics: [1, 0.25, 0.11, 0.06, 0.04],    attack: 0.010, decay: 0.30, gain: 0.95, bright: 0.75 },
+    octahedron: { harmonics: [1, 0, 0, 0.5, 0, 0, 0.33, 0, 0, 0.2], attack: 0.004, decay: 0.95, gain: 0.80, bright: 1.15 },
+  };
+  const waveCache = new Map();
+  function shapeWave(type) {
+    const t = SHAPE_TIMBRES[type] ? type : 'sphere';
+    let w = waveCache.get(t);
+    if (!w) {
+      const h = SHAPE_TIMBRES[t].harmonics;
+      const real = new Float32Array(h.length + 1);
+      const imag = new Float32Array(h.length + 1);
+      for (let i = 0; i < h.length; i++) imag[i + 1] = h[i];
+      w = ctx.createPeriodicWave(real, imag, { disableNormalization: false });
+      waveCache.set(t, w);
+    }
+    return w;
+  }
+  function shapeTimbre(type) {
+    return SHAPE_TIMBRES[type] || SHAPE_TIMBRES.sphere;
+  }
+
+  // One voice of a shape's instrument: its wave, its envelope, its
+  // brightness, at a given note — panned, echoed, in the hall.
+  function shapeVoice(type, semi, peak, r, pan, t) {
+    const tim = shapeTimbre(type);
+    const o = ctx.createOscillator();
+    o.setPeriodicWave(shapeWave(type));
+    o.frequency.value = semiHz(semi);
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = (900 + r * 2600) * tim.bright;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(peak * tim.gain, t + tim.attack);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + tim.attack + tim.decay);
+    let tail = g;
+    if (ctx.createStereoPanner) {
+      const p = ctx.createStereoPanner();
+      p.pan.value = pan;
+      g.connect(p);
+      tail = p;
+    }
+    o.connect(f); f.connect(g);
+    tail.connect(master);
+    tail.connect(delayIn);
+    o.start(t); o.stop(t + tim.attack + tim.decay + 0.1);
+  }
+
   // Retune the live graph into the current patch. Glides, no clicks.
   function applyPatch() {
     if (!built) return;
@@ -487,7 +554,11 @@ const DRIFT = (() => {
     return { semi: patch.pent[idx] + oct, r, pan: Math.max(-0.8, Math.min(0.8, nx * 0.8)) };
   }
 
-  function pluck(isPlayer, nx, nz) {
+  // A bump is a DUET: each colliding shape speaks its own instrument.
+  // Shape A takes the mapped note; shape B harmonizes two scale steps
+  // up. Same spot still sings the same pitch — now in the voices of
+  // whoever collided there.
+  function pluck(isPlayer, nx, nz, shapeA, shapeB) {
     if (!patch) return 12;
     let semi, r = 0.5, pan = 0;
     if (nx !== undefined && nz !== undefined) {
@@ -498,30 +569,49 @@ const DRIFT = (() => {
     }
     if (!built || !running()) return semi;
     const t = ctx.currentTime;
+    const peak = isPlayer ? 0.13 : 0.06;
+    shapeVoice(shapeA || 'sphere', semi, peak, r, pan, t);
+    if (shapeB) {
+      // harmony: two scale steps up, a hair later, slightly softer,
+      // nudged to the other side of the stereo field
+      const base = ((semi % 12) + 12) % 12;
+      let idx = patch.pent.findIndex(s => (((s % 12) + 12) % 12) === base);
+      if (idx < 0) idx = 0;
+      const harm = patch.pent[(idx + 2) % patch.pent.length]
+        + (semi >= 24 ? 12 : semi < 12 ? -12 : 0);
+      shapeVoice(shapeB, harm, peak * 0.7, r, -pan * 0.5, t + 0.03);
+    }
+    return semi;
+  }
+
+  // A dying shape sings its note falling an octave in its own voice.
+  function farewell(type, nx, nz) {
+    if (!built || !running() || !patch) return;
+    const sn = spatialNote(nx || 0, nz || 0);
+    const t = ctx.currentTime;
+    const tim = shapeTimbre(type);
     const o = ctx.createOscillator();
-    o.type = patch.pluckWave;
-    o.frequency.value = semiHz(semi);
-    // brightness follows radius: mellow centre, glassy rim
+    o.setPeriodicWave(shapeWave(type));
+    o.frequency.setValueAtTime(semiHz(sn.semi), t);
+    o.frequency.exponentialRampToValueAtTime(semiHz(sn.semi - 12), t + 0.8);
     const f = ctx.createBiquadFilter();
     f.type = 'lowpass';
-    f.frequency.value = 900 + r * 2600;
+    f.frequency.setValueAtTime(1800 * tim.bright, t);
+    f.frequency.exponentialRampToValueAtTime(500, t + 0.8);
     const g = ctx.createGain();
-    const peak = isPlayer ? 0.16 : 0.07;
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(peak, t + 0.012);
-    g.gain.exponentialRampToValueAtTime(0.0008, t + 0.6);
+    g.gain.setValueAtTime(0.09 * tim.gain, t);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + 0.85);
     let tail = g;
     if (ctx.createStereoPanner) {
       const p = ctx.createStereoPanner();
-      p.pan.value = pan;
+      p.pan.value = sn.pan;
       g.connect(p);
       tail = p;
     }
     o.connect(f); f.connect(g);
     tail.connect(master);
-    tail.connect(delayIn);   // dub trail: the echo repeats on-scale
-    o.start(t); o.stop(t + 0.7);
-    return semi;
+    tail.connect(delayIn);
+    o.start(t); o.stop(t + 0.9);
   }
 
   // Heart pickup: a sweet two-note ascending chime from the same
@@ -702,6 +792,6 @@ const DRIFT = (() => {
     start, stop, roundStart,
     setMuted, setUserMuted,
     setTilt, setCrowd, telegraph,
-    pluck, pickup, grab, onDeath, thicken, fanfare,
+    pluck, pickup, farewell, grab, onDeath, thicken, fanfare,
   };
 })();
