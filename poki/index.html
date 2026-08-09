@@ -1616,7 +1616,8 @@ function updateFigures(dt) {
           b.invulnT = CFG.iframeMs / 1000;
           const bmx = (a.x + b.x) / 2, bmz = (a.z + b.z) / 2;
           const bumpNote = DRIFT.pluck(a.isPlayer || b.isPlayer,
-                                       bmx / S.plateR, bmz / S.plateR);
+                                       bmx / S.plateR, bmz / S.plateR,
+                                       a.def && a.def.type, b.def && b.def.type);
           KAOSS.hit(bmx, bmz, bumpNote, a.isPlayer || b.isPlayer);
           if (a.isPlayer || b.isPlayer) playerHitFX();
           a.vx -= nx * CFG.bumpForce;
@@ -2207,6 +2208,7 @@ function eliminate(f, reason) {
   S.alive--;
   S.eliminated.push({ id: f.id, isPlayer: f.isPlayer, reason, atMs: S.t });
   DRIFT.onDeath();
+  DRIFT.farewell(f.def && f.def.type, f.x / Math.max(0.01, S.plateR), f.z / Math.max(0.01, S.plateR));
   KAOSS.death(f.x, f.z);
   if (f.isPlayer) {
     // SPLAT sign + a beat of spectating before results.
