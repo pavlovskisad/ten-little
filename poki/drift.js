@@ -70,6 +70,7 @@ const DRIFT = (() => {
   let boomIn, boomDelayNode, boomLP, boomFb;  // the deep end
   let sparkleBus;                    // crowd energy scales the air
   let revSend, convolver;            // the hall (post-master send)
+  let dreamSend;                     // extra-wet path for melodic events
   let halls = [];                    // pre-generated IRs, rolled per round
   let comp, compTrim;                // master glue compressor + trim
   let eqShelf, softClip;             // de-harsh EQ + warm output saturator
@@ -196,9 +197,11 @@ const DRIFT = (() => {
     f.type = 'lowpass';
     f.frequency.value = (750 + r * 1750) * tim.bright;
     const g = ctx.createGain();
+    // rounder onset than the raw shape envelope: dreamier, less percussive
+    const atk = tim.attack * 2.2;
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(peak * tim.gain, t + tim.attack);
-    g.gain.exponentialRampToValueAtTime(0.0008, t + tim.attack + tim.decay);
+    g.gain.linearRampToValueAtTime(peak * tim.gain, t + atk);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + atk + tim.decay);
     let tail = g;
     if (ctx.createStereoPanner) {
       const p = ctx.createStereoPanner();
@@ -209,7 +212,8 @@ const DRIFT = (() => {
     o.connect(f); f.connect(g);
     tail.connect(master);
     tail.connect(delayIn);
-    o.start(t); o.stop(t + tim.attack + tim.decay + 0.1);
+    tail.connect(dreamSend);
+    o.start(t); o.stop(t + atk + tim.decay + 0.1);
   }
 
   // Retune the live graph into the current patch. Glides, no clicks.
@@ -334,6 +338,12 @@ const DRIFT = (() => {
     master.connect(revSend);
     revSend.connect(convolver);
     convolver.connect(comp);
+    // melodic events (bumps, chimes, farewells) take this extra-wet
+    // path on top of their reduced dry level: distance IS the
+    // wet/dry ratio, so they sing from the back of the room
+    dreamSend = ctx.createGain();
+    dreamSend.gain.value = 0.85;
+    dreamSend.connect(convolver);
 
     // Pluck echo: filtered feedback delay. Echoes obey the master
     // fade and pick up the hall on the way through.
@@ -738,7 +748,7 @@ const DRIFT = (() => {
       f0: 180 + Math.random() * 380,          // where the rise starts
       span: 500 + Math.random() * 1500,       // how far it climbs
       formant: 0.9 + Math.random() * 1.4,     // bandpass vs pitch ratio
-      peak: 0.008 + Math.random() * 0.026,    // whispered ↔ prominent
+      peak: 0.005 + Math.random() * 0.017,    // whispered ↔ prominent
       curve: 0.6 + Math.random() * 1.3,       // swell shape (k^curve)
     };
     shimmerOsc.type = Math.random() < 0.6 ? 'sine' : 'triangle';
@@ -784,7 +794,7 @@ const DRIFT = (() => {
     // tap instead of a hard knock, long decays.
     const depth = 36 + Math.random() * 24;                  // fundamental Hz
     const peak = kind === 'heart' ? 0.26 + Math.random() * 0.18
-               : kind === 'claw' ? 0.10 + Math.random() * 0.08
+               : kind === 'claw' ? 0.06 + Math.random() * 0.05
                : 0.06 + Math.random() * 0.08;               // bump
     const decay = kind === 'heart' ? 0.38 + Math.random() * 0.30
                                    : 0.22 + Math.random() * 0.25;
@@ -874,7 +884,7 @@ const DRIFT = (() => {
     }
     if (!built || !running()) return semi;
     const t = ctx.currentTime;
-    const peak = isPlayer ? 0.13 : 0.06;
+    const peak = isPlayer ? 0.065 : 0.032;
     if (Math.random() < 0.35) boom('bump');
     shapeVoice(shapeA || 'sphere', semi, peak, r, pan, t);
     if (shapeB) {
@@ -905,7 +915,7 @@ const DRIFT = (() => {
     f.frequency.setValueAtTime(1800 * tim.bright, t);
     f.frequency.exponentialRampToValueAtTime(500, t + 0.8);
     const g = ctx.createGain();
-    g.gain.setValueAtTime(0.09 * tim.gain, t);
+    g.gain.setValueAtTime(0.055 * tim.gain, t);
     g.gain.exponentialRampToValueAtTime(0.0008, t + 0.85);
     let tail = g;
     if (ctx.createStereoPanner) {
@@ -917,6 +927,7 @@ const DRIFT = (() => {
     o.connect(f); f.connect(g);
     tail.connect(master);
     tail.connect(delayIn);
+    tail.connect(dreamSend);
     o.start(t); o.stop(t + 0.9);
   }
 
@@ -936,8 +947,8 @@ const DRIFT = (() => {
       o.frequency.value = semiHz(semi + 12);
       const g = ctx.createGain();
       g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.12, t + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.0008, t + 0.5);
+      g.gain.linearRampToValueAtTime(0.055, t + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0008, t + 0.55);
       let tail = g;
       if (ctx.createStereoPanner) {
         const p = ctx.createStereoPanner();
@@ -948,7 +959,8 @@ const DRIFT = (() => {
       o.connect(g);
       tail.connect(master);
       tail.connect(delayIn);
-      o.start(t); o.stop(t + 0.55);
+      tail.connect(dreamSend);
+      o.start(t); o.stop(t + 0.6);
     });
   }
 
@@ -961,7 +973,7 @@ const DRIFT = (() => {
     o.frequency.setValueAtTime(880, t);
     o.frequency.exponentialRampToValueAtTime(110, t + 0.5);
     const g = ctx.createGain();
-    g.gain.setValueAtTime(0.10, t);
+    g.gain.setValueAtTime(0.055, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
     const f = ctx.createBiquadFilter();
     f.type = 'lowpass'; f.frequency.value = 1600;
