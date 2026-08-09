@@ -471,25 +471,88 @@ const DRIFT = (() => {
   }
 
   // ---- events ----
-  function pluck(isPlayer) {
-    const semi = patch
-      ? patch.pent[Math.floor(Math.random() * patch.pent.length)]
-      : 12;
+  // The plate is a NOTE MAP. nx/nz are the bump position normalized
+  // to the plate radius (-1..1):
+  //   angle around the plate → which scale degree plays (the same
+  //     spot always sings the same note — the crowd's positions
+  //     literally write the tune)
+  //   distance from centre   → register + brightness (deep and
+  //     mellow at the middle, an octave up and bright at the rim)
+  //   left/right             → stereo pan
+  function spatialNote(nx, nz) {
+    const ang = Math.atan2(nz, nx) + Math.PI;   // 0..2π
+    const r = Math.min(1, Math.hypot(nx, nz));
+    const idx = Math.floor((ang / (Math.PI * 2)) * patch.pent.length) % patch.pent.length;
+    const oct = r > 0.68 ? 12 : (r < 0.32 ? -12 : 0);
+    return { semi: patch.pent[idx] + oct, r, pan: Math.max(-0.8, Math.min(0.8, nx * 0.8)) };
+  }
+
+  function pluck(isPlayer, nx, nz) {
+    if (!patch) return 12;
+    let semi, r = 0.5, pan = 0;
+    if (nx !== undefined && nz !== undefined) {
+      const sn = spatialNote(nx, nz);
+      semi = sn.semi; r = sn.r; pan = sn.pan;
+    } else {
+      semi = patch.pent[Math.floor(Math.random() * patch.pent.length)];
+    }
     if (!built || !running()) return semi;
     const t = ctx.currentTime;
     const o = ctx.createOscillator();
     o.type = patch.pluckWave;
     o.frequency.value = semiHz(semi);
+    // brightness follows radius: mellow centre, glassy rim
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 900 + r * 2600;
     const g = ctx.createGain();
     const peak = isPlayer ? 0.16 : 0.07;
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(peak, t + 0.012);
     g.gain.exponentialRampToValueAtTime(0.0008, t + 0.6);
-    o.connect(g);
-    g.connect(master);
-    g.connect(delayIn);   // dub trail: the echo repeats on-scale
+    let tail = g;
+    if (ctx.createStereoPanner) {
+      const p = ctx.createStereoPanner();
+      p.pan.value = pan;
+      g.connect(p);
+      tail = p;
+    }
+    o.connect(f); f.connect(g);
+    tail.connect(master);
+    tail.connect(delayIn);   // dub trail: the echo repeats on-scale
     o.start(t); o.stop(t + 0.7);
     return semi;
+  }
+
+  // Heart pickup: a sweet two-note ascending chime from the same
+  // note map, so even healing is part of the tune.
+  function pickup(nx, nz) {
+    if (!built || !running()) return;
+    const sn = spatialNote(nx || 0, nz || 0);
+    const t0 = ctx.currentTime;
+    const idx = patch.pent.indexOf(sn.semi > 12 ? sn.semi - 12 : (sn.semi < 0 ? sn.semi + 12 : sn.semi));
+    const second = patch.pent[(Math.max(0, idx) + 2) % patch.pent.length] + 12;
+    [[sn.semi, 0], [second, 0.10]].forEach(([semi, dt]) => {
+      const t = t0 + dt;
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = semiHz(semi + 12);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.12, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0008, t + 0.5);
+      let tail = g;
+      if (ctx.createStereoPanner) {
+        const p = ctx.createStereoPanner();
+        p.pan.value = sn.pan;
+        g.connect(p);
+        tail = p;
+      }
+      o.connect(g);
+      tail.connect(master);
+      tail.connect(delayIn);
+      o.start(t); o.stop(t + 0.55);
+    });
   }
 
   function grab() {
@@ -639,6 +702,6 @@ const DRIFT = (() => {
     start, stop, roundStart,
     setMuted, setUserMuted,
     setTilt, setCrowd, telegraph,
-    pluck, grab, onDeath, thicken, fanfare,
+    pluck, pickup, grab, onDeath, thicken, fanfare,
   };
 })();

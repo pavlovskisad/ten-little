@@ -69,6 +69,26 @@
     position: absolute; top: -30px; font-size: 26px; line-height: 1;
     animation: scSlider 2.6s ease-in-out infinite;
   }
+  @keyframes scHeartTake {
+    0%, 20%  { left: 18%; }
+    55%      { left: 46%; }
+    75%, 100%{ left: 78%; }
+  }
+  @keyframes scHeartGone {
+    0%, 50%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    62%, 100%{ opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
+  }
+  .sc-heart {
+    position: absolute; left: 50%; top: 52%;
+    font-size: 30px; line-height: 1;
+    transform: translate(-50%, -50%);
+    animation: scHeartGone 2.6s ease-in-out infinite;
+  }
+  .sc-heart-taker {
+    position: absolute; top: 46%;
+    font-size: 28px; line-height: 1;
+    animation: scHeartTake 2.6s ease-in-out infinite;
+  }
   .sc-shrink-plate {
     position: absolute; left: 50%; top: 52%;
     width: 58%; aspect-ratio: 1; border-radius: 50%;
@@ -154,14 +174,11 @@
     <div class="ht-card"><div class="ht-stage">
       <div class="sc-shrink-plate"></div>
     </div></div>
-    <!-- 7. the plate is the music: tilting makes the sound swirl -->
+    <!-- 7. hearts heal: grab the heart, +1 -->
     <div class="ht-card"><div class="ht-stage">
-      <div class="ht-pads">
-        <div class="ht-pad g"></div><div class="ht-pad g" style="animation-delay:0.3s"></div><div class="ht-pad g" style="animation-delay:0.6s"></div>
-      </div>
-      <div class="ht-note" style="left:30%">♪</div>
-      <div class="ht-note" style="left:56%; animation-delay:0.7s">♪</div>
-      <div class="ht-note" style="left:74%; animation-delay:1.3s">♫</div>
+      <div class="sc-heart">❤️</div>
+      <div class="sc-heart-taker">🟢</div>
+      <div class="ht-pop ht-pop-anim" style="left:50%; top:24%; transform:translateX(-50%); position:absolute;">+1 ❤️</div>
     </div></div>
     <!-- 8. last shape standing wins -->
     <div class="ht-card"><div class="ht-stage">
@@ -673,6 +690,10 @@ const KAOSS = (() => {
       if (k <= 0) return;
       addBlob(x, z, 6, { r: 0.10 + k * 0.10, peak: 0.10 + k * 0.22, life: 0.30 });
     },
+    // Heart pickup: warm rose bloom.
+    heal(x, z) {
+      addBlob(x, z, 340, { r: 0.20, peak: 0.65, life: 1.0 });
+    },
     // Death: a brief cold violet hole where they went.
     death(x, z) {
       addBlob(x, z, 262, { r: 0.24, peak: 0.5, life: 1.3 });
@@ -1064,6 +1085,97 @@ retOutline.position.y = CFG.plateThick / 2 + 0.006;
 reticleGroup.add(retOutline);
 
 reticleGroup.visible = false;
+
+// ============================================================
+// HEARTS — healing pickups. Spawn often, cap 3 on the plate; any
+// figure that touches one heals +1. Generous by design: healthier
+// crowds bump longer, and bumps are the melody.
+// ============================================================
+const HEARTS = { list: [], nextAtMs: 5000 };
+const HEART_SPAWN_MS = 6000;      // average cadence
+const HEART_CAP = 3;
+const HEART_PICK_R = 0.62;
+
+const heartGeom = (() => {
+  const s = new THREE.Shape();
+  // classic bezier heart, ~1 unit tall, centered
+  s.moveTo(0, -0.45);
+  s.bezierCurveTo(0.55, -0.05, 0.5, 0.42, 0, 0.18);
+  s.bezierCurveTo(-0.5, 0.42, -0.55, -0.05, 0, -0.45);
+  const g = new THREE.ExtrudeGeometry(s, { depth: 0.16, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.04, bevelSegments: 2 });
+  g.center();
+  return g;
+})();
+const heartMat = new THREE.MeshStandardMaterial({
+  color: 0xff2848, emissive: 0xff2848, emissiveIntensity: 0.55,
+  roughness: 0.35, metalness: 0.1,
+});
+
+function spawnHeart() {
+  const ang = Math.random() * Math.PI * 2;
+  const r = S.plateR * (0.15 + Math.random() * 0.60);
+  const x = Math.cos(ang) * r;
+  const z = Math.sin(ang) * r;
+  const mesh = new THREE.Mesh(heartGeom, heartMat);
+  mesh.scale.setScalar(0.5);
+  mesh.castShadow = true;
+  mesh.position.set(x, CFG.plateThick / 2 + 0.45, z);
+  plateGroup.add(mesh);
+  const halo = new THREE.Mesh(
+    new THREE.RingGeometry(0.30, 0.44, 28),
+    new THREE.MeshBasicMaterial({ color: 0xff5a78, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false }),
+  );
+  halo.rotation.x = -Math.PI / 2;
+  halo.position.set(x, CFG.plateThick / 2 + 0.004, z);
+  plateGroup.add(halo);
+  HEARTS.list.push({ x, z, mesh, halo, age: Math.random() * Math.PI * 2 });
+}
+
+function clearHearts() {
+  for (const h of HEARTS.list) {
+    if (h.mesh.parent) h.mesh.parent.remove(h.mesh);
+    if (h.halo.parent) h.halo.parent.remove(h.halo);
+  }
+  HEARTS.list = [];
+  HEARTS.nextAtMs = 5000;
+}
+
+function tickHearts(dt) {
+  // spawn cadence (jittered), capped
+  if (S.t >= HEARTS.nextAtMs && HEARTS.list.length < HEART_CAP) {
+    spawnHeart();
+    HEARTS.nextAtMs = S.t + HEART_SPAWN_MS * (0.7 + Math.random() * 0.6);
+  }
+  for (let i = HEARTS.list.length - 1; i >= 0; i--) {
+    const h = HEARTS.list[i];
+    // bob + spin + halo pulse
+    h.age += dt;
+    h.mesh.position.y = CFG.plateThick / 2 + 0.45 + Math.sin(h.age * 2.4) * 0.08;
+    h.mesh.rotation.y += dt * 2.2;
+    h.halo.material.opacity = 0.35 + 0.2 * Math.sin(h.age * 3.1);
+    // shrink swallowed it
+    if (Math.hypot(h.x, h.z) > S.plateR * 0.92) {
+      if (h.mesh.parent) h.mesh.parent.remove(h.mesh);
+      if (h.halo.parent) h.halo.parent.remove(h.halo);
+      HEARTS.list.splice(i, 1);
+      continue;
+    }
+    // pickup: first alive figure touching it
+    for (const f of S.figs) {
+      if (!f.alive || f.picked || f.dropping || f.draining) continue;
+      if (Math.hypot(f.x - h.x, f.z - h.z) < HEART_PICK_R) {
+        if (f.hp < CFG.hpMax) f.hp += 1;
+        DRIFT.pickup(h.x / S.plateR, h.z / S.plateR);
+        KAOSS.heal(h.x, h.z);
+        if (f.isPlayer) playerHealFX();
+        if (h.mesh.parent) h.mesh.parent.remove(h.mesh);
+        if (h.halo.parent) h.halo.parent.remove(h.halo);
+        HEARTS.list.splice(i, 1);
+        break;
+      }
+    }
+  }
+}
 
 // ============================================================
 // FIGURES — colored geometric shapes (cubes, spheres, cones, cylinders,
@@ -1502,8 +1614,10 @@ function updateFigures(dt) {
           b.hp -= CFG.contactDmg;
           a.invulnT = CFG.iframeMs / 1000;
           b.invulnT = CFG.iframeMs / 1000;
-          const bumpNote = DRIFT.pluck(a.isPlayer || b.isPlayer);
-          KAOSS.hit((a.x + b.x) / 2, (a.z + b.z) / 2, bumpNote, a.isPlayer || b.isPlayer);
+          const bmx = (a.x + b.x) / 2, bmz = (a.z + b.z) / 2;
+          const bumpNote = DRIFT.pluck(a.isPlayer || b.isPlayer,
+                                       bmx / S.plateR, bmz / S.plateR);
+          KAOSS.hit(bmx, bmz, bumpNote, a.isPlayer || b.isPlayer);
           if (a.isPlayer || b.isPlayer) playerHitFX();
           a.vx -= nx * CFG.bumpForce;
           a.vz -= nz * CFG.bumpForce;
@@ -2287,15 +2401,20 @@ function loop(now) {
       startHand();
     }
     updateHand(dt);
+    tickHearts(dt);
     maybeShrink(dt);
     tickShrinkTween(dt);
     if (!S.attract) updateHud();
-  } else if (S.phase === 'over' || S.phase === 'countdown') {
+  } else if (S.phase === 'over') {
     updateTilt(dt);
     updateFigures(dt);
     updateHand(dt);
     tickShrinkTween(dt);
-    if (S.phase === 'over') updateHud();
+    updateHud();
+  } else if (S.phase === 'countdown') {
+    // Everyone frozen — figures hold their spawn spots, no physics,
+    // no bot AI, no damage. Only the claw's idle sway keeps moving.
+    updateHand(dt);
   }
 
   // Feed the ambient effector: plate tilt is the master knob, the
@@ -2364,6 +2483,7 @@ function reset(withPlayer) {
   reticleGroup.visible = false;
   shrinkTween = null;
   camInitialized = false;
+  clearHearts();
   spawnFigures(withPlayer);
   S.attract = !withPlayer;
   S.phase = withPlayer ? 'countdown' : 'play';
@@ -2394,6 +2514,20 @@ function playerHitFX() {
     pop.style.transition = 'opacity 0.7s ease-out, transform 0.7s ease-out';
     pop.style.opacity = '0';
     pop.style.transform = 'translate(-50%, -60%) scale(0.9)';
+  });
+}
+
+function playerHealFX() {
+  const pop = document.getElementById('tile-popup');
+  pop.textContent = '+1 \u2764\uFE0F';
+  pop.style.color = '#5bff7a';
+  pop.style.transition = 'none';
+  pop.style.opacity = '1';
+  pop.style.transform = 'translate(-50%, -50%) scale(1.1)';
+  requestAnimationFrame(() => {
+    pop.style.transition = 'opacity 0.7s ease-out, transform 0.7s ease-out';
+    pop.style.opacity = '0';
+    pop.style.transform = 'translate(-50%, -40%) scale(0.9)';
   });
 }
 
