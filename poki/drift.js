@@ -70,6 +70,7 @@ const DRIFT = (() => {
   let boomIn, boomDelayNode, boomLP, boomFb;  // the deep end
   let sparkleBus;                    // crowd energy scales the air
   let revSend, convolver;            // the hall (post-master send)
+  let halls = [];                    // pre-generated IRs, rolled per round
   let comp, compTrim;                // master glue compressor + trim
   let delayIn, delayNode, delayFb, delayFilter;  // pluck echoes
   const voices = [];                 // drone stack (faint foundation)
@@ -126,7 +127,17 @@ const DRIFT = (() => {
       delayTime: DELAY_TIMES[Math.floor(Math.random() * DELAY_TIMES.length)],
       driftMs: 12000 + Math.random() * 10000,   // chord change pace
       pluckWave: Math.random() < 0.6 ? 'triangle' : 'sine',
+      // ARRANGEMENT — the round's texture architecture, not just its
+      // harmony. 'drone' = full sustained bed (the original feel);
+      // 'pulse' = foundation cut back, every crowd voice gated by its
+      // own slow LFO (polyrhythmic swells); 'sparse' = foundation
+      // nearly silent, melody + beat carry a minimal round.
+      arr: ['drone', 'pulse', 'pulse', 'sparse'][Math.floor(Math.random() * 4)],
+      bedMul: 1,          // resolved from arr in applyPatch
+      hallIdx: Math.floor(Math.random() * 3),   // room / hall / wash
+      filterType: Math.random() < 0.3 ? 'bandpass' : 'lowpass',
     };
+    patch.bedMul = patch.arr === 'drone' ? 1 : patch.arr === 'pulse' ? 0.45 : 0.15;
     chordIdx = 0;
     return patch;
   }
@@ -222,7 +233,15 @@ const DRIFT = (() => {
     lfoOsc.frequency.setTargetAtTime(patch.lfoBase, t, 0.5);
     delayNode.delayTime.setTargetAtTime(patch.delayTime, t, 0.3);
     boomDelayNode.delayTime.setTargetAtTime(patch.delayTime * 1.5, t, 0.3);
-    boomFb.gain.setTargetAtTime(0.36 + Math.random() * 0.18, t, 0.3);
+    boomFb.gain.setTargetAtTime(0.42 + Math.random() * 0.18, t, 0.3);
+    // texture architecture: scale the drone foundation by arrangement,
+    // swap the room, swap the master filter's character
+    for (const v of voices) {
+      v.base = v.baseCore * patch.bedMul;
+      if (!v.dropped) v.g.gain.setTargetAtTime(v.base, t, 0.8);
+    }
+    convolver.buffer = halls[patch.hallIdx];
+    bedFilter.type = patch.filterType;
     const fchord = patch.chords[0];
     for (const fv of figVoices.values()) {
       fv.o.frequency.setTargetAtTime(semiHz(fchord[fv.deg] + fv.oct), t, 1.2);
@@ -284,7 +303,9 @@ const DRIFT = (() => {
     // reverb FEED while the tail rings out naturally through adGate.
     revSend = ctx.createGain(); revSend.gain.value = 0.42;
     convolver = ctx.createConvolver();
-    convolver.buffer = makeImpulse(2.9, 2.6);
+    // three rooms, rolled per round: tight / hall / huge wash
+    halls = [makeImpulse(1.2, 3.2), makeImpulse(2.9, 2.6), makeImpulse(4.6, 2.1)];
+    convolver.buffer = halls[patch.hallIdx];
     master.connect(revSend);
     revSend.connect(convolver);
     convolver.connect(comp);
@@ -358,7 +379,7 @@ const DRIFT = (() => {
       oB.connect(g);
       g.connect(bedBus);
       oA.start(t); oB.start(t);
-      const v = { oA, oB, oAG, g, base: g.gain.value, dropped: false };
+      const v = { oA, oB, oAG, g, baseCore: g.gain.value, base: g.gain.value, dropped: false };
       voices.push(v);
       scheduleBreath(v, i);
     }
@@ -439,7 +460,7 @@ const DRIFT = (() => {
     boomDelayNode.delayTime.value = 0.63;
     boomLP = ctx.createBiquadFilter();
     boomLP.type = 'lowpass';
-    boomLP.frequency.value = 240;
+    boomLP.frequency.value = 520;
     boomFb = ctx.createGain(); boomFb.gain.value = 0.45;
     boomIn.connect(boomDelayNode);
     boomDelayNode.connect(boomLP);
@@ -464,7 +485,11 @@ const DRIFT = (() => {
     const t = ctx.currentTime;
     // clear previous round's voices
     for (const fv of figVoices.values()) {
-      try { fv.g.gain.setTargetAtTime(0, t, 0.1); fv.o.stop(t + 0.8); } catch (e) {}
+      try {
+        fv.g.gain.setTargetAtTime(0, t, 0.1);
+        fv.o.stop(t + 0.8);
+        if (fv.gate) fv.gate.stop(t + 0.8);
+      } catch (e) {}
     }
     figVoices.clear();
     const chord = patch.chords[chordIdx % patch.chords.length];
@@ -481,11 +506,28 @@ const DRIFT = (() => {
       o.connect(g);
       g.connect(bedBus);
       o.start(t);
-      figVoices.set(fig.id, {
+      const fv = {
         o, g, deg, oct,
         // higher registers whisper, low ones ground; per-shape trim
         base: (oct === 0 ? 0.030 : oct === 12 ? 0.019 : 0.010) * tim.gain,
-      });
+        gate: null, gateG: null,
+      };
+      // 'pulse' rounds: every crowd voice breathes through its own
+      // slow gate — ten independent rates = polyrhythmic swells
+      // instead of a wall of sustain.
+      if (patch.arr === 'pulse') {
+        const gate = ctx.createOscillator();
+        gate.type = 'sine';
+        gate.frequency.value = 0.15 + Math.random() * 0.5;
+        const gateG = ctx.createGain();
+        gateG.gain.value = fv.base * 0.65;
+        gate.connect(gateG);
+        gateG.connect(g.gain);
+        gate.start(t);
+        fv.gate = gate; fv.gateG = gateG;
+      }
+      if (patch.arr === 'sparse') fv.base *= 0.6;
+      figVoices.set(fig.id, fv);
     });
   }
 
@@ -505,7 +547,8 @@ const DRIFT = (() => {
     if (!fv) return;
     const t = ctx.currentTime;
     fv.g.gain.setTargetAtTime(0, t, 0.9);
-    try { fv.o.stop(t + 4); } catch (e) {}
+    if (fv.gateG) fv.gateG.gain.setTargetAtTime(0, t, 0.5);
+    try { fv.o.stop(t + 4); if (fv.gate) fv.gate.stop(t + 4); } catch (e) {}
     figVoices.delete(id);
   }
 
@@ -712,35 +755,56 @@ const DRIFT = (() => {
   function boom(kind) {
     if (!built || !running()) return;
     const t = ctx.currentTime;
-    const depth = 34 + Math.random() * 36;                  // fundamental Hz
-    const peak = kind === 'claw' ? 0.10 + Math.random() * 0.22
-               : kind === 'heart' ? 0.05 + Math.random() * 0.06
-               : 0.035 + Math.random() * 0.075;             // bump
-    const decay = 0.18 + Math.random() * 0.28;
+    const depth = 42 + Math.random() * 38;                  // fundamental Hz
+    const peak = kind === 'claw' ? 0.24 + Math.random() * 0.22
+               : kind === 'heart' ? 0.08 + Math.random() * 0.07
+               : 0.06 + Math.random() * 0.09;               // bump
+    const decay = 0.20 + Math.random() * 0.28;
+    // body: pitch-dropping sine
     const o = ctx.createOscillator();
     o.type = 'sine';
     o.frequency.setValueAtTime(depth * 2.4, t);
-    o.frequency.exponentialRampToValueAtTime(depth, t + 0.05 + Math.random() * 0.07);
+    o.frequency.exponentialRampToValueAtTime(depth, t + 0.05 + Math.random() * 0.06);
+    // knock: fast mid-range sweep gives the attack a face on any speaker
+    const k = ctx.createOscillator();
+    k.type = 'triangle';
+    k.frequency.setValueAtTime(300 + Math.random() * 160, t);
+    k.frequency.exponentialRampToValueAtTime(depth * 1.5, t + 0.035);
+    const kG = ctx.createGain();
+    kG.gain.setValueAtTime(peak * 0.7, t);
+    kG.gain.exponentialRampToValueAtTime(0.0008, t + 0.09);
+    // harmonic: keeps a trace of the sub alive on phone speakers
     const h = ctx.createOscillator();
     h.type = 'sine';
     h.frequency.value = depth * 2;
-    const hG = ctx.createGain(); hG.gain.value = 0.22;
+    const hG = ctx.createGain(); hG.gain.value = 0.35;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(peak, t + 0.008);
     g.gain.exponentialRampToValueAtTime(0.0008, t + decay);
     o.connect(g);
     h.connect(hG); hG.connect(g);
+    k.connect(kG); kG.connect(master);
     g.connect(master);
-    // roughly half the hits feed the beat delay and become a sequence
-    if (Math.random() < 0.55) {
+    // claw booms ALWAYS enter the beat delay (a dependable downbeat
+    // train); bumps sometimes sprinkle into it
+    if (kind === 'claw' || Math.random() < 0.4) {
       const send = ctx.createGain();
-      send.gain.value = 0.45 + Math.random() * 0.4;
+      send.gain.value = kind === 'claw' ? 0.75 : 0.45 + Math.random() * 0.3;
       g.connect(send);
       send.connect(boomIn);
     }
+    // SIDECHAIN: a claw boom pumps the whole bed down for a beat —
+    // this is what makes the kick FELT, not just heard.
+    if (kind === 'claw') {
+      bedBus.gain.cancelScheduledValues(t);
+      bedBus.gain.setValueAtTime(bedBus.gain.value, t);
+      bedBus.gain.linearRampToValueAtTime(0.42, t + 0.03);
+      bedBus.gain.setTargetAtTime(0.9, t + 0.16, 0.28);
+    }
     o.start(t); o.stop(t + decay + 0.1);
     h.start(t); h.stop(t + decay + 0.1);
+    k.start(t); k.stop(t + 0.12);
   }
 
   // The claw touching down is the downbeat, caught or not.
@@ -997,6 +1061,7 @@ const DRIFT = (() => {
       chordIdx,
       dropped: droppedVoices,
       patchName: patch ? patch.name : '',
+      arr: patch ? patch.arr : '',
     };
   }
 
