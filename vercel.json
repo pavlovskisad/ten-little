@@ -1,0 +1,13 @@
+{
+  "installCommand": "",
+  "buildCommand": "mkdir -p dist && cp -r poki/* dist/",
+  "outputDirectory": "dist",
+  "headers": [
+    {
+      "source": "/(.*)\\.(glb|woff2|wasm)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    }
+  ]
+}

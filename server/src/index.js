@@ -45,11 +45,11 @@ function nextRoomIdBigInt() {
 }
 
 // On-chain rake bps must match the program's ProgramConfig.rake_bps
-// (default 500 = 5%). If the admin changes it via set_rake_bps, this
+// (default 800 = 8%). If the admin changes it via set_rake_bps, this
 // constant has to be updated too — or we can fetch ProgramConfig on
 // boot. For v0 we hardcode the default; revisit when the admin
 // instruction sees use.
-const RAKE_BPS = 500n;
+const RAKE_BPS = 800n;
 
 // Compute winners + amounts and call escrow.finalizePot. Skips the
 // on-chain call when no eligible human winners exist — the pot
@@ -475,31 +475,41 @@ wss.on('connection', (ws) => {
     catch { send(ws, { type: 'error', message: 'invalid json' }); return; }
 
     if (msg.type === 'quickjoin') {
-      // Quickmatch is gated on a verified Privy identity. The token
-      // is bundled in the quickjoin message itself (atomic — no race
-      // between separate 'auth' and 'quickjoin' messages).
-      try {
-        const { userId } = await verifyAccessToken(msg.token);
-        privyUserId = userId;
-      } catch (err) {
-        console.warn('[auth] verify failed:', err.message);
-        send(ws, { type: 'error', message: 'auth failed: ' + err.message });
-        return;
+      // 'freematch' is the no-money variant: same matchmaking +
+      // multi-human gameplay as quickmatch, but no Privy auth,
+      // no pot, no entry fee, no payouts. Designed for testing
+      // the full server-authoritative loop without spending SOL,
+      // and as an on-ramp for users who haven't funded a wallet
+      // yet.
+      const isFreematch = msg.mode === 'freematch';
+      if (!isFreematch) {
+        // Paid quickmatch is gated on a verified Privy identity.
+        // Token is bundled in the message itself (atomic — no race
+        // between separate 'auth' and 'quickjoin' messages).
+        try {
+          const { userId } = await verifyAccessToken(msg.token);
+          privyUserId = userId;
+        } catch (err) {
+          console.warn('[auth] verify failed:', err.message);
+          send(ws, { type: 'error', message: 'auth failed: ' + err.message });
+          return;
+        }
       }
-      // Smart matchmaking: pick the first lobby-phase quickmatch
-      // room with capacity; if none exists, spin up a fresh one.
-      // Practice rooms (mode='practice') are excluded — they're
-      // single-shot solo games and never accept matchmakers.
+      const targetMode = isFreematch ? 'freematch' : 'quickmatch';
+      // Smart matchmaking: pick the first lobby-phase room of the
+      // right mode with capacity; if none exists, spin up a fresh
+      // one. Modes are siloed — freematch players only match with
+      // freematch, paid players only with paid.
       let room = null;
       for (const r of rooms.values()) {
-        if (r.mode !== 'quickmatch') continue;
+        if (r.mode !== targetMode) continue;
         if (r.state.phase !== 'lobby') continue;
         if (r.players.size >= MAX_PLAYERS) continue;
         room = r;
         break;
       }
       if (!room) {
-        room = new GameRoom({ mode: 'quickmatch' });
+        room = new GameRoom({ mode: targetMode });
         rooms.set(room.code, room);
       }
       if (!room.addPlayer(playerId, ws)) {
@@ -507,12 +517,14 @@ wss.on('connection', (ws) => {
         return;
       }
       roomCode = room.code;
-      // Pot creation is DEFERRED until 2+ humans are in the lobby.
+      // Pot creation is DEFERRED until 2+ humans are in the lobby
+      // AND the room is paid quickmatch. Freematch rooms never get
+      // a pot — no init_pot, no payment prompt, no finalize.
       // First joiner pays nothing and can leave cleanly with no chain
       // interaction. When the second joiner lands, we init_pot once;
       // both clients see the new pot in the next roster broadcast and
       // trigger their join_pot tx from the onRoster handler.
-      const needsPot = escrow.isEnabled() && !room.escrow && room.players.size >= 2;
+      const needsPot = !isFreematch && escrow.isEnabled() && !room.escrow && room.players.size >= 2;
       if (needsPot) {
         try {
           const roomIdBigInt = nextRoomIdBigInt();

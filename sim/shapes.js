@@ -1,10 +1,10 @@
 // Shape catalog for figures (collision + visual). Extracted so the server
 // can compute collisions against the same radii the client renders.
 //
-// SHAPE_COLORS are kept here for reference but in the reskinned build all
-// 10 players render with the same runner.glb character — colors only show
-// on the marker glow / placement HUD. Future per-NFT skins will live in a
-// separate module (see Phase E in the implementation plan).
+// Each figure renders as one of these colored geometric primitives (the
+// Shape Store look): the client cycles through SHAPE_DEFS and assigns a
+// SHAPE_COLORS entry per figure id, so every figure is a distinct
+// shape+color combo.
 (function (global) {
   const SHAPE_DEFS = [
     { type: 'cube',       collidR: 0.42, yOffset: 0.42 },

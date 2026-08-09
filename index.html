@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>ten little</title>
+<title>ten lil</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- Press Start 2P: classic NES-pixel font for headlines + buttons.
@@ -116,8 +116,9 @@
     color: #ffffff;
     opacity: 0.75;
   }
-  /* Health: row of pixel-heart icons (gay.png). All pips identical;
-     dead pips dim out, i-frame pips brighten. */
+  /* Health: row of inline-SVG shape pips (triangle / square / circle).
+     All pips identical size; color drives the states — dead pips fade,
+     i-frame pips flash white. */
   .hp-row {
     display: flex; align-items: center; justify-content: center;
     gap: 14px;
@@ -125,19 +126,12 @@
   }
   .hp-pip {
     display: inline-block;
-    width: 36px; height: 36px;
-    background: url('./gay.png') no-repeat center / contain;
-    image-rendering: pixelated;
-    image-rendering: -moz-crisp-edges;
-    transition: opacity 0.15s, filter 0.15s;
+    width: 32px; height: 32px;
+    color: #ff1a1a;
+    transition: color 0.15s, opacity 0.15s;
   }
-  .hp-pip.dead {
-    opacity: 0.18;
-    filter: grayscale(0.7);
-  }
-  .hp-pip.iframe {
-    filter: brightness(2.0) saturate(0.5);
-  }
+  .hp-pip.dead { color: rgba(255,26,26,0.18); }
+  .hp-pip.iframe { color: #ffffff; }
 
   /* tilt indicator */
   #tilt {
@@ -168,7 +162,10 @@
     font-size: 12px;
     color: #ffffff; opacity: 0.50; white-space: nowrap;
     font-style: normal;
+    display: none;
   }
+  #tilt { display: none; }
+  #tilt-arrow { display: none; }
 
   /* title at intro — two lines stacked, each letter a different
      primary from the palette, big chunky pixel signage in Press
@@ -193,8 +190,25 @@
   /* 'little' (6 chars) is the visual-width reference. Spread the
      shorter words so all three lines align in width. */
   #title h1 .line-ten    { letter-spacing: 0.95em; padding-left: 0.95em; }
-  #title h1 .line-little { letter-spacing: 0.04em; padding-left: 0.04em; }
+  #title h1 .line-lil    { letter-spacing: 0.95em; padding-left: 0.95em; }
   #title h1 .line-nigas  { letter-spacing: 0.30em; padding-left: 0.30em; }
+  /* Book-imprint label under the start button. Old-paperback style:
+     small, dimmed, centered, two short lines. Doesn't pull focus
+     from the main title. */
+  #title #imprint {
+    margin-top: 24px;
+    font-family: 'VT323', monospace;
+    font-size: 14px; line-height: 1.3;
+    text-align: center; color: #f1e5cd;
+    opacity: 0.5; letter-spacing: 0.08em;
+  }
+  #title #imprint div:first-child {
+    text-transform: lowercase; opacity: 0.7;
+  }
+  #title #imprint div:last-child {
+    text-transform: uppercase; letter-spacing: 0.18em;
+    font-size: 13px; margin-top: 2px;
+  }
   /* per-letter primary palette colors */
   #title h1 .c0  { color: #ff1a1a; } /* red */
   #title h1 .c1  { color: #1a40e0; } /* blue */
@@ -550,6 +564,13 @@
     color: #f1e5cd;
   }
   .wd-actions { margin-top: 4px; }
+  /* Send link sits left-aligned under balance, self-sized so the
+     underline only spans the word — looks like a hyperlink, not
+     a stretched-full-width button. */
+  #lobby .wd-send {
+    align-self: flex-start;
+    padding: 0; font-size: 22px;
+  }
   .wd-actions-row { flex-direction: row !important; gap: 8px; }
   /* Inputs: compact system monospace so a 44-char Solana address
      fits inside the 360 px drawer without overflowing. Selector is
@@ -601,15 +622,37 @@
   }
   .wd-cancel:hover { border-color: #ff1a1a; color: #ff1a1a; }
   .wd-cancel:disabled { opacity: 0.35; cursor: default; }
-  .wd-send {
-    flex: 1;
-    background: #ff1a1a; color: #f1e5cd; border: none;
-    padding: 10px 0; cursor: pointer; width: 100%;
-    font-family: 'VT323', monospace; font-size: 20px;
-    letter-spacing: 0.1em; text-transform: lowercase;
+  /* Drawer action buttons inherit the simple #lobby button hyperlink
+     style (transparent bg, blue underlined). Top-up is bigger and
+     centered as the headline action; send is smaller and left-
+     aligned under the balance value (rule above). */
+  #lobby .wd-fund { font-size: 28px; }
+  .wd-send:disabled,
+  .wd-fund:disabled { opacity: 0.35; cursor: default; }
+
+  /* Wrapper inside #auth-root inherits flex centering so the join
+     button doesn't drift left when the low-balance CTA expands the
+     wrapper's effective width. */
+  #auth-root > div {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
   }
-  .wd-send:hover { background: #ff3030; }
-  .wd-send:disabled { opacity: 0.35; cursor: default; }
+  /* Low-balance CTA shown under the join button when balance < entry
+     fee. Hyperlink style to match 'solo (bots)' — keeps the whole
+     lobby visually consistent (only the 'join' action gets the bold
+     red button). */
+  #auth-root .auth-low-balance {
+    margin-top: 4px;
+    text-align: center;
+    font-family: 'VT323', monospace;
+  }
+  #auth-root .auth-low-balance-msg {
+    color: #ff8c00; font-size: 14px; opacity: 0.9;
+    margin-bottom: 2px;
+  }
+  /* auth-low-balance-cta inherits the link style from #lobby button
+     above (transparent bg, blue underlined). Only the font-size
+     differs to fit visual hierarchy between 'join' and 'solo (bots)'. */
+  #auth-root .auth-low-balance-cta { font-size: 22px; }
 
   /* Spectator caption — shown once the local player is eliminated.
      Sits where the joystick used to be, dims everything else. */
@@ -703,10 +746,14 @@
 <div id="title">
   <h1>
     <span class="line line-ten"><span class="c0">t</span><span class="c2">e</span><span class="c1">n</span></span>
-    <span class="line line-little"><span class="c3">l</span><span class="c4">i</span><span class="c5">t</span><span class="c6">t</span><span class="c7">l</span><span class="c8">e</span></span>
+    <span class="line line-lil"><span class="c3">l</span><span class="c4">i</span><span class="c5">l</span></span>
     <span class="line line-nigas"><span class="c9">n</span><span class="c0">i</span><span class="c3">g</span><span class="c6">a</span><span class="c7">s</span></span>
   </h1>
   <button id="start" style="pointer-events:none;opacity:0.65">loading...</button>
+  <div id="imprint">
+    <div>published for</div>
+    <div>jans crime club</div>
+  </div>
 </div>
 
 <div id="lobby">
@@ -715,10 +762,11 @@
     <!-- Preact mounts the auth UI (login button, wallet drawer) here.
          Until the user is logged in we render a "log in to join"
          button; once authed, we render the wallet badge + the real
-         "join" button. The solo button below is vanilla and always
-         clickable. -->
+         "join" button. The free + solo buttons below are vanilla
+         and always clickable (no login required). -->
     <div id="auth-root"></div>
     <div class="lobby-disclaimer">paid match: no refunds. once you pay, leaving or disconnecting forfeits your entry to the pot.</div>
+    <button id="lobby-free">free multiplayer</button>
     <button id="lobby-solo">solo (bots)</button>
     <div class="err" id="lobby-err"></div>
   </div>
@@ -761,7 +809,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
 <!-- Shared simulation modules. Authored to also work in Node so the
      forthcoming Colyseus server can require() the same files. -->
 <script src="./sim/cfg.js"></script>
@@ -828,11 +875,10 @@ function seekToRandomStart() {
   }, 250);
 }
 
-// Enter button enables as soon as the character GLB is ready.
-// Music isn't tied to Enter — the user starts it by dragging the
-// tape onto the boombox.
+// Enter button enables immediately — shape figures are procedural,
+// no character GLB to wait for. Music isn't tied to Enter — the user
+// starts it by dragging the tape onto the boombox.
 function maybeEnableEnter() {
-  if (!runnerLoaded) return;
   const btn = document.getElementById('start');
   if (btn) {
     btn.textContent = 'enter';
@@ -840,6 +886,7 @@ function maybeEnableEnter() {
     btn.style.opacity = '';
   }
 }
+document.addEventListener('DOMContentLoaded', maybeEnableEnter);
 
 function initAudio() {
   audioElement = new Audio();
@@ -1428,166 +1475,6 @@ const NET = (function () {
 })();
 
 // ============================================================
-// BASKETBALL GLB — supplied model used for the wall + the void
-// sphere shapes. Loaded async; until it resolves, the wall renders
-// with a procedural canvas-texture sphere (basketballMat below).
-// ============================================================
-let basketballGlbGeom = null;
-let basketballGlbTex = null;
-let watermelonGlbGeom = null;
-let watermelonGlbTex = null;
-(function loadBasketballGlb() {
-  const loader = new THREE.GLTFLoader();
-  loader.load('./basketball.glb', (gltf) => {
-    let geom = null, tex = null;
-    gltf.scene.traverse((node) => {
-      if (node.isMesh && !geom) {
-        geom = node.geometry;
-        if (node.material && node.material.map) tex = node.material.map;
-      }
-    });
-    if (!geom) { console.warn('[basketball.glb] no mesh found'); return; }
-    // normalize geometry so bounding-sphere radius = 1, easier scaling
-    geom.computeBoundingSphere();
-    const r = (geom.boundingSphere && geom.boundingSphere.radius) || 1;
-    const norm = geom.clone();
-    if (r > 0 && Math.abs(r - 1) > 1e-3) {
-      const sm = new THREE.Matrix4().makeScale(1 / r, 1 / r, 1 / r);
-      norm.applyMatrix4(sm);
-      norm.computeBoundingSphere();
-    }
-    basketballGlbGeom = norm;
-    basketballGlbTex = tex;
-    applyBasketballGlbToScene();
-    console.log('[basketball.glb] loaded; texture:', !!tex);
-  }, undefined, (err) => {
-    console.error('[basketball.glb] failed', err);
-  });
-})();
-
-// Same loader pattern for the watermelon. Used by the 1-in-10
-// occurrence rule in applyBasketballGlbToScene so every tenth ball
-// becomes a watermelon. Normalized to unit radius so the same
-// scale.setScalar(0.7) used for basketballs reads as the same size.
-(function loadWatermelonGlb() {
-  const loader = new THREE.GLTFLoader();
-  // Note: dequantized at build time from the original Meshy export
-  // because r128's GLTFLoader is finicky about KHR_mesh_quantization.
-  // watermelon.glb is the vanilla-attributes copy.
-  loader.load('./watermelon.glb', (gltf) => {
-    let geom = null, tex = null;
-    gltf.scene.traverse((node) => {
-      if (node.isMesh && !geom) {
-        geom = node.geometry;
-        if (node.material && node.material.map) tex = node.material.map;
-      }
-    });
-    if (!geom) { console.warn('[watermelon.glb] no mesh found'); return; }
-    geom.computeBoundingSphere();
-    const r = (geom.boundingSphere && geom.boundingSphere.radius) || 1;
-    const norm = geom.clone();
-    if (r > 0 && Math.abs(r - 1) > 1e-3) {
-      const sm = new THREE.Matrix4().makeScale(1 / r, 1 / r, 1 / r);
-      norm.applyMatrix4(sm);
-      norm.computeBoundingSphere();
-    }
-    watermelonGlbGeom = norm;
-    watermelonGlbTex = tex;
-    applyBasketballGlbToScene();
-    console.log('[watermelon.glb] loaded; texture:', !!tex);
-  }, undefined, (err) => {
-    console.error('[watermelon.glb] failed', err);
-  });
-})();
-
-// Wall + void swap, called once the GLB resolves. Wall balls share
-// one Lambert material; void shapes each get a cloned Lambert with
-// their own tint.
-function applyBasketballGlbToScene() {
-  if (!basketballGlbGeom) return;
-  // Always use the cleaner procedural texture (basketballTex) — the
-  // GLB's bundled texture has very chunky black seams that read as
-  // cartoony. Procedural keeps thin warm-brown seams + grain.
-  const wallMat = new THREE.MeshLambertMaterial({
-    map: basketballTex,
-    color: 0xffffff,
-  });
-  // Watermelon variant — every 10th ball in the wall + void becomes a
-  // watermelon mesh (separate GLB, separate texture). Until the
-  // watermelon GLB resolves we fall back to a solid lime sphere so
-  // the easter egg still shows on first paint.
-  const melonReady = !!watermelonGlbGeom;
-  const melonMat = new THREE.MeshLambertMaterial(
-    melonReady
-      ? { map: watermelonGlbTex || null, color: 0xffffff }
-      : { color: 0x4dff2e }
-  );
-  wallCubes.forEach((ball, i) => {
-    const isMelon = (i % 20 === 0);
-    ball.geometry = isMelon && melonReady ? watermelonGlbGeom : basketballGlbGeom;
-    // Same on-screen size whether basketball or watermelon — both
-    // geoms are normalized to unit bounding-sphere radius.
-    ball.scale.setScalar(0.7);
-    ball.material = isMelon ? melonMat : wallMat;
-  });
-  // Void: swap geom on sphere-tagged entries and rebuild the
-  // material with the procedural texture + per-shape tint/opacity.
-  // Every 10th swappable ball goes watermelon too.
-  let voidIdx = 0;
-  for (const g of giantShapes) {
-    const isMelon = g.glbSwappable && (voidIdx++ % 20 === 0);
-    if (g.glbSwappable) {
-      g.mesh.geometry = isMelon && melonReady ? watermelonGlbGeom : basketballGlbGeom;
-      g.mesh.scale.setScalar(g.glbBaseSize);
-    }
-    const m = new THREE.MeshLambertMaterial({
-      // melon: own GLB texture (or solid green fallback). basketball:
-      // procedural texture with per-shape tint as before.
-      map: isMelon ? (melonReady ? (watermelonGlbTex || null) : null) : basketballTex,
-      color: isMelon ? (melonReady ? 0xffffff : 0x4dff2e) : g.tintColor,
-      transparent: true,
-      opacity: g.baseOpacity,
-      side: THREE.DoubleSide,
-    });
-    g.mesh.material = m;
-    g.mat = m;
-  }
-}
-
-// ============================================================
-// CHARACTER MODEL — rigged running biped (Meshy). Cloned per figure
-// with SkeletonUtils so each player has its own skeleton + animation.
-// ============================================================
-let runnerLoaded = false;
-let runnerModel = null;
-let runnerWalkClip = null;
-// Visual tuning constants for the character. Set so feet land at the
-// plate top and the body's horizontal footprint roughly matches the
-// previous primitive figures.
-const runnerScale = 0.85;
-const runnerYOffset = 0;     // local Y where the clone sits in the figure group
-const runnerCollidR = 0.40;
-const runnerCenterY = 0.85;  // approx half-height for marker placement
-(function loadRunner() {
-  const loader = new THREE.GLTFLoader();
-  loader.load('./runner.glb', (gltf) => {
-    runnerModel = gltf.scene;
-    if (gltf.animations && gltf.animations.length > 0) {
-      // pick the longest clip as the walk loop
-      runnerWalkClip = gltf.animations.reduce(
-        (best, c) => (c.duration > best.duration ? c : best),
-        gltf.animations[0],
-      );
-    }
-    runnerLoaded = true;
-    maybeEnableEnter();
-    console.log('[runner.glb] loaded; clips:', gltf.animations && gltf.animations.length);
-  }, undefined, (err) => {
-    console.error('[runner.glb] failed', err);
-  });
-})();
-
-// ============================================================
 // STATE — shape lives in sim/state.js so the server can mirror it.
 // ============================================================
 const S = window.SIM.createState();
@@ -1830,73 +1717,23 @@ plateGroup.add(ring(CFG.plateR0 * 0.25, 0.12));
 const roomGroup = new THREE.Group();
 scene.add(roomGroup);
 
-// Procedural basketball texture: classic orange base with the four
-// canonical black seam curves. Same texture shared across every ball
-// in the wall, with per-ball random rotation so seams aren't lockstep.
-function makeBasketballTexture() {
-  // Higher-res canvas so the seams stay sharp on bigger balls. Texture
-  // is the classic basketball: warm rubbery orange with a subtle radial
-  // gradient (soft shadow toward poles when wrapped on a sphere), four
-  // thin dark-brown seam lines (not pure black), and a fine grain.
-  const c = document.createElement('canvas');
-  c.width = c.height = 512;
-  const ctx = c.getContext('2d');
+// shared materials for the foam blocks — Lambert so they hold their
+// saturated primary color under the cumulative club lighting (no
+// specular blowout to white when they tumble through the explosion).
+const ROOM_BLOCK_MATS = SHAPE_COLORS.map((c) => new THREE.MeshLambertMaterial({ color: c }));
+ROOM_BLOCK_MATS.push(new THREE.MeshLambertMaterial({ color: 0x2a2a2a }));
+ROOM_BLOCK_MATS.push(new THREE.MeshLambertMaterial({ color: 0x1a1a1a }));
+ROOM_BLOCK_MATS.push(new THREE.MeshLambertMaterial({ color: 0x3a2d22 }));
 
-  // base orange with a soft fall-off — looks like leather, not vinyl
-  const grad = ctx.createRadialGradient(256, 256, 60, 256, 256, 380);
-  grad.addColorStop(0.0, '#d96c20');
-  grad.addColorStop(0.6, '#b85518');
-  grad.addColorStop(1.0, '#8a3e10');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 512, 512);
-
-  // fine grain — random tiny specks so the surface isn't perfectly smooth
-  for (let i = 0; i < 3000; i++) {
-    const x = Math.random() * 512;
-    const y = Math.random() * 512;
-    const a = 0.05 + Math.random() * 0.08;
-    ctx.fillStyle = Math.random() < 0.5
-      ? `rgba(50, 24, 8, ${a})`
-      : `rgba(230, 145, 70, ${a * 0.6})`;
-    ctx.fillRect(x, y, 1.5, 1.5);
-  }
-
-  // seam lines: thin, dark warm brown (not pure black) — reads as
-  // recessed grooves rather than printed-on stripes
-  ctx.strokeStyle = '#2a1408';
-  ctx.lineWidth = 4;
-  ctx.lineCap = 'round';
-  // equator + meridian
-  ctx.beginPath(); ctx.moveTo(0, 256); ctx.lineTo(512, 256); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(256, 0); ctx.lineTo(256, 512); ctx.stroke();
-  // two C-curve seams (the basketball's signature crossing arcs)
-  ctx.beginPath(); ctx.ellipse(0, 256, 192, 400, 0, -Math.PI / 2, Math.PI / 2); ctx.stroke();
-  ctx.beginPath(); ctx.ellipse(512, 256, 192, 400, 0, Math.PI / 2, 3 * Math.PI / 2); ctx.stroke();
-
-  // soft highlight along the top half — adds dimensional read
-  const hi = ctx.createRadialGradient(180, 150, 20, 180, 150, 240);
-  hi.addColorStop(0, 'rgba(255, 220, 180, 0.30)');
-  hi.addColorStop(1, 'rgba(255, 220, 180, 0)');
-  ctx.fillStyle = hi;
-  ctx.fillRect(0, 0, 512, 512);
-
-  const tex = new THREE.CanvasTexture(c);
-  tex.encoding = THREE.sRGBEncoding;
-  tex.anisotropy = 4;
-  return tex;
+function pickRoomMat() {
+  return ROOM_BLOCK_MATS[Math.floor(Math.random() * ROOM_BLOCK_MATS.length)];
 }
 
-const basketballTex = makeBasketballTexture();
-const basketballMat = new THREE.MeshLambertMaterial({
-  map: basketballTex,
-  color: 0xffffff,
-});
-
-// Wall of basketballs — stacked in rings around the plate. Each ball
-// gets a random orientation so the seams read as varied. Tracked in
-// wallCubes so the start-of-round explosion can launch them.
+// foam-block walls — bases hidden in shadow, tall stacks so tops feel
+// cavernous when the colored point lights catch them. Every cube is
+// tracked in wallCubes so the game-end explosion can launch them as
+// confetti.
 const wallCubes = [];
-const ballGeom = new THREE.SphereGeometry(0.7, 22, 14);
 {
   const blockSize = 1.4;
   const innerR = 15;
@@ -1910,21 +1747,20 @@ const ballGeom = new THREE.SphereGeometry(0.7, 22, 14);
     const backWeight = (baseZ < 0) ? 1.0 : 0.85;
     const h = Math.floor(7 + Math.random() * 4 + backWeight * 1.8);
     for (let k = 0; k < h; k++) {
-      const ball = new THREE.Mesh(ballGeom, basketballMat);
-      ball.position.set(
+      const cube = new THREE.Mesh(
+        new THREE.BoxGeometry(blockSize, blockSize, blockSize),
+        pickRoomMat(),
+      );
+      cube.position.set(
         baseX + (Math.random() - 0.5) * 0.18,
         baseY + blockSize / 2 + k * blockSize,
         baseZ + (Math.random() - 0.5) * 0.18,
       );
-      ball.rotation.set(
-        Math.random() * Math.PI * 2,
-        Math.random() * Math.PI * 2,
-        Math.random() * Math.PI * 2,
-      );
-      ball.castShadow = true;
-      ball.receiveShadow = true;
-      roomGroup.add(ball);
-      wallCubes.push(ball);
+      cube.rotation.y = (Math.random() - 0.5) * 0.10;
+      cube.castShadow = true;
+      cube.receiveShadow = true;
+      roomGroup.add(cube);
+      wallCubes.push(cube);
     }
   }
 
@@ -1936,21 +1772,20 @@ const ballGeom = new THREE.SphereGeometry(0.7, 22, 14);
     const z = Math.sin(ang) * r;
     const h = 5 + Math.floor(Math.random() * 4);
     for (let k = 0; k < h; k++) {
-      const ball = new THREE.Mesh(ballGeom, basketballMat);
-      ball.position.set(
+      const cube = new THREE.Mesh(
+        new THREE.BoxGeometry(blockSize, blockSize, blockSize),
+        pickRoomMat(),
+      );
+      cube.position.set(
         x + (Math.random() - 0.5) * 0.15,
         -7 + blockSize / 2 + k * blockSize,
         z + (Math.random() - 0.5) * 0.15,
       );
-      ball.rotation.set(
-        Math.random() * Math.PI * 2,
-        Math.random() * Math.PI * 2,
-        Math.random() * Math.PI * 2,
-      );
-      ball.castShadow = true;
-      ball.receiveShadow = true;
-      roomGroup.add(ball);
-      wallCubes.push(ball);
+      cube.rotation.y = (Math.random() - 0.5) * 0.12;
+      cube.castShadow = true;
+      cube.receiveShadow = true;
+      roomGroup.add(cube);
+      wallCubes.push(cube);
     }
   }
 }
@@ -2003,14 +1838,14 @@ function tickConfetti(dt) {
 }
 
 // ============================================================
-// PSYCHEDELIC TUNNEL — rings + giant wireframe shapes descend from
+// PSYCHEDELIC TUNNEL — rings + giant solid shapes descend from
 // beneath the plate into endless space. Each one rotates on its
 // own axes / phase so the void below reads as alive and chaotic.
 // ============================================================
 const tunnelRings = [];
 const giantShapes = [];
 
-// helper: build a giant primitive (wireframe OR solid filled) at a given depth
+// helper: build a giant primitive at a given depth
 function giantGeom(type, size) {
   switch (type) {
     case 'cube':        return new THREE.BoxGeometry(size, size, size);
@@ -2026,75 +1861,86 @@ function giantGeom(type, size) {
   }
 }
 
-function addGiantShape(type, size, y, opts = {}) {
-  // Basketball cascade: every giant shape wears the basketball texture
-  // (black seams). Material color multiplies the texture so each shape
-  // can be tinted with a different palette primary — the orange basket-
-  // ball becomes a red / blue / green / etc basketball.
+function addGiantShape(type, size, color, y, opts = {}) {
+  // All giant shapes are plain solid filled (Lambert, no specular so
+  // they hold their saturated palette color), with varied per-shape
+  // translucency so they layer without obscuring each other.
   const geom = giantGeom(type, size);
   const mat = new THREE.MeshLambertMaterial({
-    map: basketballTex,
-    color: opts.color ?? 0xffffff,
-    transparent: true, opacity: opts.opacity ?? 0.75,
+    color,
+    transparent: true, opacity: opts.opacity ?? 0.55,
     side: THREE.DoubleSide,
+    emissive: color, emissiveIntensity: 0.06,
   });
   const mesh = new THREE.Mesh(geom, mat);
-  mesh.position.set(opts.x || 0, y, opts.z || 0);
-  // random initial orientation so seams don't all align
-  mesh.rotation.set(
-    Math.random() * Math.PI * 2,
-    Math.random() * Math.PI * 2,
-    Math.random() * Math.PI * 2,
-  );
-  (opts.parent || scene).add(mesh);
+  mesh.position.y = y;
+  scene.add(mesh);
   giantShapes.push({
     mesh,
     mat,
     baseOpacity: mat.opacity,
-    tintColor: opts.color ?? 0xffffff,
-    glbSwappable: (type === 'sphere'),
-    glbBaseSize: size,
     spin: {
-      x: (Math.random() * 0.6 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
-      y: (Math.random() * 0.6 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
-      z: (Math.random() * 0.6 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
+      x: (Math.random() * 0.5 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
+      y: (Math.random() * 0.5 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
+      z: (Math.random() * 0.5 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
     },
     phase: Math.random() * Math.PI * 2,
   });
 }
 
-// Basketball cone — the void is now a single coherent structure:
-// concentric rings of basketballs descending from a narrow apex
-// near the plate down into a flaring base in deep space. Each
-// ring's radius and ball count grow with depth. The whole cone
-// lives in voidConeGroup so we can rotate the entire assembly as
-// one slow continuous motion on top of each ball's own tumble.
-const voidConeGroup = new THREE.Group();
-scene.add(voidConeGroup);
+// helper: build a glowing torus ring at a given depth
+function addTunnelRing(baseR, color, y, tube) {
+  const mat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0.90, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(new THREE.TorusGeometry(baseR, tube, 8, 96), mat);
+  mesh.rotation.x = Math.PI / 2;
+  mesh.position.y = y;
+  scene.add(mesh);
+  tunnelRings.push({
+    mesh, baseR,
+    phase: Math.random() * Math.PI * 2,
+    spinSign: Math.random() < 0.5 ? 1 : -1,
+    spinRate: 0.18 + Math.random() * 0.22,
+  });
+}
+
+// interleaved cascade of rings + solid translucent giant shapes descending
+// into endless space. Varied opacity per shape so layers read separately
+// without obscuring each other. No wireframe — clean primitive silhouettes.
 {
-  const layers = [
-    // [y,     ringR,  count,  ballSize,  opacity]   wide top → narrow apex
-    [-11.0,   4.6,    9,       2.5,       0.85],
-    [-14.0,   4.2,    9,       2.4,       0.75],
-    [-17.0,   3.8,    8,       2.3,       0.70],
-    [-20.0,   3.2,    7,       2.2,       0.65],
-    [-23.0,   2.6,    6,       2.1,       0.60],
-    [-26.0,   1.9,    5,       2.0,       0.55],
-    [-29.0,   1.1,    3,       1.9,       0.50],
-    [-31.5,   0.0,    1,       1.8,       0.45],  // apex
+  const layout = [
+    { kind: 'ring',  r: 6.5, tube: 0.10 },
+    { kind: 'shape', type: 'cube',        size: 4.5, opacity: 0.55 },
+    { kind: 'ring',  r: 8.0, tube: 0.11 },
+    { kind: 'shape', type: 'sphere',      size: 5.0, opacity: 0.40 },
+    { kind: 'shape', type: 'octahedron',  size: 5.0, opacity: 0.55 },
+    { kind: 'ring',  r: 7.2, tube: 0.11 },
+    { kind: 'shape', type: 'pyramid',     size: 5.4, opacity: 0.50 },
+    { kind: 'shape', type: 'dodecahedron',size: 5.0, opacity: 0.45 },
+    { kind: 'ring',  r: 9.0, tube: 0.13 },
+    { kind: 'shape', type: 'icosahedron', size: 5.5, opacity: 0.55 },
+    { kind: 'shape', type: 'cone',        size: 5.0, opacity: 0.50 },
+    { kind: 'ring',  r: 7.5, tube: 0.13 },
+    { kind: 'shape', type: 'torus',       size: 6.0, opacity: 0.45 },
+    { kind: 'shape', type: 'cube',        size: 5.5, opacity: 0.40 },
+    { kind: 'ring',  r: 10.0, tube: 0.15 },
+    { kind: 'shape', type: 'cube',        size: 6.0, opacity: 0.50 },
+    { kind: 'shape', type: 'sphere',      size: 6.5, opacity: 0.40 },
+    { kind: 'ring',  r: 8.5, tube: 0.15 },
+    { kind: 'shape', type: 'octahedron',  size: 7.0, opacity: 0.45 },
+    { kind: 'ring',  r: 11.5, tube: 0.16 },
+    { kind: 'shape', type: 'pyramid',     size: 7.0, opacity: 0.42 },
   ];
-  for (let li = 0; li < layers.length; li++) {
-    const [y, ringR, count, size, opacity] = layers[li];
-    const angOffset = li * 0.38; // stagger ring rotations so balls don't column up
-    for (let i = 0; i < count; i++) {
-      const ang = angOffset + (i / count) * Math.PI * 2;
-      const x = Math.cos(ang) * ringR;
-      const z = Math.sin(ang) * ringR;
-      // No palette tint — every void ball is a classic orange
-      // basketball (white color × texture = texture unmodified)
-      addGiantShape('sphere', size, y, {
-        x, z, opacity, color: 0xffffff, parent: voidConeGroup,
-      });
+  const ySpacing = 2.4;
+  for (let i = 0; i < layout.length; i++) {
+    const item = layout[i];
+    const y = -2.5 - i * ySpacing;
+    const color = SHAPE_COLORS[i % SHAPE_COLORS.length];
+    if (item.kind === 'ring') {
+      addTunnelRing(item.r, color, y, item.tube);
+    } else {
+      addGiantShape(item.type, item.size, color, y, { opacity: item.opacity });
     }
   }
 }
@@ -2276,69 +2122,16 @@ function buildShapeMesh(defIdx, color) {
 
 function makeFigure(isPlayer, defIdx, color) {
   const g = new THREE.Group();
-  let mainMesh, mat, def, mixer = null;
-  let collidR, yOffset;
-
-  if (runnerLoaded) {
-    // Clone the rigged character with its own skeleton + animation.
-    const clone = THREE.SkeletonUtils.clone(runnerModel);
-    clone.scale.setScalar(runnerScale);
-    // Drop the clone so its feet sit on the plate surface (y=0 in
-    // figure-local space — the figure group itself is positioned at
-    // CFG.plateThick / 2 so feet land on the disc top).
-    clone.position.y = runnerYOffset;
-    clone.traverse((node) => {
-      if (node.isMesh) { node.castShadow = true; node.receiveShadow = false; }
-    });
-    g.add(clone);
-    mainMesh = clone;
-    // Clone every material so this figure has its OWN instances —
-    // SkeletonUtils.clone reuses source materials by default, which
-    // would cause all 10 figures to share emissive state and flash
-    // red together whenever any one took a hit.
-    const mats = [];
-    const matMap = new Map();
-    function dupMat(src) {
-      if (!src) return src;
-      if (matMap.has(src)) return matMap.get(src);
-      const c = src.clone();
-      matMap.set(src, c);
-      return c;
-    }
-    clone.traverse((node) => {
-      if (node.isMesh && node.material) {
-        if (Array.isArray(node.material)) {
-          node.material = node.material.map(dupMat);
-          for (const m of node.material) if (m && !mats.includes(m)) mats.push(m);
-        } else {
-          node.material = dupMat(node.material);
-          if (!mats.includes(node.material)) mats.push(node.material);
-        }
-      }
-    });
-    mat = { _list: mats };
-    def = { collidR: runnerCollidR, yOffset: runnerCenterY };
-    collidR = runnerCollidR;
-    yOffset = runnerCenterY;
-    // mixer + walk loop, random phase so every figure isn't in lockstep
-    if (runnerWalkClip) {
-      mixer = new THREE.AnimationMixer(clone);
-      const action = mixer.clipAction(runnerWalkClip);
-      action.play();
-      action.time = Math.random() * runnerWalkClip.duration;
-    }
-  } else {
-    // Fallback: keep the geometric primitive if the GLB hasn't
-    // finished loading yet.
-    const built = buildShapeMesh(defIdx, color);
-    mainMesh = built.mesh;
-    mainMesh.position.y = built.def.yOffset;
-    g.add(mainMesh);
-    mat = built.mat;
-    def = built.def;
-    collidR = def.collidR;
-    yOffset = def.yOffset;
-  }
+  const built = buildShapeMesh(defIdx, color);
+  const mainMesh = built.mesh;
+  // center the visual at yOffset above the plate top
+  mainMesh.position.y = built.def.yOffset;
+  g.add(mainMesh);
+  const mat = built.mat;
+  const def = built.def;
+  const collidR = def.collidR;
+  const yOffset = def.yOffset;
+  const mixer = null;
 
   // base shadow disc — sized to whichever footprint the figure has
   const discGeo = new THREE.CircleGeometry(collidR * 1.05, 18);
@@ -2674,6 +2467,12 @@ function netConnect() {
       // validation + matchmaking happen atomically (no race between
       // separate auth and quickjoin messages).
       ws.send(JSON.stringify({ type: 'quickjoin', token: NET.privyToken }));
+    } else if (mode === 'freematch') {
+      // Free multiplayer — same matchmaking surface as quickjoin but
+      // server-side: no auth required, no pot, no payment, no payout.
+      // 'mode: freematch' flag tells the server to use the freematch
+      // room pool (siloed from paid quickmatch rooms).
+      ws.send(JSON.stringify({ type: 'quickjoin', mode: 'freematch' }));
     } else {
       // 'solo' (practice) — no auth, no on-chain side effects.
       ws.send(JSON.stringify({ type: 'create' }));
@@ -3526,7 +3325,7 @@ function maybeShrink(dt) {
   const targetScale = S.plateR / CFG.plateR0;
   if (!shrinkTween && Math.abs(plateMesh.scale.x - targetScale) > 1e-3) {
     shrinkTween = { from: plateMesh.scale.x, to: targetScale, t: 0, dur: 0.6 };
-    showHint('the shape shrinks');
+    showHint('crib shrinkin bruh...');
   }
 }
 
@@ -3551,11 +3350,38 @@ const hudTime = document.getElementById('time');
 const tiltArrow = document.getElementById('tilt-arrow');
 const hpRow = document.getElementById('hpRow');
 const hpPipsDom = [];
-// HP pips are simple divs backgrounded with gay.png. All pips identical;
-// alive / dead / iframe states driven by class toggles in updateHud.
+// Inline SVG pips: triangle / square / circle drawn around the same
+// 24x24 viewBox center with similar visual areas so all ten pips are
+// equal in size and align by their centers. Color is currentColor so
+// the dead / iframe class toggles still work.
+const HP_SHAPES = ['triangle', 'square', 'circle'];
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function makeHpPipSvg(type) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'hp-pip');
+  let shape;
+  if (type === 'triangle') {
+    shape = document.createElementNS(SVG_NS, 'polygon');
+    // equilateral, centroid at (12,12), area ~100sq units
+    shape.setAttribute('points', '12,3.2 19.6,16.4 4.4,16.4');
+  } else if (type === 'square') {
+    shape = document.createElementNS(SVG_NS, 'rect');
+    // 10x10 centered at (12,12), area 100
+    shape.setAttribute('x', '7'); shape.setAttribute('y', '7');
+    shape.setAttribute('width', '10'); shape.setAttribute('height', '10');
+  } else {
+    shape = document.createElementNS(SVG_NS, 'circle');
+    // r=5.65 centered at (12,12), area ~100
+    shape.setAttribute('cx', '12'); shape.setAttribute('cy', '12');
+    shape.setAttribute('r', '5.65');
+  }
+  shape.setAttribute('fill', 'currentColor');
+  svg.appendChild(shape);
+  return svg;
+}
 for (let i = 0; i < CFG.hpMax; i++) {
-  const pip = document.createElement('div');
-  pip.className = 'hp-pip';
+  const pip = makeHpPipSvg(HP_SHAPES[i % HP_SHAPES.length]);
   hpRow.appendChild(pip);
   hpPipsDom.push(pip);
 }
@@ -3607,10 +3433,6 @@ function tickAmbient(dt, tSec) {
     g.mesh.rotation.z += dt * g.spin.z;
     g.mat.opacity = g.baseOpacity + Math.sin(tSec * 1.3 + g.phase) * 0.08;
   }
-  // whole basketball cone rotates as one piece — the entire void
-  // assembly drifts around its central axis on top of each ball's
-  // own tumble
-  voidConeGroup.rotation.y += dt * 0.18;
   if (discoBall) {
     // let it roll — tumble on all three axes so it never settles
     discoBall.rotation.y += dt * 1.45;
@@ -3712,17 +3534,24 @@ setTimeout(function autoReplay() {
     try { sessionStorage.removeItem('tlAgain'); } catch (e) {}
     const btn = document.getElementById('lobby-solo');
     if (btn) btn.click();
+  } else if (flag === 'freematch') {
+    try { sessionStorage.removeItem('tlAgain'); } catch (e) {}
+    const btn = document.getElementById('lobby-free');
+    if (btn) btn.click();
   }
   // For 'quickmatch' the flag stays set; auth.js's useEffect consumes
   // it once Privy is authenticated and fires window.startQuickjoin.
 }, 0);
 document.getElementById('again').addEventListener('click', () => {
   // Stash the previous mode so the page-load handler can auto-trigger
-  // the same kind of round (solo or quickmatch) without making the
-  // player click through the title → lobby → join flow again. Cleared
-  // on page load right before use.
+  // the same kind of round (solo / freematch / quickmatch) without
+  // making the player click through the title → lobby → join flow
+  // again. Cleared on page load right before use.
   try {
-    sessionStorage.setItem('tlAgain', NET.joinMode === 'solo' ? 'solo' : 'quickmatch');
+    const replayMode = NET.joinMode === 'solo' ? 'solo'
+                     : NET.joinMode === 'freematch' ? 'freematch'
+                     : 'quickmatch';
+    sessionStorage.setItem('tlAgain', replayMode);
   } catch (e) {}
   location.reload();
 });
@@ -3810,7 +3639,7 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
   const potPaidEl = document.getElementById('lobby-pot-paid');
   const potPrizeEl = document.getElementById('lobby-pot-prize');
   const LAMPORTS_PER_SOL = 1_000_000_000;
-  const POT_RAKE_BPS = 500; // mirrors RAKE_BPS in the server.
+  const POT_RAKE_BPS = 800; // mirrors RAKE_BPS in the server.
   function lamportsToSol(lam) {
     const n = Number(lam) / LAMPORTS_PER_SOL;
     return (n < 0.0001 && n > 0) ? n.toFixed(6) : n.toFixed(4);
@@ -3964,6 +3793,17 @@ document.getElementById('back-to-menu').addEventListener('click', () => {
   document.getElementById('lobby-solo').addEventListener('click', () => {
     errEl.textContent = '';
     NET.joinMode = 'solo';
+    NET.privyToken = null;
+    netConnect();
+  });
+  // Free multiplayer: matchmaking like quickmatch but no auth and
+  // no on-chain interaction. Server creates 'freematch' rooms in a
+  // separate pool from 'quickmatch'. Good for testing the full
+  // multiplayer loop without spending SOL, and as a free path for
+  // users who haven't funded a wallet yet.
+  document.getElementById('lobby-free').addEventListener('click', () => {
+    errEl.textContent = '';
+    NET.joinMode = 'freematch';
     NET.privyToken = null;
     netConnect();
   });

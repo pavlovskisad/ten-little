@@ -16,7 +16,7 @@
 import { h, render } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
 import { PrivyProvider, usePrivy } from '@privy-io/react-auth';
-import { useSolanaWallets } from '@privy-io/react-auth/solana';
+import { useSolanaWallets, useFundWallet } from '@privy-io/react-auth/solana';
 import {
   Connection,
   PublicKey,
@@ -188,6 +188,7 @@ function WalletDrawer({ address, onClose }) {
   const [balance, setBalance] = useState(null);
   const [devBalance, setDevBalance] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const { fundWallet } = useFundWallet();
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -260,23 +261,30 @@ function WalletDrawer({ address, onClose }) {
             : balance.ok ? balance.sol.toFixed(4) + ' SOL'
             : 'rpc error: ' + (balance.error || 'unknown')
         ),
-        // Devnet sub-line — same wallet, just on devnet. Useful for
-        // verifying entry-fee payments + payouts during testing.
-        // Hides itself once devnet balance reads zero and we promote
-        // the program to mainnet (ESCROW_RPC default flips).
-        h('div', { className: 'wd-balance-sub' },
-          devBalance == null ? 'devnet · …'
-            : devBalance.ok ? `devnet · ${devBalance.sol.toFixed(4)} SOL`
-            : `devnet · rpc error`
-        ),
-      ]),
-      !sending && h('div', { className: 'wd-row wd-actions' }, [
-        h('button', {
+        // 'send' link sits directly under the balance value, left-
+        // aligned to its column. Self-sizing so the underline only
+        // spans the word 'send' rather than the full row width.
+        !sending && h('button', {
           className: 'wd-send',
           onClick: () => setSending(true),
           disabled: !wallet,
           title: wallet ? 'send SOL to any address' : 'wallet not ready',
         }, 'send'),
+      ]),
+      !sending && h('div', { className: 'wd-row wd-actions' }, [
+        h('button', {
+          className: 'wd-fund',
+          onClick: () => {
+            // Privy opens its fund modal with both paths enabled in
+            // the dashboard: 'buy with card / Apple Pay' (MoonPay)
+            // and 'send from another wallet' (deposit address + QR).
+            // User picks which one inside the modal.
+            try { fundWallet(address, { cluster: { name: 'mainnet-beta' } }); }
+            catch (e) { console.warn('[fund] failed to open:', e); }
+          },
+          disabled: !wallet,
+          title: wallet ? 'add SOL: buy with card or send from another wallet' : 'wallet not ready',
+        }, 'top-up with fiat or crypto'),
       ]),
       sending && h(SendForm, {
         fromAddress: address,
@@ -338,6 +346,29 @@ function AuthIsland() {
   }
 
   const addr = privy.authenticated ? pickSolanaAddress(privy.user) : '';
+  const { fundWallet } = useFundWallet();
+
+  // Lightweight balance fetch just so we can show a 'low balance' CTA
+  // in the lobby. Polls every 30s while authed. Independent of the
+  // wallet-drawer balance state (which only fetches when the drawer
+  // is open).
+  const [lobbyBalanceSol, setLobbyBalanceSol] = useState(null);
+  useEffect(() => {
+    if (!privy.authenticated || !addr) { setLobbyBalanceSol(null); return; }
+    let alive = true;
+    const tick = async () => {
+      const b = await fetchBalance(addr);
+      if (alive && b.ok) setLobbyBalanceSol(b.sol);
+    };
+    tick();
+    const handle = setInterval(tick, 30000);
+    return () => { alive = false; clearInterval(handle); };
+  }, [privy.authenticated, addr]);
+
+  // Entry-fee threshold below which we surface the add-SOL CTA.
+  // Slightly above the actual 0.01 so users have margin for network
+  // fees + at least one full match's worth of headroom.
+  const ENTRY_FEE_HINT_SOL = 0.012;
 
   const handleJoin = async () => {
     setJoining(true);
@@ -365,6 +396,10 @@ function AuthIsland() {
     handleJoin();
   }, [privy.ready, privy.authenticated]);
 
+  const lowBalance = privy.authenticated
+    && lobbyBalanceSol != null
+    && lobbyBalanceSol < ENTRY_FEE_HINT_SOL;
+
   // Single rendered element; the corner widget uses position:fixed so
   // it lives top-right of the viewport regardless of its DOM ancestry.
   return h('div', null, [
@@ -379,6 +414,22 @@ function AuthIsland() {
           onClick: handleJoin,
           disabled: joining,
         }, joining ? 'joining…' : 'join'),
+    // Low-balance CTA — shown below the join button when the lobby
+    // balance is under one entry fee. Goes straight to Privy's fund
+    // flow so the player can buy SOL inline instead of having to go
+    // to a CEX first.
+    lowBalance && h('div', { className: 'auth-low-balance' }, [
+      h('div', { className: 'auth-low-balance-msg' },
+        `balance ${lobbyBalanceSol.toFixed(4)} SOL — too low to play`
+      ),
+      h('button', {
+        className: 'auth-low-balance-cta',
+        onClick: () => {
+          try { fundWallet(addr, { cluster: { name: 'mainnet-beta' } }); }
+          catch (e) { console.warn('[fund] failed to open:', e); }
+        },
+      }, 'add SOL'),
+    ]),
     // Wallet + logout pinned top-right when authenticated. Travels
     // across title / lobby / game screens.
     privy.authenticated && h('div', { className: 'auth-corner' }, [

@@ -1,0 +1,2314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>shape store</title>
+<link rel="stylesheet" href="./shell.css">
+<style>
+  /* game canvas under everything the shell draws */
+  canvas#c { display: block; position: fixed; inset: 0; z-index: 1; }
+
+  /* tutorial: per-game scenes composed from the shell's ht-* kit.
+     These keyframes are shape-store specific (claw drop, plate tilt,
+     plate shrink). */
+  @keyframes scClawDrop {
+    0%, 18%  { transform: translate(-50%, -120%); opacity: 0.9; }
+    38%      { transform: translate(-50%, -12%); opacity: 1; }
+    52%      { transform: translate(-50%, -12%); }
+    74%, 100%{ transform: translate(-50%, -130%); opacity: 0.7; }
+  }
+  @keyframes scGrabVictim {
+    0%, 36%  { transform: translate(-50%, 0) scale(1); opacity: 1; }
+    52%      { transform: translate(-50%, -8%) scale(0.92); opacity: 1; }
+    74%, 100%{ transform: translate(-50%, -140%) scale(0.5); opacity: 0; }
+  }
+  @keyframes scTiltRock {
+    0%, 100% { transform: rotate(-9deg); }
+    50%      { transform: rotate(9deg); }
+  }
+  @keyframes scSlider {
+    0%, 100% { left: 22%; }
+    50%      { left: 62%; }
+  }
+  @keyframes scShrink {
+    0%, 25%  { transform: scale(1); }
+    45%, 70% { transform: scale(0.72); }
+    90%, 100%{ transform: scale(0.5); opacity: 0.85; }
+  }
+  .sc-plate {
+    position: absolute; left: 50%; top: 58%;
+    width: 64%; aspect-ratio: 2.6 / 1; border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(220,220,235,0.16);
+    border: 2px solid rgba(255,255,255,0.5);
+  }
+  .sc-claw {
+    position: absolute; left: 50%; top: 34%;
+    font-size: 34px; line-height: 1;
+    transform: translate(-50%, -120%);
+    animation: scClawDrop 2.8s ease-in-out infinite;
+  }
+  .sc-victim {
+    position: absolute; left: 50%; top: 46%;
+    font-size: 30px; line-height: 1;
+    transform: translate(-50%, 0);
+    animation: scGrabVictim 2.8s ease-in-out infinite;
+  }
+  .sc-tilt-wrap {
+    position: absolute; left: 50%; top: 60%;
+    width: 70%; transform: translateX(-50%);
+    animation: scTiltRock 2.6s ease-in-out infinite;
+  }
+  .sc-tilt-bar {
+    width: 100%; height: 10px; border-radius: 6px;
+    background: rgba(220,220,235,0.35);
+    border: 1px solid rgba(255,255,255,0.4);
+  }
+  .sc-tilt-face {
+    position: absolute; top: -30px; font-size: 26px; line-height: 1;
+    animation: scSlider 2.6s ease-in-out infinite;
+  }
+  .sc-shrink-plate {
+    position: absolute; left: 50%; top: 52%;
+    width: 58%; aspect-ratio: 1; border-radius: 50%;
+    margin-left: -29%; margin-top: -29%;
+    background: radial-gradient(circle, rgba(220,220,235,0.20) 55%, rgba(255,80,60,0.35) 78%, transparent 79%);
+    border: 2px solid rgba(255,255,255,0.45);
+    animation: scShrink 3.2s ease-in-out infinite;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="bb-canvas"></canvas>
+
+<div id="hud-top" class="hud">
+  <div id="hud-hp"></div>
+  <div id="hud-status">10 alive</div>
+</div>
+
+<div id="hint"></div>
+<div id="countdown">3</div>
+<div id="tile-popup"></div>
+<div id="splat"><span class="l1">splat!</span><span class="l2">you fell</span></div>
+
+<div id="stick"><div id="stick-knob"></div></div>
+
+<div id="menu">
+  <div class="panel">
+    <h1>shape<span class="t2">store</span></h1>
+    <div class="tagline">ten shapes on a plate. dodge the claw, shove your friends, be the last one standing.</div>
+    <button class="big-btn" id="btn-play">play</button>
+    <button class="small-btn" id="btn-howto">how to play</button>
+    <div class="wins" id="menu-wins"></div>
+  </div>
+</div>
+
+<div id="over">
+  <div class="place">you placed</div>
+  <div class="ord" id="ord">1st</div>
+  <div class="win-sub">last shape standing! 🏆</div>
+  <div class="stat" id="overStat">survived 00:00</div>
+  <div class="over-actions">
+    <button class="big-btn" id="btn-again">play again</button>
+    <button class="small-btn" id="btn-back">menu</button>
+  </div>
+</div>
+
+<div id="howto-modal">
+  <div class="ht-grid">
+    <!-- 1. move: joystick ring + drifting shape -->
+    <div class="ht-card"><div class="ht-stage">
+      <div class="ht-ring"><div class="ht-knob"></div></div>
+      <div class="ht-steer-face">🔺</div>
+    </div></div>
+    <!-- 2. the claw grabs: claw drops, shape vanishes, skull -->
+    <div class="ht-card"><div class="ht-stage">
+      <div class="sc-claw">🤏</div>
+      <div class="sc-victim">🟨</div>
+      <div class="ht-skull">💀</div>
+    </div></div>
+    <!-- 3. the plate tilts: bar rocks, shape slides -->
+    <div class="ht-card"><div class="ht-stage">
+      <div class="sc-tilt-wrap">
+        <div class="sc-tilt-face">🔵</div>
+        <div class="sc-tilt-bar"></div>
+      </div>
+    </div></div>
+    <!-- 4. bumping hurts: two shapes, spark, both -1 -->
+    <div class="ht-card"><div class="ht-stage">
+      <div class="ht-face-l">🔺</div>
+      <div class="ht-face-r">🟪</div>
+      <div class="ht-spark">💥</div>
+      <div class="ht-pop-l">-1 💔</div>
+      <div class="ht-pop-r">-1 💔</div>
+    </div></div>
+    <!-- 5. don't fall off: shape slips past the edge, skull -->
+    <div class="ht-card"><div class="ht-stage">
+      <div class="sc-plate"></div>
+      <div class="ht-fall">🟢</div>
+      <div class="ht-skull">💀</div>
+    </div></div>
+    <!-- 6. the plate shrinks -->
+    <div class="ht-card"><div class="ht-stage">
+      <div class="sc-shrink-plate"></div>
+    </div></div>
+    <!-- 7. the plate is the music: tilting makes the sound swirl -->
+    <div class="ht-card"><div class="ht-stage">
+      <div class="ht-pads">
+        <div class="ht-pad g"></div><div class="ht-pad g" style="animation-delay:0.3s"></div><div class="ht-pad g" style="animation-delay:0.6s"></div>
+      </div>
+      <div class="ht-note" style="left:30%">♪</div>
+      <div class="ht-note" style="left:56%; animation-delay:0.7s">♪</div>
+      <div class="ht-note" style="left:74%; animation-delay:1.3s">♫</div>
+    </div></div>
+    <!-- 8. last shape standing wins -->
+    <div class="ht-card"><div class="ht-stage">
+      <div class="ht-star">⭐</div>
+      <div class="ht-face" style="left:50%; top:52%; transform:translateX(-50%); position:absolute; font-size:30px;">🔺</div>
+      <div class="ht-win-side" style="left:16%">🟨</div>
+      <div class="ht-win-side" style="right:16%; animation-delay:0.5s">🟠</div>
+      <div class="ht-trophy">🏆</div>
+    </div></div>
+  </div>
+  <button id="btn-howto-close" data-mascot="🔺">▶</button>
+</div>
+
+<div id="splash">
+  <div class="sp-title">shape<span>store</span></div>
+  <div class="sp-bounce">🔺</div>
+  <div class="sp-bar"><div id="sp-fill"></div></div>
+  <div class="sp-label">warming up the plate…</div>
+</div>
+
+<script src="./vendor/three.min.js"></script>
+<script src="./vendor/GLTFLoader.js"></script>
+<script src="./vendor/DRACOLoader.js"></script>
+<script src="https://game-cdn.poki.com/scripts/v2/poki-sdk.js"></script>
+<script src="./shell.js"></script>
+<script src="./drift.js"></script>
+<script>
+'use strict';
+
+// ============================================================
+// CONFIG — tune these
+// ============================================================
+const CFG = {
+  // plate
+  plateR0: 7.5,
+  plateThick: 0.25,
+  shrinkEveryMs: 14000,
+  shrinkFactor: 0.93,
+  shrinkMin: 3.5,
+
+  // figures (base unit, individual shapes carry their own collidR)
+  figR: 0.42,
+  figH: 0.85,
+  startCount: 10,
+  podiumCount: 1,        // round runs until one figure remains; placement
+                         // is decided by elimination order so 3rd/2nd/1st
+                         // can be distinguished (tiered prizes)
+
+  // tilt
+  maxTilt: 0.50,
+  slideForce: 34,
+  friction: 3.2,
+  tiltEase: 9,
+  edgePadFall: 0.05,
+
+  // movement
+  playerSpeed: 4.5,
+  botSpeed: 3.6,
+  fleeSpeed: 6.2,
+  botAccel: 6.0,
+  playerAccel: 14.0,
+
+  // claw
+  handIdleY: 9.5,
+  handGrabY: 0.55,
+  handCooldownMs: 2600,
+  handTelegraphMs: 1500,
+  handApproachMs: 700,
+  handHoverMs: 180,
+  handPinchMs: 220,
+  handLiftMs: 850,
+  zoneMinFrac: 0.11,
+  zoneMaxFrac: 0.55,
+
+  // contact damage
+  hpMax: 10,
+  contactDmg: 1,
+  iframeMs: 600,
+  drainMs: 550,
+  bumpForce: 11.0,        // knockback velocity added on damage
+};
+
+// ============================================================
+// SHAPE CATALOG — colored geometric primitives for figures
+// ============================================================
+const SHAPE_DEFS = [
+  // type, visual size factor, collidR (separation half-radius), yOffset (vertical center above plate top)
+  { type: 'cube',       collidR: 0.42, yOffset: 0.42 },
+  { type: 'sphere',     collidR: 0.45, yOffset: 0.45 },
+  { type: 'cone',       collidR: 0.40, yOffset: 0.50 },
+  { type: 'cylinder',   collidR: 0.40, yOffset: 0.45 },
+  { type: 'octahedron', collidR: 0.45, yOffset: 0.55 },
+  { type: 'pyramid',    collidR: 0.42, yOffset: 0.50 },
+];
+
+// Pure saturated primaries — match the Crayola / foam-pit look of the
+// Shape Store footage. No dusty/pastel hues; everything pops.
+const SHAPE_COLORS = [
+  0xff1a1a, // red
+  0x1a40e0, // royal blue
+  0xffd000, // yellow
+  0x0fb020, // grass green
+  0xff7a10, // orange
+  0x9010e0, // purple
+  0xff2080, // hot pink / magenta
+  0x00b8ff, // cyan
+  0x70d800, // lime
+  0xffaa00, // amber
+];
+
+// ============================================================
+// STATE
+// ============================================================
+const S = {
+  phase: 'menu',      // 'menu' | 'countdown' | 'play' | 'over'
+  attract: true,      // menu attract mode: 10 bots play behind the panel
+  t: 0,
+  plateR: CFG.plateR0,
+  nextShrinkAt: CFG.shrinkEveryMs,
+  figs: [],
+  player: null,
+  alive: 0,
+  eliminated: [],
+  podium: [],
+  hand: { phase: 'idle', t: 0, x: 0, z: 0, zoneR: 0, target: null, captured: [] },
+  nextHandAt: 4500,
+  firstHand: true,
+  tilt: { x: 0, z: 0 },
+  input: { dx: 0, dy: 0 },
+  startedAt: 0,
+};
+
+// ============================================================
+// THREE setup
+// ============================================================
+const canvas = document.getElementById('c');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0810);
+scene.fog = new THREE.Fog(0x0a0810, 26, 58);
+
+const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 100);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+// Cinematic tone mapping so the loud club lights don't wash everything out
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.74;
+
+const camTarget = { y: 14, z: 13.5, fov: 42 };
+let camInitialized = false;
+
+function fitCameraTarget() {
+  const w = window.innerWidth, h = window.innerHeight;
+  const aspect = w / h;
+  camera.aspect = aspect;
+  renderer.setSize(w, h);
+
+  let fov;
+  if (aspect < 0.95) {
+    const k = Math.min(1, (1 - aspect) / 0.55);
+    fov = 42 + k * 22;
+  } else {
+    fov = 42;
+  }
+  camTarget.fov = fov;
+
+  const shrinkProgress = (CFG.plateR0 - S.plateR) / Math.max(0.01, (CFG.plateR0 - CFG.shrinkMin));
+  const margin = lerp(1.12, 1.00, Math.max(0, Math.min(1, shrinkProgress)));
+
+  const plateD = S.plateR * 2;
+  const fovRad = fov * Math.PI / 180;
+  const tanHalf = Math.tan(fovRad / 2);
+  const projFactor = 0.78;
+  const dForHoriz = (plateD * margin) / (2 * tanHalf * aspect);
+  const dForVert = (plateD * projFactor * margin) / (2 * tanHalf);
+  const d = Math.max(dForHoriz, dForVert);
+
+  const k = d / 19.45;
+  camTarget.y = 14 * k;
+  camTarget.z = 13.5 * k;
+}
+
+function tickCamera(dt) {
+  if (!camInitialized) {
+    camera.position.set(0, camTarget.y, camTarget.z);
+    camera.fov = camTarget.fov;
+    camera.lookAt(0, 0, 0);
+    camera.updateProjectionMatrix();
+    camInitialized = true;
+    return;
+  }
+  const k = 1 - Math.exp(-2.6 * dt);
+  camera.position.y += (camTarget.y - camera.position.y) * k;
+  camera.position.z += (camTarget.z - camera.position.z) * k;
+  camera.fov += (camTarget.fov - camera.fov) * k;
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+}
+
+fitCameraTarget();
+
+window.addEventListener('resize', fitCameraTarget);
+window.addEventListener('orientationchange', () => setTimeout(fitCameraTarget, 100));
+
+// lights — basement-club: dim ambient, hot stage spotlight on the plate,
+// red + blue accent point lights bleeding onto the foam walls
+const amb = new THREE.AmbientLight(0xb8a890, 0.24);
+scene.add(amb);
+const key = new THREE.DirectionalLight(0xffe9b8, 0.58);
+key.position.set(6, 14, 4);
+key.castShadow = true;
+key.shadow.mapSize.set(1024, 1024);
+key.shadow.camera.left = -10; key.shadow.camera.right = 10;
+key.shadow.camera.top = 10; key.shadow.camera.bottom = -10;
+key.shadow.camera.near = 1; key.shadow.camera.far = 30;
+key.shadow.bias = -0.0005;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x5a708a, 0.25);
+rim.position.set(-5, 6, -5);
+scene.add(rim);
+
+// stage spotlight from above the plate — the dance floor / arena beam
+const stageSpot = new THREE.SpotLight(0xfff0c8, 1.05, 30, Math.PI / 4.2, 0.55, 1.05);
+stageSpot.position.set(0, 12, 0);
+stageSpot.target.position.set(0, 0, 0);
+scene.add(stageSpot);
+scene.add(stageSpot.target);
+
+// nightclub accent lights — colored point lights bleeding onto the walls
+const accentRed = new THREE.PointLight(0xff2840, 0.95, 24, 1.8);
+accentRed.position.set(-9, 2.5, 7);
+scene.add(accentRed);
+
+const accentBlue = new THREE.PointLight(0x2a6df4, 0.85, 24, 1.8);
+accentBlue.position.set(10, 2.5, -7);
+scene.add(accentBlue);
+
+const accentMagenta = new THREE.PointLight(0xd44dff, 0.70, 22, 1.8);
+accentMagenta.position.set(8, 3.5, 9);
+scene.add(accentMagenta);
+
+const accentCyan = new THREE.PointLight(0x42e8ff, 0.70, 22, 1.8);
+accentCyan.position.set(-8, 3.5, -9);
+scene.add(accentCyan);
+
+const accentOrange = new THREE.PointLight(0xff9a2a, 0.60, 20, 1.8);
+accentOrange.position.set(0, 5.5, 9);
+scene.add(accentOrange);
+
+// ============================================================
+// LIGHT BEAMS — fake volumetric cones of colored light dropping
+// from above the plate. Additive blending so they read as glow,
+// not solid geometry. Each gently sways on its own phase so the
+// room looks like there's an unseen lighting rig working a crowd.
+// ============================================================
+const lightBeams = [];
+function addLightBeam(color, x, z, opts = {}) {
+  const apexY = opts.apexY ?? 11.5;
+  const baseY = opts.baseY ?? -1.0;
+  const radius = opts.radius ?? 1.6;
+  const opacity = opts.opacity ?? 0.20;
+  const h = apexY - baseY;
+  const geo = new THREE.ConeGeometry(radius, h, 28, 1, true);
+  const mat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  // ConeGeometry has apex at +Y, base at -Y by default. Center it so the
+  // apex sits at apexY and the base sits at baseY.
+  mesh.position.set(x, (apexY + baseY) / 2, z);
+  scene.add(mesh);
+  lightBeams.push({ mesh, phase: Math.random() * Math.PI * 2, baseOpacity: opacity });
+  return mesh;
+}
+addLightBeam(0xff2840, -4.5,  3.5, { radius: 1.5, opacity: 0.18 });
+addLightBeam(0x2a6df4,  4.5, -3.5, { radius: 1.5, opacity: 0.18 });
+addLightBeam(0xd44dff, -5.0, -5.0, { radius: 1.3, opacity: 0.16 });
+addLightBeam(0x42e8ff,  5.0,  5.0, { radius: 1.3, opacity: 0.16 });
+// warm-gold beam through the disco ball — subtle, not dominant
+addLightBeam(0xffd070,  0.0,  0.0, { radius: 0.85, opacity: 0.13, apexY: 11.5, baseY: 0.25 });
+
+// ============================================================
+// PLATE — the dance floor. Disco-tile top, near-black rim, no
+// tapered underside (kept the silhouette clean so the void below
+// reads cleanly through the gap).
+// ============================================================
+const plateGroup = new THREE.Group();
+scene.add(plateGroup);
+
+const plateSideMat = new THREE.MeshStandardMaterial({
+  color: 0x1c1410, roughness: 0.55, metalness: 0.30,
+});
+// Neutral glass: physically transparent but only somewhat so — you
+// sense the void underneath but the floor still reads as a solid
+// glass dance floor, not a window.
+const plateTopMat = new THREE.MeshPhysicalMaterial({
+  color: 0x9c9c9c,
+  roughness: 0.06,
+  metalness: 0.0,
+  transmission: 0.50,
+  thickness: 0.5,
+  ior: 1.45,
+  transparent: true,
+  opacity: 0.80,
+  side: THREE.DoubleSide,
+  emissive: 0x0c0c0c, emissiveIntensity: 0.08,
+});
+const plateBottomMat = new THREE.MeshStandardMaterial({
+  color: 0x0a0805, roughness: 0.95, metalness: 0.05,
+});
+const plateGeo = new THREE.CylinderGeometry(CFG.plateR0, CFG.plateR0 * 0.97, CFG.plateThick, 96);
+const plateMesh = new THREE.Mesh(plateGeo, [plateSideMat, plateTopMat, plateBottomMat]);
+plateMesh.receiveShadow = true;
+plateGroup.add(plateMesh);
+
+// Plate edge as ONE element: a thick emissive collar wrapping the
+// outer cylindrical face. Entirely outside the transparent glass
+// body so transmission/refraction can't distort the silhouette.
+// No floating ring, no torus half-submerged in the glass.
+const plateCollar = (() => {
+  const g = new THREE.CylinderGeometry(
+    CFG.plateR0 * 1.012,  // top radius: slightly outside the plate body
+    CFG.plateR0 * 1.000,  // bottom radius: flush with the plate's outer cylinder
+    0.22, 96, 1, true,    // height 0.22, open-ended (no caps)
+  );
+  const m = new THREE.MeshStandardMaterial({
+    color: 0xffd9a0,
+    emissive: 0xffd9a0, emissiveIntensity: 1.15,
+    roughness: 0.30, metalness: 0.15,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(g, m);
+  // center vertically so the top edge protrudes slightly above the
+  // plate top surface (acts as a raised lip), bottom edge sits well
+  // inside the cylinder's side wall
+  mesh.position.y = CFG.plateThick / 2 - 0.04;
+  plateGroup.add(mesh);
+  return mesh;
+})();
+
+// expose as plateEdgeStrip so tickAmbient's pulse still works
+const plateEdgeStrip = plateCollar;
+
+function ring(r, op) {
+  const g = new THREE.RingGeometry(r - 0.015, r + 0.015, 96);
+  const m = new THREE.MeshBasicMaterial({ color: 0xb89968, transparent: true, opacity: op, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(g, m);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = CFG.plateThick / 2 + 0.002;
+  return mesh;
+}
+plateGroup.add(ring(CFG.plateR0 * 0.85, 0.20));
+plateGroup.add(ring(CFG.plateR0 * 0.55, 0.15));
+plateGroup.add(ring(CFG.plateR0 * 0.25, 0.12));
+
+// ============================================================
+// SHAPE STORE ROOM — floating plate suspended over a psychedelic void.
+// Distant ring of stacked primary-colored foam cubes hovers as the
+// room perimeter, bases hidden in shadow. A descending tunnel of
+// glowing rings spirals down into endless space below. Figures that
+// fall off the plate drop through the rings into the abyss.
+// ============================================================
+const roomGroup = new THREE.Group();
+scene.add(roomGroup);
+
+// shared materials for the foam blocks — Lambert so they hold their
+// saturated primary color under the cumulative club lighting (no
+// specular blowout to white when they tumble through the explosion).
+const ROOM_BLOCK_MATS = SHAPE_COLORS.map((c) => new THREE.MeshLambertMaterial({ color: c }));
+ROOM_BLOCK_MATS.push(new THREE.MeshLambertMaterial({ color: 0x2a2a2a }));
+ROOM_BLOCK_MATS.push(new THREE.MeshLambertMaterial({ color: 0x1a1a1a }));
+ROOM_BLOCK_MATS.push(new THREE.MeshLambertMaterial({ color: 0x3a2d22 }));
+
+function pickRoomMat() {
+  return ROOM_BLOCK_MATS[Math.floor(Math.random() * ROOM_BLOCK_MATS.length)];
+}
+
+// foam-block walls — bases hidden in shadow, tall stacks so tops feel
+// cavernous when the colored point lights catch them. Every cube is
+// tracked in wallCubes so the game-end explosion can launch them as
+// confetti.
+const wallCubes = [];
+{
+  const blockSize = 1.4;
+  const innerR = 15;
+  const stacks = 64;
+  const baseY = -7;
+  for (let i = 0; i < stacks; i++) {
+    const ang = (i / stacks) * Math.PI * 2;
+    const r = innerR + (Math.random() - 0.5) * 0.6;
+    const baseX = Math.cos(ang) * r;
+    const baseZ = Math.sin(ang) * r;
+    const backWeight = (baseZ < 0) ? 1.0 : 0.85;
+    const h = Math.floor(7 + Math.random() * 4 + backWeight * 1.8);
+    for (let k = 0; k < h; k++) {
+      const cube = new THREE.Mesh(
+        new THREE.BoxGeometry(blockSize, blockSize, blockSize),
+        pickRoomMat(),
+      );
+      cube.position.set(
+        baseX + (Math.random() - 0.5) * 0.18,
+        baseY + blockSize / 2 + k * blockSize,
+        baseZ + (Math.random() - 0.5) * 0.18,
+      );
+      cube.rotation.y = (Math.random() - 0.5) * 0.10;
+      cube.castShadow = true;
+      cube.receiveShadow = true;
+      roomGroup.add(cube);
+      wallCubes.push(cube);
+    }
+  }
+
+  const outerR = innerR + 1.7;
+  for (let i = 0; i < stacks * 0.7; i++) {
+    const ang = (i / (stacks * 0.7)) * Math.PI * 2 + 0.05;
+    const r = outerR + Math.random() * 0.8;
+    const x = Math.cos(ang) * r;
+    const z = Math.sin(ang) * r;
+    const h = 5 + Math.floor(Math.random() * 4);
+    for (let k = 0; k < h; k++) {
+      const cube = new THREE.Mesh(
+        new THREE.BoxGeometry(blockSize, blockSize, blockSize),
+        pickRoomMat(),
+      );
+      cube.position.set(
+        x + (Math.random() - 0.5) * 0.15,
+        -7 + blockSize / 2 + k * blockSize,
+        z + (Math.random() - 0.5) * 0.15,
+      );
+      cube.rotation.y = (Math.random() - 0.5) * 0.12;
+      cube.castShadow = true;
+      cube.receiveShadow = true;
+      roomGroup.add(cube);
+      wallCubes.push(cube);
+    }
+  }
+}
+
+// ============================================================
+// CONFETTI EXPLOSION — when the round ends, every wall cube
+// launches outward with a tumble and falls into the void.
+// ============================================================
+const confetti = { active: false, t: 0, cubes: [] };
+function explodeRoom() {
+  if (confetti.active) return;
+  confetti.active = true;
+  confetti.t = 0;
+  for (const cube of wallCubes) {
+    const dx = cube.position.x;
+    const dz = cube.position.z;
+    const d = Math.max(0.01, Math.hypot(dx, dz));
+    // outward + mild upward velocity, randomized. Outward-dominant so
+    // cubes clear the play area fast and don't crowd the camera.
+    const outSpeed = 6 + Math.random() * 6;
+    const upSpeed  = 1.5 + Math.random() * 4;
+    confetti.cubes.push({
+      mesh: cube,
+      vx: (dx / d) * outSpeed + (Math.random() - 0.5) * 3,
+      vy: upSpeed,
+      vz: (dz / d) * outSpeed + (Math.random() - 0.5) * 3,
+      rx: (Math.random() - 0.5) * 6,
+      ry: (Math.random() - 0.5) * 6,
+      rz: (Math.random() - 0.5) * 6,
+    });
+  }
+}
+function tickConfetti(dt) {
+  if (!confetti.active) return;
+  confetti.t += dt;
+  const g = 14; // gravity
+  for (const c of confetti.cubes) {
+    if (!c.mesh.visible) continue;
+    c.vy -= g * dt;
+    c.mesh.position.x += c.vx * dt;
+    c.mesh.position.y += c.vy * dt;
+    c.mesh.position.z += c.vz * dt;
+    c.mesh.rotation.x += c.rx * dt;
+    c.mesh.rotation.y += c.ry * dt;
+    c.mesh.rotation.z += c.rz * dt;
+    // once a cube has fallen well past the tunnel, hide it so we
+    // stop integrating it. The pieces are gone visually anyway.
+    if (c.mesh.position.y < -50) c.mesh.visible = false;
+  }
+}
+
+// ============================================================
+// PSYCHEDELIC TUNNEL — rings + giant wireframe shapes descend from
+// beneath the plate into endless space. Each one rotates on its
+// own axes / phase so the void below reads as alive and chaotic.
+// ============================================================
+const tunnelRings = [];
+const giantShapes = [];
+
+// helper: build a giant primitive (wireframe OR solid filled) at a given depth
+function giantGeom(type, size) {
+  switch (type) {
+    case 'cube':        return new THREE.BoxGeometry(size, size, size);
+    case 'sphere':      return new THREE.SphereGeometry(size, 22, 14);
+    case 'cone':        return new THREE.ConeGeometry(size, size * 1.7, 22);
+    case 'octahedron':  return new THREE.OctahedronGeometry(size, 0);
+    case 'pyramid':     return new THREE.ConeGeometry(size, size * 1.4, 4);
+    case 'icosahedron': return new THREE.IcosahedronGeometry(size, 0);
+    case 'torusKnot':   return new THREE.TorusKnotGeometry(size * 0.7, size * 0.18, 64, 10);
+    case 'dodecahedron':return new THREE.DodecahedronGeometry(size, 0);
+    case 'torus':       return new THREE.TorusGeometry(size, size * 0.30, 14, 36);
+    default:            return new THREE.BoxGeometry(size, size, size);
+  }
+}
+
+function addGiantShape(type, size, color, y, opts = {}) {
+  // All giant shapes are now plain solid filled (Lambert, no specular
+  // so they hold their saturated palette color), with varied per-shape
+  // translucency so they layer without obscuring each other.
+  const geom = giantGeom(type, size);
+  const mat = new THREE.MeshLambertMaterial({
+    color,
+    transparent: true, opacity: opts.opacity ?? 0.55,
+    side: THREE.DoubleSide,
+    emissive: color, emissiveIntensity: 0.06,
+  });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.y = y;
+  scene.add(mesh);
+  giantShapes.push({
+    mesh,
+    mat,
+    baseOpacity: mat.opacity,
+    spin: {
+      x: (Math.random() * 0.5 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
+      y: (Math.random() * 0.5 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
+      z: (Math.random() * 0.5 + 0.10) * (Math.random() < 0.5 ? -1 : 1),
+    },
+    phase: Math.random() * Math.PI * 2,
+  });
+}
+
+// helper: build a glowing torus ring at a given depth
+function addTunnelRing(baseR, color, y, tube) {
+  const mat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0.90, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(new THREE.TorusGeometry(baseR, tube, 8, 96), mat);
+  mesh.rotation.x = Math.PI / 2;
+  mesh.position.y = y;
+  scene.add(mesh);
+  tunnelRings.push({
+    mesh, baseR,
+    phase: Math.random() * Math.PI * 2,
+    spinSign: Math.random() < 0.5 ? 1 : -1,
+    spinRate: 0.18 + Math.random() * 0.22,
+  });
+}
+
+// interleaved cascade of rings + solid translucent giant shapes descending
+// into endless space. Varied opacity per shape so layers read separately
+// without obscuring each other. No wireframe — clean primitive silhouettes.
+{
+  const layout = [
+    { kind: 'ring',  r: 6.5, tube: 0.10 },
+    { kind: 'shape', type: 'cube',        size: 4.5, opacity: 0.55 },
+    { kind: 'ring',  r: 8.0, tube: 0.11 },
+    { kind: 'shape', type: 'sphere',      size: 5.0, opacity: 0.40 },
+    { kind: 'shape', type: 'octahedron',  size: 5.0, opacity: 0.55 },
+    { kind: 'ring',  r: 7.2, tube: 0.11 },
+    { kind: 'shape', type: 'pyramid',     size: 5.4, opacity: 0.50 },
+    { kind: 'shape', type: 'dodecahedron',size: 5.0, opacity: 0.45 },
+    { kind: 'ring',  r: 9.0, tube: 0.13 },
+    { kind: 'shape', type: 'icosahedron', size: 5.5, opacity: 0.55 },
+    { kind: 'shape', type: 'cone',        size: 5.0, opacity: 0.50 },
+    { kind: 'ring',  r: 7.5, tube: 0.13 },
+    { kind: 'shape', type: 'torus',       size: 6.0, opacity: 0.45 },
+    { kind: 'shape', type: 'cube',        size: 5.5, opacity: 0.40 },
+    { kind: 'ring',  r: 10.0, tube: 0.15 },
+    { kind: 'shape', type: 'cube',        size: 6.0, opacity: 0.50 },
+    { kind: 'shape', type: 'sphere',      size: 6.5, opacity: 0.40 },
+    { kind: 'ring',  r: 8.5, tube: 0.15 },
+    { kind: 'shape', type: 'octahedron',  size: 7.0, opacity: 0.45 },
+    { kind: 'ring',  r: 11.5, tube: 0.16 },
+    { kind: 'shape', type: 'pyramid',     size: 7.0, opacity: 0.42 },
+  ];
+  const ySpacing = 2.4;
+  for (let i = 0; i < layout.length; i++) {
+    const item = layout[i];
+    const y = -2.5 - i * ySpacing;
+    const color = SHAPE_COLORS[i % SHAPE_COLORS.length];
+    if (item.kind === 'ring') {
+      addTunnelRing(item.r, color, y, item.tube);
+    } else {
+      addGiantShape(item.type, item.size, color, y, { opacity: item.opacity });
+    }
+  }
+}
+
+// star-field of small glowing dots scattered in the void below the plate
+// for additional depth cues; no animation, just scenery
+const tunnelStars = new THREE.Group();
+scene.add(tunnelStars);
+{
+  const starGeo = new THREE.SphereGeometry(0.06, 6, 4);
+  for (let i = 0; i < 220; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const r = 1.5 + Math.random() * 12;
+    const y = -3 - Math.random() * 36;
+    const c = SHAPE_COLORS[Math.floor(Math.random() * SHAPE_COLORS.length)];
+    const mat = new THREE.MeshBasicMaterial({ color: c });
+    const star = new THREE.Mesh(starGeo, mat);
+    star.position.set(Math.cos(ang) * r, y, Math.sin(ang) * r);
+    tunnelStars.add(star);
+  }
+}
+
+// ============================================================
+// DISCO BALL — hangs above the plate, tumbles on all three axes.
+// Anchored to scene (not plateGroup) so the cable stays vertical
+// while the plate tilts. Texture-mapped mirror tile grid so the
+// rotation is actually legible — a smooth sphere can't show spin.
+// ============================================================
+// disco ball loaded from disco.glb. We create an empty group up front
+// so the animation tick can already rotate "the ball" before the GLB
+// resolves; the loaded model is mounted inside on load. We auto-scale
+// to a target diameter and recenter so rotation tumbles around its own
+// middle, not whatever origin the modeler exported with.
+const DISCO_TARGET_DIAMETER = 2.0;  // world units across — tweak to taste
+
+let discoBall = null;
+let discoLoaded = false;
+let discoSpin = 1;    // win party spins the ball ~10x for a few seconds
+{
+  const cable = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.018, 0.018, 8, 6),
+    new THREE.MeshBasicMaterial({ color: 0x0a0a0a }),
+  );
+  cable.position.set(0, 10, 0);
+  scene.add(cable);
+
+  const ballRoot = new THREE.Group();
+  ballRoot.position.set(0, 6.2, 0);
+  scene.add(ballRoot);
+  discoBall = ballRoot;
+
+  // warm under-glow point light from the ball
+  const discoGlow = new THREE.PointLight(0xfff4d8, 0.40, 11, 2);
+  discoGlow.position.set(0, 6.0, 0);
+  scene.add(discoGlow);
+
+  const loader = new THREE.GLTFLoader();
+  if (typeof THREE.DRACOLoader !== 'undefined') {
+    const draco = new THREE.DRACOLoader();
+    draco.setDecoderPath('./vendor/draco/');
+    loader.setDRACOLoader(draco);
+  }
+  loader.load('./disco.glb', (gltf) => {
+    discoLoaded = true;
+    const model = gltf.scene;
+
+    // auto-scale to a target diameter
+    let bbox = new THREE.Box3().setFromObject(model);
+    const size = bbox.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+    if (maxDim > 0) model.scale.setScalar(DISCO_TARGET_DIAMETER / maxDim);
+
+    // recenter so rotation tumbles around the model's geometric center
+    bbox = new THREE.Box3().setFromObject(model);
+    const center = bbox.getCenter(new THREE.Vector3());
+    model.position.sub(center);
+
+    // Replace the GLB's bundled materials with a known-bright silver
+    // mirror so the ball reads as a real disco ball rather than the
+    // dark gold tint the export came with.
+    // Replace the GLB's bundled materials with a known-good mirror.
+    // Also strip any lights baked into the model — Blender often
+    // exports scene lights along with the geometry, and those would
+    // dump extra brightness exactly at the ball's position.
+    const mirrorMat = new THREE.MeshStandardMaterial({
+      color: 0xd8d8d8,
+      emissive: 0xcccccc, emissiveIntensity: 0.10,
+      metalness: 1.0, roughness: 0.14,
+    });
+    let foundLights = 0;
+    model.traverse((node) => {
+      if (node.isMesh) {
+        node.castShadow = false;
+        node.material = mirrorMat;
+      }
+      if (node.isLight) {
+        // Disable the light but leave it in place — some exporters
+        // nest the geometry under a light node, so detaching would
+        // take the ball with it.
+        foundLights++;
+        node.intensity = 0;
+        node.visible = false;
+      }
+    });
+    if (foundLights > 0) console.log('[disco.glb] disabled', foundLights, 'baked light(s)');
+
+    ballRoot.add(model);
+  }, undefined, (err) => {
+    discoLoaded = true;  // splash must not wait on a failed optional prop
+    console.error('[disco.glb] failed to load', err);
+    // procedural fallback so the scene still has a ball visible
+    const fallback = new THREE.Mesh(
+      new THREE.SphereGeometry(0.95, 32, 22),
+      new THREE.MeshStandardMaterial({
+        color: 0xeeeeee, roughness: 0.10, metalness: 1.0,
+        emissive: 0x222222, emissiveIntensity: 0.30,
+      }),
+    );
+    ballRoot.add(fallback);
+  });
+}
+
+// ============================================================
+// TELEGRAPH RETICLE — warm terracotta tone over wood
+// ============================================================
+const reticleGroup = new THREE.Group();
+plateGroup.add(reticleGroup);
+
+const retFillMat = new THREE.MeshBasicMaterial({
+  color: 0xff1a1a, transparent: true, opacity: 0.0, side: THREE.DoubleSide, depthWrite: false,
+});
+const retFillGeo = new THREE.CircleGeometry(1, 48);
+const retFill = new THREE.Mesh(retFillGeo, retFillMat);
+retFill.rotation.x = -Math.PI / 2;
+retFill.position.y = CFG.plateThick / 2 + 0.005;
+reticleGroup.add(retFill);
+
+const retOutlineMat = new THREE.MeshBasicMaterial({
+  color: 0xff1a1a, transparent: true, opacity: 0.0, side: THREE.DoubleSide,
+});
+const retOutline = new THREE.Mesh(new THREE.RingGeometry(0.99, 1, 64), retOutlineMat);
+retOutline.rotation.x = -Math.PI / 2;
+retOutline.position.y = CFG.plateThick / 2 + 0.006;
+reticleGroup.add(retOutline);
+
+reticleGroup.visible = false;
+
+// ============================================================
+// FIGURES — colored geometric shapes (cubes, spheres, cones, cylinders,
+// octahedra, pyramids). Each figure gets a unique shape+color combo.
+// Slight roughness on materials so they read as painted wood / foam.
+// ============================================================
+function buildShapeMesh(defIdx, color) {
+  const def = SHAPE_DEFS[defIdx];
+  // Lambert: pure diffuse, no specular highlights at all. Even with the
+  // stage spotlight blasting from overhead the shapes can't blow out to
+  // white anymore; they hold their saturated primary color.
+  const mat = new THREE.MeshLambertMaterial({
+    color,
+    emissive: 0x000000, emissiveIntensity: 0,
+  });
+  let geom;
+  switch (def.type) {
+    case 'cube':
+      geom = new THREE.BoxGeometry(0.78, 0.78, 0.78);
+      break;
+    case 'sphere':
+      geom = new THREE.SphereGeometry(0.45, 22, 16);
+      break;
+    case 'cone':
+      geom = new THREE.ConeGeometry(0.46, 1.00, 24);
+      break;
+    case 'cylinder':
+      geom = new THREE.CylinderGeometry(0.42, 0.44, 0.86, 24);
+      break;
+    case 'octahedron':
+      geom = new THREE.OctahedronGeometry(0.55, 0);
+      break;
+    case 'pyramid':
+      geom = new THREE.ConeGeometry(0.55, 0.95, 4);  // 4-sided cone = square pyramid
+      break;
+  }
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = false;
+  return { mesh, mat, def };
+}
+
+function makeFigure(isPlayer, defIdx, color) {
+  const g = new THREE.Group();
+  const { mesh, mat, def } = buildShapeMesh(defIdx, color);
+  // center the visual at yOffset above the plate top
+  mesh.position.y = def.yOffset;
+  // pyramid + cone come with apex up; that's the look we want
+  g.add(mesh);
+
+  // base shadow disc to anchor the shape on the glass
+  const discGeo = new THREE.CircleGeometry(def.collidR * 1.05, 18);
+  const discMat = new THREE.MeshBasicMaterial({ color: 0x14110d, transparent: true, opacity: 0.35 });
+  const disc = new THREE.Mesh(discGeo, discMat);
+  disc.rotation.x = -Math.PI / 2;
+  disc.position.y = 0.001;
+  g.add(disc);
+
+  // danger ring — hidden by default, becomes a blinking red glow when
+  // the figure is at hp<=3
+  const dangerGeo = new THREE.RingGeometry(def.collidR * 0.88, def.collidR * 1.18, 32);
+  const dangerMat = new THREE.MeshBasicMaterial({
+    color: 0xff1c1c, transparent: true, opacity: 0.0, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const dangerRing = new THREE.Mesh(dangerGeo, dangerMat);
+  dangerRing.rotation.x = -Math.PI / 2;
+  dangerRing.position.y = 0.004;
+  dangerRing.visible = false;
+  g.add(dangerRing);
+
+  return { group: g, shapeMesh: mesh, shapeMat: mat, def, dangerRing };
+}
+
+// Spinning yellow octahedron-star + a glowing ground ring under the
+// player. Both live in plateGroup so the figure can rotate to face
+// movement without spinning the marker.
+let playerMarker = null;
+function buildPlayerMarker() {
+  const group = new THREE.Group();
+
+  // floating star above the player's shape
+  const star = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.32, 0),
+    new THREE.MeshStandardMaterial({
+      color: 0xffd000,
+      emissive: 0xffd000, emissiveIntensity: 1.20,
+      roughness: 0.25, metalness: 0.15,
+    }),
+  );
+  star.castShadow = false;
+  group.add(star);
+
+  // glowing ground ring at the player's feet — visible from any angle
+  const ringR = 0.62;
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(ringR - 0.08, ringR, 48),
+    new THREE.MeshBasicMaterial({
+      color: 0xffd000, transparent: true, opacity: 0.92, side: THREE.DoubleSide,
+    }),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  group.add(ring);
+
+  group.userData.star = star;
+  group.userData.ring = ring;
+  return group;
+}
+
+function spawnFigures(withPlayer) {
+  for (const f of S.figs) plateGroup.remove(f.mesh);
+  S.figs = [];
+
+  // unique color shuffle, plus a shape rotation so every combo is distinct
+  const colorOrder = [...SHAPE_COLORS].sort(() => Math.random() - 0.5);
+  // shape rotation: cycle through SHAPE_DEFS so we get a mix
+  const shapeBase = Math.floor(Math.random() * SHAPE_DEFS.length);
+
+  const playerSlot = withPlayer ? Math.floor(Math.random() * CFG.startCount) : -1;
+  for (let i = 0; i < CFG.startCount; i++) {
+    const ang = (i / CFG.startCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.15;
+    const r = CFG.plateR0 * (0.45 + Math.random() * 0.15);
+    const x = Math.cos(ang) * r;
+    const z = Math.sin(ang) * r;
+    const isPlayer = (i === playerSlot);
+    const defIdx = (shapeBase + i) % SHAPE_DEFS.length;
+    const color = colorOrder[i];
+    const built = makeFigure(isPlayer, defIdx, color);
+    const mesh = built.group;
+    mesh.position.set(x, CFG.plateThick / 2, z);
+    mesh.rotation.y = Math.atan2(-x, -z);
+    plateGroup.add(mesh);
+    const f = {
+      id: i,
+      x, z, vx: 0, vz: 0,
+      alive: true,
+      isPlayer,
+      mesh,
+      shapeMesh: built.shapeMesh,
+      shapeMat: built.shapeMat,
+      def: built.def,
+      dangerRing: built.dangerRing,
+      baseColor: color,
+      collidR: built.def.collidR,
+      yOffset: built.def.yOffset,
+      hp: CFG.hpMax,
+      invulnT: 0,
+      hp0Logged: false,
+      draining: false, drainT: 0,
+      dropping: false, dropT: 0, dropY: 0, dropVy: 0,
+      picked: false, pickT: 0, pickStartX: 0, pickStartZ: 0, pickStartY: 0,
+      scale: 1,
+      wanderAng: Math.random() * Math.PI * 2,
+      wanderTimer: Math.random() * 1.5,
+      boldness: isPlayer ? 0 : Math.random(),
+      // subtle hover bob phase so the shapes feel light, not bolted
+      bobPhase: Math.random() * Math.PI * 2,
+      spinAxis: Math.random() * Math.PI * 2,
+    };
+    S.figs.push(f);
+    if (isPlayer) {
+      S.player = f;
+      // attach the spinning marker; it lives in plateGroup and tracks player position
+      if (playerMarker) plateGroup.remove(playerMarker);
+      playerMarker = buildPlayerMarker();
+      plateGroup.add(playerMarker);
+    }
+  }
+  S.alive = CFG.startCount;
+}
+
+// ============================================================
+// CLAW — procedural three-prong arcade mechanism with cable.
+// Sits inside handAnim.tilt so existing wobble/sway code applies.
+// ============================================================
+const handGroup = new THREE.Group();
+handGroup.position.set(0, CFG.handIdleY, 0);
+scene.add(handGroup);
+
+const CLAW_RIG = {
+  pivotR: 0.15,      // radial offset of prong pivot from claw axis
+  pivotY: 0.735,     // pivot height above pinch point (handGroup origin)
+  prongLen: 0.75,
+  hookLen: 0.22,
+  hookBend: 0.35,    // radians, inward
+  openAngle: 0.55,   // prongs splay outward
+  closedAngle: -0.20,// tips converge at origin (pinch point)
+};
+
+const handAnim = {
+  ready: false,
+  tilt: null,
+  prongs: [],         // array of { group, restAngle, closeAngle }
+  baseTiltX: -0.05,
+  baseTiltZ: -0.05,
+};
+
+(function buildTilt() {
+  const tilt = new THREE.Group();
+  tilt.rotation.z = handAnim.baseTiltZ;
+  tilt.rotation.x = handAnim.baseTiltX;
+  handGroup.add(tilt);
+  handAnim.tilt = tilt;
+})();
+
+function buildClaw() {
+  const root = new THREE.Group();
+
+  const metalMat   = new THREE.MeshStandardMaterial({ color: 0xa6a6a6, roughness: 0.32, metalness: 0.92 });
+  const darkMetal  = new THREE.MeshStandardMaterial({ color: 0x3b3b3b, roughness: 0.50, metalness: 0.80 });
+  const cableMat   = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.70, metalness: 0.30 });
+  const jointMat   = new THREE.MeshStandardMaterial({ color: 0x252525, roughness: 0.55, metalness: 0.65 });
+
+  // cable — extends well above frame so it always reads as a hanging mechanism
+  const cableLen = 12;
+  const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.030, 0.030, cableLen, 8), cableMat);
+  cable.position.y = CLAW_RIG.pivotY + 0.30 + cableLen / 2;
+  root.add(cable);
+
+  // central column beneath the mounting plate
+  const col = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.13, 0.32, 14), darkMetal);
+  col.position.y = CLAW_RIG.pivotY - 0.05;
+  col.castShadow = true;
+  root.add(col);
+
+  // mounting plate — metallic disc just above the prong pivots
+  const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.24, 0.10, 22), metalMat);
+  plate.position.y = CLAW_RIG.pivotY + 0.20;
+  plate.castShadow = true;
+  root.add(plate);
+
+  // top fastener / cap where cable meets the plate
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.10, 12), darkMetal);
+  cap.position.y = CLAW_RIG.pivotY + 0.32;
+  root.add(cap);
+
+  // three prongs equally spaced
+  for (let i = 0; i < 3; i++) {
+    const phi = (i / 3) * Math.PI * 2;
+
+    // pivot group: positioned at the prong pivot, rotated so its local +X axis
+    // points radially outward. Rotation around local +Z then tilts the prong
+    // inward (negative) or outward (positive) — closed/open in the rig spec.
+    const pivot = new THREE.Group();
+    pivot.position.set(CLAW_RIG.pivotR * Math.cos(phi), CLAW_RIG.pivotY, CLAW_RIG.pivotR * Math.sin(phi));
+    pivot.rotation.y = -phi;
+    root.add(pivot);
+
+    // bearing visual at the pivot
+    const joint = new THREE.Mesh(new THREE.SphereGeometry(0.058, 10, 8), jointMat);
+    pivot.add(joint);
+
+    // prongGroup is what we animate (rotation.z toggles open/closed)
+    const prongGroup = new THREE.Group();
+    pivot.add(prongGroup);
+
+    // main prong cylinder hanging down from pivot
+    const prong = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.050, 0.038, CLAW_RIG.prongLen, 10),
+      metalMat,
+    );
+    prong.position.y = -CLAW_RIG.prongLen / 2;
+    prong.castShadow = true;
+    prongGroup.add(prong);
+
+    // hook group attached at the bottom of the prong, tilted inward
+    // (negative rotation.z bends toward the claw axis in this frame)
+    const hookGroup = new THREE.Group();
+    hookGroup.position.y = -CLAW_RIG.prongLen;
+    hookGroup.rotation.z = -CLAW_RIG.hookBend;
+    prongGroup.add(hookGroup);
+
+    const hook = new THREE.Mesh(
+      new THREE.ConeGeometry(0.050, CLAW_RIG.hookLen, 10),
+      metalMat,
+    );
+    hook.position.y = -CLAW_RIG.hookLen / 2;
+    hook.castShadow = true;
+    hookGroup.add(hook);
+
+    // start at "open" rest pose
+    prongGroup.rotation.z = CLAW_RIG.openAngle;
+
+    handAnim.prongs.push({
+      group: prongGroup,
+      restAngle: CLAW_RIG.openAngle,
+      closeAngle: CLAW_RIG.closedAngle,
+    });
+  }
+
+  return root;
+}
+
+// uniform scale applied to the whole claw assembly so the prong
+// span, cable, mounting plate and pivots all enlarge together.
+// Bumping makes the claw read more dramatic over the plate.
+const CLAW_SCALE = 1.7;
+
+(function loadClaw() {
+  const claw = buildClaw();
+  claw.scale.setScalar(CLAW_SCALE);
+  handAnim.tilt.add(claw);
+  handAnim.ready = true;
+})();
+
+// Claw is always present — it hangs idle above the plate between
+// grabs instead of disappearing. Initial position centered up at
+// idle height.
+handGroup.position.set(0, CFG.handIdleY, 0);
+handGroup.visible = true;
+
+// progress t: 0 = open, 1 = closed
+function setProng(idx, t) {
+  const p = handAnim.prongs[idx];
+  if (!p) return;
+  const k = Math.max(0, Math.min(1, t));
+  p.group.rotation.z = p.restAngle + (p.closeAngle - p.restAngle) * k;
+}
+
+function setAllProngs(t) {
+  for (let i = 0; i < handAnim.prongs.length; i++) setProng(i, t);
+}
+
+// ============================================================
+// TILT MATH — recompute from CoM each frame
+// ============================================================
+function updateTilt(dt) {
+  let cx = 0, cz = 0, n = 0;
+  for (const f of S.figs) {
+    if (!f.alive || f.picked || f.dropping) continue;
+    cx += f.x; cz += f.z; n++;
+  }
+  if (n === 0) {
+    S.tilt.x = 0; S.tilt.z = 0;
+  } else {
+    cx /= n; cz /= n;
+    const tx = Math.max(-1, Math.min(1, cx / S.plateR));
+    const tz = Math.max(-1, Math.min(1, cz / S.plateR));
+    const k = 1 - Math.exp(-CFG.tiltEase * dt);
+    S.tilt.x += (tx - S.tilt.x) * k;
+    S.tilt.z += (tz - S.tilt.z) * k;
+  }
+  plateGroup.rotation.x = S.tilt.z * CFG.maxTilt;
+  plateGroup.rotation.z = -S.tilt.x * CFG.maxTilt;
+}
+
+// ============================================================
+// FIGURE PHYSICS — slide on tilt, friction, collision, edges
+// ============================================================
+function updateFigures(dt) {
+  const ax = S.tilt.x * CFG.slideForce;
+  const az = S.tilt.z * CFG.slideForce;
+
+  for (const f of S.figs) {
+    if (f.invulnT > 0) f.invulnT = Math.max(0, f.invulnT - dt);
+
+    if (f.picked) continue;
+
+    if (f.draining) {
+      f.drainT += dt;
+      const k = Math.min(1, f.drainT / (CFG.drainMs / 1000));
+      const s = Math.max(0.001, 1 - k);
+      f.mesh.scale.set(s, s, s);
+      f.mesh.position.y = CFG.plateThick / 2 + k * 0.6;
+      f.mesh.rotation.y += dt * 6;
+      f.mesh.position.x = f.x;
+      f.mesh.position.z = f.z;
+      if (k >= 1) {
+        if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
+      }
+      continue;
+    }
+
+    if (f.dropping) {
+      f.dropT += dt;
+      f.dropVy -= 16 * dt;
+      f.dropY += f.dropVy * dt;
+      f.x += f.vx * dt * 0.4;
+      f.z += f.vz * dt * 0.4;
+      f.mesh.position.set(f.x, CFG.plateThick / 2 + f.dropY, f.z);
+      f.mesh.rotation.x += dt * 4;
+      f.mesh.rotation.z += dt * 3;
+      if (f.dropT > 1.4) {
+        if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
+      }
+      continue;
+    }
+
+    if (!f.alive) continue;
+
+    let dx, dz;
+    if (f.isPlayer) {
+      [dx, dz] = playerIntent(f);
+    } else {
+      [dx, dz] = botIntent(f, dt);
+    }
+
+    const accel = f.isPlayer ? CFG.playerAccel : CFG.botAccel;
+    f.vx += (dx - f.vx) * Math.min(1, accel * dt);
+    f.vz += (dz - f.vz) * Math.min(1, accel * dt);
+
+    f.vx += ax * dt;
+    f.vz += az * dt;
+
+    const fr = 1 - Math.min(1, CFG.friction * dt);
+    f.vx *= fr;
+    f.vz *= fr;
+
+    f.x += f.vx * dt;
+    f.z += f.vz * dt;
+  }
+
+  // figure-figure collision + contact damage — per-figure radii
+  for (let i = 0; i < S.figs.length; i++) {
+    const a = S.figs[i];
+    if (!a.alive || a.picked || a.dropping || a.draining) continue;
+    for (let j = i + 1; j < S.figs.length; j++) {
+      const b = S.figs[j];
+      if (!b.alive || b.picked || b.dropping || b.draining) continue;
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const d2 = dx * dx + dz * dz;
+      const min = a.collidR + b.collidR;
+      if (d2 < min * min && d2 > 0.0001) {
+        const d = Math.sqrt(d2);
+        const overlap = (min - d) * 0.5;
+        const nx = dx / d, nz = dz / d;
+        a.x -= nx * overlap; a.z -= nz * overlap;
+        b.x += nx * overlap; b.z += nz * overlap;
+        const va = a.vx * nx + a.vz * nz;
+        const vb = b.vx * nx + b.vz * nz;
+        const exch = (vb - va) * 0.3;
+        a.vx += nx * exch; a.vz += nz * exch;
+        b.vx -= nx * exch; b.vz -= nz * exch;
+
+        if (a.invulnT <= 0 && b.invulnT <= 0) {
+          a.hp -= CFG.contactDmg;
+          b.hp -= CFG.contactDmg;
+          a.invulnT = CFG.iframeMs / 1000;
+          b.invulnT = CFG.iframeMs / 1000;
+          DRIFT.pluck(a.isPlayer || b.isPlayer);
+          if (a.isPlayer || b.isPlayer) playerHitFX();
+          a.vx -= nx * CFG.bumpForce;
+          a.vz -= nz * CFG.bumpForce;
+          b.vx += nx * CFG.bumpForce;
+          b.vz += nz * CFG.bumpForce;
+          if (a.hp <= 0 && !a.draining) {
+            a.draining = true; a.drainT = 0;
+            eliminate(a, 'drained');
+          }
+          if (b.hp <= 0 && !b.draining) {
+            b.draining = true; b.drainT = 0;
+            eliminate(b, 'drained');
+          }
+        }
+      }
+    }
+  }
+
+  // edge check + mesh transforms
+  for (const f of S.figs) {
+    if (!f.alive || f.picked || f.dropping || f.draining) continue;
+    const d = Math.hypot(f.x, f.z);
+    if (d > S.plateR + CFG.edgePadFall) {
+      f.dropping = true;
+      f.dropT = 0;
+      f.dropY = 0;
+      f.dropVy = 0;
+      eliminate(f, 'fell');
+      continue;
+    }
+    f.mesh.position.x = f.x;
+    f.mesh.position.z = f.z;
+    f.mesh.position.y = CFG.plateThick / 2;
+    const speed = Math.hypot(f.vx, f.vz);
+    if (speed > 0.3) {
+      const targetRot = Math.atan2(f.vx, f.vz);
+      let dr = targetRot - f.mesh.rotation.y;
+      while (dr > Math.PI) dr -= Math.PI * 2;
+      while (dr < -Math.PI) dr += Math.PI * 2;
+      f.mesh.rotation.y += dr * Math.min(1, 8 * dt);
+    }
+  }
+
+  // HP visualization — emissive glow intensifies as HP drops, white flash on i-frames.
+  // No HP pip ring on shapes; the body itself is the indicator.
+  for (const f of S.figs) {
+    if (f.picked || f.draining || f.dropping) continue;
+    if (f.invulnT > 0) {
+      // brief solid-red blink right at contact, linear fade across
+      // the i-frame window. Reads as a clean hit flash.
+      const frac = f.invulnT / (CFG.iframeMs / 1000); // 1.0 at hit → 0 at i-frame end
+      f.shapeMat.emissive.setHex(0xff0000);
+      f.shapeMat.emissiveIntensity = frac * 0.85;
+    } else {
+      const lowness = 1 - (f.hp / CFG.hpMax);
+      // gentle baseline glow in the shape's own color as HP drops
+      f.shapeMat.emissive.setHex(f.baseColor);
+      f.shapeMat.emissiveIntensity = lowness * 0.32;
+    }
+  }
+
+  // picked figures animation
+  for (const f of S.figs) {
+    if (f.picked !== true) continue;
+    f.pickT += dt;
+    const glideDur = 0.45;
+    const k = Math.min(1, f.pickT / glideDur);
+    const e = 1 - (1 - k) * (1 - k);
+    f.mesh.position.x = lerp(f.pickStartX, handGroup.position.x, e);
+    f.mesh.position.y = lerp(f.pickStartY, handGroup.position.y, e);
+    f.mesh.position.z = lerp(f.pickStartZ, handGroup.position.z, e);
+    f.mesh.rotation.y += dt * 1.5;
+    const shrinkStart = 0.65;
+    if (f.pickT > shrinkStart) {
+      const sk = Math.min(1, (f.pickT - shrinkStart) / 0.55);
+      const s = Math.max(0.001, 1 - sk);
+      f.mesh.scale.set(s, s, s);
+      if (s <= 0.01) {
+        scene.remove(f.mesh);
+        f.picked = 'done';
+      }
+    }
+  }
+
+  // player marker: spinning yellow octahedron-star above + a glowing
+  // ground ring at the player's feet. Star tumbles on its own axes;
+  // ring slowly spins underneath.
+  if (playerMarker && S.player && S.player.alive && !S.player.picked && !S.player.dropping && !S.player.draining) {
+    playerMarker.visible = true;
+    playerMarker.position.set(
+      S.player.x,
+      CFG.plateThick / 2 + 0.01,
+      S.player.z,
+    );
+    const star = playerMarker.userData.star;
+    const ring = playerMarker.userData.ring;
+    // star floats above the player's shape, tumbling
+    star.position.y = S.player.yOffset * 2 + 0.30;
+    star.rotation.y += dt * 2.8;
+    star.rotation.x += dt * 1.7;
+    // ground ring sits just above the plate top, slow counter-spin
+    ring.position.y = 0.005;
+    ring.rotation.z += dt * 1.1;
+  } else if (playerMarker) {
+    playerMarker.visible = false;
+  }
+
+  // low-HP danger ring — visible under any figure (player or bot) at hp<=3,
+  // pulses red so they read as bleeding out before they crack
+  const dangerOn = (Math.sin(performance.now() / 1000 * 7) * 0.5 + 0.5);
+  for (const f of S.figs) {
+    if (!f.dangerRing) continue;
+    const dying = f.alive && f.hp <= 3 && !f.picked && !f.dropping && !f.draining;
+    if (dying) {
+      f.dangerRing.visible = true;
+      f.dangerRing.material.opacity = 0.45 + dangerOn * 0.50;
+    } else {
+      f.dangerRing.visible = false;
+    }
+  }
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+// ============================================================
+// PLAYER INPUT — the shell owns the joystick + keyboard (INPUT,
+// pollKeys, stick DOM). We just read the normalized vector.
+// ============================================================
+function playerIntent(f) {
+  let dx = INPUT.dx, dz = INPUT.dy;
+  const len = Math.hypot(dx, dz);
+  if (len > 1) { dx /= len; dz /= len; }
+  return [dx * CFG.playerSpeed, dz * CFG.playerSpeed];
+}
+
+// ============================================================
+// BOT AI
+// ============================================================
+function botIntent(f, dt) {
+  let dx = 0, dz = 0;
+
+  f.wanderTimer -= dt;
+  if (f.wanderTimer <= 0) {
+    f.wanderAng = Math.random() * Math.PI * 2;
+    f.wanderTimer = 1.2 + Math.random() * 1.5;
+  }
+  const wanderW = 0.5;
+  dx += Math.cos(f.wanderAng) * wanderW;
+  dz += Math.sin(f.wanderAng) * wanderW;
+
+  if (S.hand.phase === 'telegraph' || S.hand.phase === 'approach' || S.hand.phase === 'hover') {
+    const ddx = f.x - S.hand.x, ddz = f.z - S.hand.z;
+    const d = Math.max(0.01, Math.hypot(ddx, ddz));
+    if (d < S.hand.zoneR * 2.6) {
+      const urgency = 1 - (d / (S.hand.zoneR * 2.6));
+      dx += (ddx / d) * urgency * 1.6;
+      dz += (ddz / d) * urgency * 1.6;
+    }
+  }
+
+  const distC = Math.hypot(f.x, f.z);
+  const fromEdge = S.plateR - distC;
+  if (fromEdge < 1.2) {
+    const inward = 1 - Math.max(0, fromEdge / 1.2);
+    if (distC > 0.01) {
+      dx += (-f.x / distC) * inward * 1.8;
+      dz += (-f.z / distC) * inward * 1.8;
+    }
+  }
+
+  dx += -S.tilt.x * 0.6;
+  dz += -S.tilt.z * 0.6;
+
+  const sepBoost = 1 + (1 - f.hp / CFG.hpMax) * 1.4;
+  for (const g of S.figs) {
+    if (g === f || !g.alive || g.picked || g.dropping || g.draining) continue;
+    const ddx = f.x - g.x, ddz = f.z - g.z;
+    const d2 = ddx * ddx + ddz * ddz;
+    const sepR = (f.collidR + g.collidR) * 1.7;
+    if (d2 < sepR * sepR && d2 > 0.001) {
+      const d = Math.sqrt(d2);
+      const w = (sepR - d) / sepR * 0.7 * sepBoost;
+      dx += (ddx / d) * w;
+      dz += (ddz / d) * w;
+    }
+  }
+
+  if (f.boldness > 0.45 && f.hp >= 5 && f.invulnT <= 0 &&
+      S.hand.phase !== 'telegraph' && S.hand.phase !== 'descend') {
+    let best = null, bestScore = -1;
+    for (const g of S.figs) {
+      if (g === f || !g.alive || g.picked || g.dropping || g.draining) continue;
+      const ddx = g.x - f.x, ddz = g.z - f.z;
+      const d = Math.hypot(ddx, ddz);
+      if (d < 0.8 || d > 4.5) continue;
+      const score = (1 / d) + (CFG.hpMax - g.hp) * 0.15;
+      if (score > bestScore) { bestScore = score; best = g; }
+    }
+    if (best) {
+      const ddx = best.x - f.x, ddz = best.z - f.z;
+      const d = Math.max(0.01, Math.hypot(ddx, ddz));
+      const w = (f.boldness - 0.45) * 1.6;
+      dx += (ddx / d) * w;
+      dz += (ddz / d) * w;
+    }
+  }
+
+  const len = Math.hypot(dx, dz);
+  const speed = (S.hand.phase === 'telegraph' || S.hand.phase === 'approach' || S.hand.phase === 'hover') ? CFG.fleeSpeed : CFG.botSpeed;
+  if (len > 0.001) {
+    dx = (dx / len) * speed;
+    dz = (dz / len) * speed;
+  }
+  return [dx, dz];
+}
+
+// ============================================================
+// CLAW state machine — same phases as the original hand
+// ============================================================
+function startHand() {
+  if (!handAnim.ready) {
+    S.nextHandAt = S.t + 500;
+    return;
+  }
+  const aliveFigs = S.figs.filter(f => f.alive && !f.picked && !f.dropping);
+  if (aliveFigs.length === 0) return;
+  const zoneR = currentZoneR();
+  S.hand.zoneR = zoneR;
+
+  let target;
+  if (S.firstHand) {
+    let best = null, bestN = -1;
+    for (const a of aliveFigs) {
+      let n = 0;
+      for (const b of aliveFigs) {
+        if (a === b) continue;
+        const d = Math.hypot(a.x - b.x, a.z - b.z);
+        if (d < zoneR * 2.2) n++;
+      }
+      if (n > bestN) { bestN = n; best = a; }
+    }
+    target = best;
+    S.firstHand = false;
+  } else {
+    const weights = aliveFigs.map(a => {
+      let n = 0;
+      for (const b of aliveFigs) {
+        if (a === b) continue;
+        const d = Math.hypot(a.x - b.x, a.z - b.z);
+        if (d < zoneR * 2) n++;
+      }
+      return 1 + n * 1.5;
+    });
+    const total = weights.reduce((s, w) => s + w, 0);
+    let r = Math.random() * total;
+    target = aliveFigs[aliveFigs.length - 1];
+    for (let i = 0; i < aliveFigs.length; i++) {
+      r -= weights[i];
+      if (r <= 0) { target = aliveFigs[i]; break; }
+    }
+  }
+
+  S.hand.target = target;
+  S.hand.x = target.x;
+  S.hand.z = target.z;
+  S.hand.origX = target.x;
+  S.hand.origZ = target.z;
+  S.hand.aimTarget = null;
+  S.hand.phase = 'telegraph';
+  S.hand.t = 0;
+
+  S.hand.telegraphMs = lerp(700, 3300, Math.random());
+  S.hand.cooldownMs  = CFG.handCooldownMs * (0.70 + Math.random() * 0.60);
+  S.hand.approachMs = CFG.handApproachMs * (0.80 + Math.random() * 0.45);
+  S.hand.hoverMs    = CFG.handHoverMs    * (0.55 + Math.random() * 0.90);
+  S.hand.pinchMs    = CFG.handPinchMs    * (0.85 + Math.random() * 0.40);
+  S.hand.liftMs     = CFG.handLiftMs     * (0.90 + Math.random() * 0.25);
+  S.hand.approachArc = 1.0 + Math.random() * 0.8;
+  S.hand.liftArc     = 0.8 + Math.random() * 0.7;
+  S.hand.approachEaseMix = Math.random();
+  S.hand.hoverDriftAmp = Math.random() * 0.06;
+  S.hand.hoverDriftPhase = Math.random() * Math.PI * 2;
+  // claw test-grip plateau parameters (still applies — the claw hesitates briefly)
+  S.hand.holdStart = 0.36 + Math.random() * 0.10;
+  S.hand.holdEnd   = S.hand.holdStart + 0.10 + Math.random() * 0.10;
+  S.hand.holdLevel = 0.62 + Math.random() * 0.16;
+
+  const worldPos = new THREE.Vector3(target.x, CFG.plateThick / 2, target.z);
+  plateGroup.localToWorld(worldPos);
+  handGroup.position.x = worldPos.x;
+  handGroup.position.z = worldPos.z;
+  handGroup.position.y = CFG.handIdleY;
+  // (claw already visible from idle hang — no need to toggle visibility)
+
+  // claw cable hangs straight down; we still vary the assembly's incoming azimuth
+  // so the prong-1 direction varies grab-to-grab and the wrist tilt jitters
+  const azimuth = Math.random() * Math.PI * 2;
+  S.hand.azimuth = azimuth;
+  handGroup.rotation.y = S.hand.azimuth;
+
+  handAnim.tilt.rotation.x = handAnim.baseTiltX + (Math.random() - 0.5) * 0.08;
+  handAnim.tilt.rotation.z = handAnim.baseTiltZ + (Math.random() - 0.5) * 0.08;
+
+  // open all prongs
+  setAllProngs(0);
+
+  reticleGroup.visible = true;
+  reticleGroup.position.set(target.x, 0, target.z);
+}
+
+function currentZoneR() {
+  const a = S.alive;
+  const tt = (CFG.startCount - a) / (CFG.startCount - CFG.podiumCount);
+  const frac = lerp(CFG.zoneMinFrac, CFG.zoneMaxFrac, Math.max(0, Math.min(1, tt)));
+  return S.plateR * frac;
+}
+
+function captureFiguresInZone() {
+  const captured = [];
+  for (const f of S.figs) {
+    if (!f.alive || f.picked || f.dropping || f.draining) continue;
+    const d = Math.hypot(f.x - S.hand.x, f.z - S.hand.z);
+    if (d < S.hand.zoneR) captured.push(f);
+  }
+  for (const f of captured) {
+    f.picked = true;
+    f.pickT = 0;
+    const wp = new THREE.Vector3();
+    const wq = new THREE.Quaternion();
+    f.mesh.getWorldPosition(wp);
+    f.mesh.getWorldQuaternion(wq);
+    f.pickStartX = wp.x;
+    f.pickStartY = wp.y;
+    f.pickStartZ = wp.z;
+    if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
+    scene.add(f.mesh);
+    f.mesh.position.copy(wp);
+    f.mesh.quaternion.copy(wq);
+    eliminate(f, 'picked');
+  }
+  S.hand.captured = captured;
+  if (captured.length > 0) DRIFT.grab();
+}
+
+function updateHand(dt) {
+  if (S.hand.phase === 'idle') {
+    // Claw hangs above the plate between grabs: slow lerp toward a
+    // gently swaying center pose. After a lift, this drifts the claw
+    // back to its idle hang instead of letting it freeze mid-air.
+    const t = performance.now() / 1000;
+    const idleX = Math.sin(t * 0.30) * 0.45;
+    const idleZ = Math.cos(t * 0.27) * 0.35;
+    const idleY = CFG.handIdleY + Math.sin(t * 0.50) * 0.18;
+    const idleYaw = Math.sin(t * 0.22) * 0.12;
+    const k = 1 - Math.exp(-1.4 * dt);
+    handGroup.position.x += (idleX - handGroup.position.x) * k;
+    handGroup.position.y += (idleY - handGroup.position.y) * k;
+    handGroup.position.z += (idleZ - handGroup.position.z) * k;
+    handGroup.rotation.y += (idleYaw - handGroup.rotation.y) * k;
+    handAnim.tilt.rotation.x += (handAnim.baseTiltX - handAnim.tilt.rotation.x) * k;
+    handAnim.tilt.rotation.z += (handAnim.baseTiltZ - handAnim.tilt.rotation.z) * k;
+    setAllProngs(0);
+    return;
+  }
+  S.hand.t += dt * 1000;
+  const tSec = S.hand.t / 1000;
+
+  // predator auto-aim — same logic, just feeding the claw position
+  if (S.hand.phase === 'telegraph' || S.hand.phase === 'approach') {
+    let progress;
+    if (S.hand.phase === 'telegraph') {
+      const tp = Math.min(1, S.hand.t / S.hand.telegraphMs);
+      progress = tp * 0.40;
+    } else {
+      const ap = Math.min(1, S.hand.t / S.hand.approachMs);
+      progress = 0.40 + ap * 0.60;
+    }
+
+    const driftProgress = Math.pow(progress, 1.8);
+    const respProgress  = Math.pow(progress, 1.5);
+
+    const scanR = Math.max(S.plateR * 0.55, S.hand.zoneR * 3.0);
+    const maxDrift = lerp(S.plateR * 0.07, S.plateR * 0.26, driftProgress);
+
+    const moveBias   = lerp(0.4, 1.5, driftProgress);
+    const closenessW = lerp(1.0, 0.5, driftProgress);
+
+    let bestScore = -Infinity, bestX = S.hand.origX, bestZ = S.hand.origZ;
+    for (const f of S.figs) {
+      if (!f.alive || f.picked || f.dropping || f.draining) continue;
+      const dx = f.x - S.hand.origX;
+      const dz = f.z - S.hand.origZ;
+      const d = Math.hypot(dx, dz);
+      if (d > scanR) continue;
+
+      const speed = Math.hypot(f.vx, f.vz);
+      const closeness = 1 - d / scanR;
+
+      let approachDot = 0;
+      if (d > 0.1 && speed > 0.3) {
+        approachDot = -(f.vx * dx + f.vz * dz) / (speed * d);
+        approachDot = Math.max(0, approachDot);
+      }
+
+      const score = closeness * closenessW
+                  + (speed * 0.28) * moveBias
+                  + (approachDot * speed * 0.15) * moveBias;
+      if (score > bestScore) {
+        bestScore = score;
+        bestX = f.x;
+        bestZ = f.z;
+      }
+    }
+
+    let desX = S.hand.origX, desZ = S.hand.origZ;
+    if (bestScore > -Infinity) {
+      const dx = bestX - S.hand.origX;
+      const dz = bestZ - S.hand.origZ;
+      const d = Math.hypot(dx, dz);
+      if (d > 0.001) {
+        const driftMag = Math.min(d, maxDrift);
+        desX = S.hand.origX + (dx / d) * driftMag;
+        desZ = S.hand.origZ + (dz / d) * driftMag;
+      }
+    }
+
+    const respRate = lerp(1.3, 6.0, respProgress);
+    const respK = 1 - Math.exp(-respRate * dt);
+    S.hand.x += (desX - S.hand.x) * respK;
+    S.hand.z += (desZ - S.hand.z) * respK;
+    reticleGroup.position.set(S.hand.x, 0, S.hand.z);
+  }
+
+  // base position math (arc, drift, tremor compose below)
+  const r = Math.hypot(S.hand.x, S.hand.z);
+  const dirX = r > 0.001 ? S.hand.x / r : 1;
+  const dirZ = r > 0.001 ? S.hand.z / r : 0;
+
+  let horizMag = 0;
+  let baseY = CFG.handIdleY;
+  let driftX = 0, driftZ = 0;
+
+  if (S.hand.phase === 'telegraph') {
+    const k = Math.min(1, S.hand.t / S.hand.telegraphMs);
+    horizMag = S.hand.approachArc;
+    baseY = CFG.handIdleY - k * 0.4;
+  } else if (S.hand.phase === 'approach') {
+    const k = Math.min(1, S.hand.t / S.hand.approachMs);
+    const eOut = 1 - (1 - k) * (1 - k);
+    const eInOut = k < 0.5 ? 2 * k * k : 1 - 2 * (1 - k) * (1 - k);
+    const e = lerp(eOut, eInOut, S.hand.approachEaseMix);
+    horizMag = lerp(S.hand.approachArc, 0, e);
+    baseY = lerp(CFG.handIdleY - 0.4, CFG.handGrabY, e);
+  } else if (S.hand.phase === 'hover') {
+    horizMag = 0;
+    baseY = CFG.handGrabY;
+    const k = Math.min(1, S.hand.t / S.hand.hoverMs);
+    const wave = Math.sin(k * Math.PI);
+    driftX = Math.cos(S.hand.hoverDriftPhase) * S.hand.hoverDriftAmp * wave;
+    driftZ = Math.sin(S.hand.hoverDriftPhase) * S.hand.hoverDriftAmp * wave;
+  } else if (S.hand.phase === 'pinch') {
+    horizMag = 0;
+    baseY = CFG.handGrabY;
+  } else if (S.hand.phase === 'lift') {
+    const k = Math.min(1, S.hand.t / S.hand.liftMs);
+    const eY = k * k;
+    const eH = k * k * (3 - 2 * k);
+    horizMag = lerp(0, S.hand.liftArc, eH);
+    baseY = lerp(CFG.handGrabY, CFG.handIdleY + 1.8, eY);
+  }
+
+  let tremorAmp = 0;
+  if (S.hand.phase === 'approach') tremorAmp = 0.008;
+  else if (S.hand.phase === 'hover') tremorAmp = 0.024;
+  else if (S.hand.phase === 'pinch') {
+    const k = S.hand.t / S.hand.pinchMs;
+    tremorAmp = 0.024 * Math.max(0, 1 - k);
+  }
+  const trX = (Math.sin(tSec * 17.3) * 0.6 + Math.sin(tSec * 38.1 + 1.3) * 0.4) * tremorAmp;
+  const trY = (Math.sin(tSec * 21.7 + 0.9) * 0.6 + Math.sin(tSec * 47.5) * 0.4) * tremorAmp;
+  const trZ = (Math.sin(tSec * 14.9 + 2.1) * 0.6 + Math.sin(tSec * 33.7 + 0.4) * 0.4) * tremorAmp;
+
+  const localPos = new THREE.Vector3(
+    S.hand.x + dirX * horizMag + driftX,
+    CFG.plateThick / 2,
+    S.hand.z + dirZ * horizMag + driftZ
+  );
+  plateGroup.localToWorld(localPos);
+  handGroup.position.x = localPos.x + trX;
+  handGroup.position.y = baseY + trY;
+  handGroup.position.z = localPos.z + trZ;
+
+  // phase-specific behavior — prongs, transitions
+  if (S.hand.phase === 'telegraph') {
+    const expandMs = Math.min(S.hand.telegraphMs * 0.40, 700);
+    const k = Math.min(1, S.hand.t / expandMs);
+    const rRet = S.hand.zoneR * k;
+    retFill.scale.set(rRet, rRet, rRet);
+    retOutline.scale.set(rRet, rRet, rRet);
+    const ageK = Math.min(1, S.hand.t / S.hand.telegraphMs);
+    retFill.material.opacity = 0.20 + ageK * 0.18;
+    retOutline.material.opacity = 0.55 + ageK * 0.45;
+    const pulse = 1 + Math.sin(S.hand.t * 0.012) * 0.04 * k;
+    retFill.scale.multiplyScalar(pulse);
+    // anticipation flex — all prongs breathe a small inward twitch
+    const flex = (Math.sin(tSec * 6.2) * 0.5 + 0.5) * 0.10 * k;
+    setAllProngs(flex);
+    if (S.hand.t >= S.hand.telegraphMs) {
+      S.hand.phase = 'approach';
+      S.hand.t = 0;
+    }
+  } else if (S.hand.phase === 'approach') {
+    const k = Math.min(1, S.hand.t / S.hand.approachMs);
+    const wob = Math.sin(tSec * 7.3) * 0.04 * (1 - k);
+    handAnim.tilt.rotation.x = handAnim.baseTiltX + wob;
+    handAnim.tilt.rotation.z = handAnim.baseTiltZ + Math.cos(tSec * 5.8) * 0.03 * (1 - k);
+    const aim = Math.sin(tSec * 4.5) * 0.05 * (1 - k);
+    handGroup.rotation.y = S.hand.azimuth + aim;
+    // hold prongs open during descent
+    setAllProngs(0);
+    if (S.hand.t >= S.hand.approachMs) {
+      S.hand.phase = 'hover';
+      S.hand.t = 0;
+      captureFiguresInZone();
+    }
+  } else if (S.hand.phase === 'hover') {
+    // micro mechanical "breath" — prongs twitch slightly inward as the claw decides
+    const k = Math.min(1, S.hand.t / S.hand.hoverMs);
+    const breath = Math.sin(k * Math.PI) * 0.18;
+    setAllProngs(breath);
+    if (S.hand.t >= S.hand.hoverMs) {
+      S.hand.phase = 'pinch';
+      S.hand.t = 0;
+    }
+  } else if (S.hand.phase === 'pinch') {
+    // Two-stage pinch with test-grip plateau, applied to all three prongs
+    // with tiny per-prong delays so it reads as mechanical, not robotic.
+    const hs = S.hand.holdStart;
+    const he = S.hand.holdEnd;
+    const hl = S.hand.holdLevel;
+    const pinchCurve = (t) => {
+      if (t <= 0) return 0;
+      if (t >= 1) return 1;
+      if (t < hs) return (t / hs) * hl;
+      if (t < he) return hl;
+      return hl + ((t - he) / (1 - he)) * (1 - hl);
+    };
+    const k = S.hand.t / S.hand.pinchMs;
+    const delays = [0, 0.06, 0.12];
+    for (let i = 0; i < handAnim.prongs.length; i++) {
+      const localT = Math.max(0, Math.min(1, (k - delays[i]) / (1 - delays[i])));
+      setProng(i, pinchCurve(localT));
+    }
+    if (S.hand.t >= S.hand.pinchMs) {
+      S.hand.phase = 'lift';
+      S.hand.t = 0;
+    }
+  } else if (S.hand.phase === 'lift') {
+    const k = Math.min(1, S.hand.t / S.hand.liftMs);
+    // slight twist on the cable assembly as it draws up
+    handGroup.rotation.y = S.hand.azimuth + Math.sin(k * Math.PI) * 0.20;
+    handAnim.tilt.rotation.x = handAnim.baseTiltX - k * 0.10;
+    // keep prongs closed during lift
+    setAllProngs(1);
+    const fade = 1 - k;
+    retFill.material.opacity = 0.38 * fade;
+    retOutline.material.opacity = fade;
+    if (S.hand.t >= S.hand.liftMs) {
+      S.hand.phase = 'idle';
+      // Claw stays visible — it drifts back to its idle hang in
+      // the idle branch above.
+      reticleGroup.visible = false;
+      S.nextHandAt = S.t + S.hand.cooldownMs;
+    }
+  }
+}
+
+// ============================================================
+// ELIMINATION + GAME PROGRESS
+// ============================================================
+function eliminate(f, reason) {
+  if (!f.alive) return;
+  f.alive = false;
+  S.alive--;
+  S.eliminated.push({ id: f.id, isPlayer: f.isPlayer, reason, atMs: S.t });
+  DRIFT.onDeath();
+  if (f.isPlayer) {
+    // SPLAT sign + a beat of spectating before results.
+    const splat = document.getElementById('splat');
+    splat.querySelector('.l2').textContent =
+      reason === 'fell' ? 'you fell' : reason === 'drained' ? 'you cracked' : 'the claw got you';
+    splat.classList.add('on');
+    screenShake(0.30, 500);
+    setTimeout(() => splat.classList.remove('on'), 1400);
+  }
+  // Attract mode: no results screen; the bots just play again.
+  if (S.attract) {
+    if (S.alive <= 1) setTimeout(() => { if (S.attract) reset(false); }, 1800);
+    return;
+  }
+  // End the round when the player is out (their placement is already
+  // locked in by elimination order) or when only one figure remains
+  // (the last survivor wins).
+  if (f.isPlayer || S.alive <= CFG.podiumCount) {
+    endGame();
+  }
+}
+
+function endGame() {
+  if (S.phase === 'over') return;
+  S.phase = 'over';
+  Poki.gameplayStop();
+  hideStick();
+
+  // Placement by elimination order: first out placed 10th, last
+  // figure standing placed 1st.
+  let placement;
+  if (S.player && S.player.alive) {
+    placement = 1;
+  } else {
+    const idx = S.eliminated.findIndex(e => e.isPlayer);
+    placement = CFG.startCount - idx;
+  }
+
+  const won = placement === 1;
+  if (won) {
+    saveWin();
+    DRIFT.fanfare();
+    screenShake(0.42, 900);
+    if (discoBall) discoSpin = 10;   // party spin-up
+  }
+  DRIFT.stop(1.2);
+  // Results panel waits so the death splat / win party stays visible.
+  setTimeout(() => showOverlay(placement), won ? 1800 : 1500);
+}
+
+function showHint(text) {
+  const h = document.getElementById('hint');
+  h.textContent = text;
+  h.classList.add('on');
+  clearTimeout(showHint._t);
+  showHint._t = setTimeout(() => h.classList.remove('on'), 1600);
+}
+
+function showOverlay(placement) {
+  const o = document.getElementById('over');
+  const ord = document.getElementById('ord');
+  const stat = document.getElementById('overStat');
+  const ords = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th'];
+  ord.textContent = ords[placement - 1] || (placement + 'th');
+  ord.className = 'ord' + (placement === 1 ? ' win' : '');
+  o.classList.toggle('winner', placement === 1);
+  const sec = Math.floor(S.t / 1000);
+  const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+  const ss = String(sec % 60).padStart(2, '0');
+  stat.textContent = `survived ${mm}:${ss}`;
+  o.classList.add('show');
+}
+
+// ============================================================
+// SHRINK
+// ============================================================
+function maybeShrink(dt) {
+  if (S.t < S.nextShrinkAt) return;
+  const newR = Math.max(CFG.shrinkMin, S.plateR * CFG.shrinkFactor);
+  S.plateR = newR;
+  const targetScale = newR / CFG.plateR0;
+  shrinkTween = { from: plateMesh.scale.x, to: targetScale, t: 0, dur: 0.6 };
+  S.nextShrinkAt = S.t + CFG.shrinkEveryMs;
+  DRIFT.thicken();
+  showHint('the shape shrinks');
+}
+
+let shrinkTween = null;
+function tickShrinkTween(dt) {
+  if (!shrinkTween) return;
+  shrinkTween.t += dt;
+  const k = Math.min(1, shrinkTween.t / shrinkTween.dur);
+  const e = 1 - (1 - k) * (1 - k);
+  const s = lerp(shrinkTween.from, shrinkTween.to, e);
+  plateMesh.scale.set(s, 1, s);
+  plateCollar.scale.set(s, 1, s);
+  reticleGroup.scale.set(1, 1, 1);
+  if (k >= 1) shrinkTween = null;
+}
+
+// ============================================================
+// HUD
+// ============================================================
+const hudStatus = document.getElementById('hud-status');
+const hpRowEl = document.getElementById('hud-hp');
+const hpPipsDom = [];
+for (let i = 0; i < CFG.hpMax; i++) {
+  const pip = document.createElement('span');
+  pip.className = 'hp-pip';
+  pip.textContent = '\u2764\uFE0F';
+  hpRowEl.appendChild(pip);
+  hpPipsDom.push(pip);
+}
+
+function updateHud() {
+  hudStatus.textContent = S.alive + ' alive';
+  if (S.player) {
+    const hp = Math.max(0, S.player.hp);
+    for (let i = 0; i < CFG.hpMax; i++) {
+      hpPipsDom[i].classList.toggle('dead', i >= hp);
+    }
+  }
+}
+
+// ============================================================
+// AMBIENT SCENE TICKS — tunnel rings, disco ball, accent pulses.
+// Always running so the void looks alive on title/over screens too.
+// ============================================================
+function tickAmbient(dt, tSec) {
+  // glass floor breathes faintly so it isn't dead
+  plateTopMat.emissiveIntensity = 0.05 + Math.sin(tSec * 1.8) * 0.03;
+  // edge strip pulses brightness so the silhouette stays alive
+  plateEdgeStrip.material.opacity = 0.85 + Math.sin(tSec * 1.4) * 0.10;
+
+  for (let i = 0; i < tunnelRings.length; i++) {
+    const tr = tunnelRings[i];
+    tr.mesh.rotation.z += dt * tr.spinRate * tr.spinSign;
+    const pulse = 1 + Math.sin(tSec * 1.4 + tr.phase) * 0.06;
+    tr.mesh.scale.set(pulse, pulse, 1);
+    tr.mesh.material.opacity = 0.78 + Math.sin(tSec * 1.8 + tr.phase * 1.3) * 0.10;
+  }
+  // giant solid shapes tumble on all three axes, breathing opacity
+  // around their per-shape base value
+  for (let i = 0; i < giantShapes.length; i++) {
+    const g = giantShapes[i];
+    g.mesh.rotation.x += dt * g.spin.x;
+    g.mesh.rotation.y += dt * g.spin.y;
+    g.mesh.rotation.z += dt * g.spin.z;
+    g.mat.opacity = g.baseOpacity + Math.sin(tSec * 1.3 + g.phase) * 0.08;
+  }
+  if (discoBall) {
+    // let it roll — tumble on all three axes so it never settles.
+    // discoSpin decays back to 1 after the win party spin-up.
+    discoSpin += (1 - discoSpin) * Math.min(1, dt * 0.45);
+    discoBall.rotation.y += dt * 1.45 * discoSpin;
+    discoBall.rotation.x += dt * 0.62 * discoSpin;
+    discoBall.rotation.z += dt * 0.83 * discoSpin;
+  }
+  // accent lights slowly drift in intensity so the room breathes
+  accentRed.intensity     = 0.90 + Math.sin(tSec * 0.9)       * 0.28;
+  accentBlue.intensity    = 0.82 + Math.sin(tSec * 0.7 + 1.4) * 0.26;
+  accentMagenta.intensity = 0.65 + Math.sin(tSec * 1.1 + 2.6) * 0.22;
+  accentCyan.intensity    = 0.65 + Math.sin(tSec * 0.85 + 0.6) * 0.22;
+  accentOrange.intensity  = 0.55 + Math.sin(tSec * 1.2 + 3.8) * 0.20;
+
+  // light beams sway like an unseen lighting rig is working the room
+  for (let i = 0; i < lightBeams.length; i++) {
+    const b = lightBeams[i];
+    b.mesh.rotation.z = Math.sin(tSec * 0.6 + b.phase) * 0.18;
+    b.mesh.rotation.x = Math.cos(tSec * 0.5 + b.phase * 1.3) * 0.16;
+    b.mesh.material.opacity = b.baseOpacity * (0.75 + Math.sin(tSec * 1.6 + b.phase) * 0.25);
+  }
+}
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  const tSec = now / 1000;
+
+  pollKeys();
+  if (S.phase === 'play') {
+    S.t = now - S.startedAt;
+    updateTilt(dt);
+    updateFigures(dt);
+    if (S.hand.phase === 'idle' && S.t >= S.nextHandAt && S.alive > CFG.podiumCount) {
+      startHand();
+    }
+    updateHand(dt);
+    maybeShrink(dt);
+    tickShrinkTween(dt);
+    if (!S.attract) updateHud();
+  } else if (S.phase === 'over' || S.phase === 'countdown') {
+    updateTilt(dt);
+    updateFigures(dt);
+    updateHand(dt);
+    tickShrinkTween(dt);
+    if (S.phase === 'over') updateHud();
+  }
+
+  // Feed the ambient effector: plate tilt is the master knob, the
+  // player's slide speed + edge-closeness add tension on top.
+  {
+    const tiltMag = Math.min(1, Math.hypot(S.tilt.x, S.tilt.z) / CFG.maxTilt);
+    let speed = 0, edge = 0;
+    if (S.player && S.player.alive) {
+      speed = Math.min(1, Math.hypot(S.player.vx, S.player.vz) / 6);
+      edge = Math.min(1, Math.hypot(S.player.x, S.player.z) / Math.max(0.01, S.plateR));
+    }
+    DRIFT.setTilt(S.tilt.x / CFG.maxTilt, S.tilt.z / CFG.maxTilt, tiltMag, speed, edge);
+    // Claw telegraph: rising shimmer synced to the reticle fill.
+    const k = (S.hand.phase === 'telegraph')
+      ? Math.min(1, S.hand.t / CFG.handTelegraphMs) : 0;
+    DRIFT.telegraph(k);
+  }
+
+  tickAmbient(dt, tSec);
+  tickConfetti(dt);
+  fitCameraTarget();
+  tickCamera(dt);
+  SHELL.setCameraBase(camera, camera.position.x, camera.position.y, camera.position.z);
+  tickShake(now);
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+// ============================================================
+// START / RESET
+// ============================================================
+function reset(withPlayer) {
+  for (const f of S.figs) {
+    if (f.mesh.parent) f.mesh.parent.remove(f.mesh);
+  }
+  S.figs = [];
+  S.player = null;
+  S.alive = 0;
+  S.eliminated = [];
+  S.podium = [];
+  S.t = 0;
+  S.startedAt = performance.now();
+  S.plateR = CFG.plateR0;
+  plateMesh.scale.set(1, 1, 1);
+  plateCollar.scale.set(1, 1, 1);
+  S.nextShrinkAt = CFG.shrinkEveryMs;
+  S.nextHandAt = 4500;
+  S.firstHand = true;
+  S.hand = { phase: 'idle', t: 0, x: 0, z: 0, zoneR: 0, target: null, captured: [] };
+  S.tilt = { x: 0, z: 0 };
+  // Claw stays visible across resets — idle hang above the plate.
+  handGroup.visible = true;
+  handGroup.position.set(0, CFG.handIdleY, 0);
+  handGroup.rotation.set(0, 0, 0);
+  reticleGroup.visible = false;
+  shrinkTween = null;
+  camInitialized = false;
+  spawnFigures(withPlayer);
+  S.attract = !withPlayer;
+  S.phase = withPlayer ? 'countdown' : 'play';
+  if (withPlayer) {
+    // blow the walls outward as the first real round begins — the room
+    // scatters, gameplay happens in the cleared void above. Idempotent.
+    explodeRoom();
+  }
+  const over = document.getElementById('over');
+  over.classList.remove('show', 'winner');
+}
+
+// ============================================================
+// GAME FLOW — menu / countdown / round / results, wired through the
+// studio shell. The menu shows the bots playing behind the panel.
+// ============================================================
+function playerHitFX() {
+  // Small shake + a "-1 💔" pop at screen center. Rate-limited by the
+  // i-frame window (this only fires when damage actually applied).
+  screenShake(0.16, 280);
+  const pop = document.getElementById('tile-popup');
+  pop.textContent = '-1 \u{1F494}';
+  pop.style.color = '#ff5a3c';
+  pop.style.transition = 'none';
+  pop.style.opacity = '1';
+  pop.style.transform = 'translate(-50%, -50%) scale(1.1)';
+  requestAnimationFrame(() => {
+    pop.style.transition = 'opacity 0.7s ease-out, transform 0.7s ease-out';
+    pop.style.opacity = '0';
+    pop.style.transform = 'translate(-50%, -60%) scale(0.9)';
+  });
+}
+
+function showMenu() {
+  document.body.classList.add('in-menu');
+  document.getElementById('menu').classList.add('show');
+  document.getElementById('over').classList.remove('show', 'winner');
+  document.getElementById('menu-wins').textContent =
+    loadWins() > 0 ? ('wins: ' + loadWins()) : '';
+  hideStick();
+  if (S.attract !== true || S.phase !== 'play') reset(false);
+}
+
+function startRound() {
+  document.body.classList.remove('in-menu');
+  document.getElementById('menu').classList.remove('show');
+  reset(true);
+  updateHud();
+  // 3-2-1-go over frozen figures; the menu ambient fades out across
+  // the count so silence lands just before "go".
+  DRIFT.stop(2.7);
+  const cd = document.getElementById('countdown');
+  const steps = ['3', '2', '1', 'go!'];
+  let i = 0;
+  cd.classList.add('on');
+  const step = () => {
+    if (i < steps.length) {
+      cd.textContent = steps[i++];
+      setTimeout(step, i === steps.length ? 550 : 900);
+    } else {
+      cd.classList.remove('on');
+      S.phase = 'play';
+      S.startedAt = performance.now();
+      Poki.gameplayStart();
+      DRIFT.roundStart();
+      if (isTouchDevice()) showStickAtRest();
+    }
+  };
+  step();
+}
+
+function isTouchDevice() {
+  return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+}
+
+document.getElementById('btn-play').addEventListener('click', startRound);
+document.getElementById('btn-again').addEventListener('click', () => {
+  // PLAY AGAIN is the ad slot: everything mutes during the break.
+  Poki.commercialBreak().then(startRound);
+});
+document.getElementById('btn-back').addEventListener('click', () => {
+  showMenu();
+  DRIFT.start();
+});
+document.getElementById('btn-howto').addEventListener('click', () => {
+  document.getElementById('howto-modal').classList.add('show');
+});
+
+// ============================================================
+// SHELL INTEGRATION — boot choreography, audio unlock, boombox
+// mute prop, splash readiness.
+// ============================================================
+SHELL.init({
+  storageKey: 'shapestore.wins',
+  bbAssets: { boombox: './boombox.glb', tape: './tape.glb' },
+  isMenu: () => S.phase === 'play' && S.attract || document.getElementById('menu').classList.contains('show'),
+  isPlaying: () => S.phase === 'play' && !S.attract,
+  onBoot: () => {
+    DRIFT.ensure();
+    Poki.init().then(() => {
+      const poll = setInterval(() => {
+        if (document.body.classList.contains('game-ready')) {
+          clearInterval(poll);
+          Poki.gameLoadingFinished();
+        }
+      }, 150);
+    });
+    document.getElementById('howto-modal').classList.add('show');
+    showMenu();
+  },
+  onFirstGesture: () => { DRIFT.unlock(); },
+  isAudioUnlocked: () => DRIFT.running(),
+  onMenuWake: () => { DRIFT.start(); },
+  onUserMute: (m) => { DRIFT.setUserMuted(m); },
+  onAdMute: (m) => { DRIFT.setMuted(m); },
+  splashParts: [
+    () => discoLoaded,
+    () => DRIFT.ready(),
+  ],
+});
+
+requestAnimationFrame(loop);
+
+
+</script>
+</body>
+</html>
