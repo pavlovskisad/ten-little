@@ -72,6 +72,7 @@ const DRIFT = (() => {
   let revSend, convolver;            // the hall (post-master send)
   let halls = [];                    // pre-generated IRs, rolled per round
   let comp, compTrim;                // master glue compressor + trim
+  let eqShelf, softClip;             // de-harsh EQ + warm output saturator
   let delayIn, delayNode, delayFb, delayFilter;  // pluck echoes
   const voices = [];                 // drone stack (faint foundation)
   const figVoices = new Map();       // figure id → continuous shape voice
@@ -161,10 +162,10 @@ const DRIFT = (() => {
   const SHAPE_TIMBRES = {
     cube:       { harmonics: [1, 0, 0.33, 0, 0.2, 0, 0.14], attack: 0.006, decay: 0.35, gain: 0.85, bright: 0.9 },
     sphere:     { harmonics: [1],                            attack: 0.030, decay: 0.70, gain: 1.30, bright: 0.7 },
-    cone:       { harmonics: [1, 0.5, 0.33, 0.25, 0.2, 0.17], attack: 0.005, decay: 0.45, gain: 0.75, bright: 1.25 },
+    cone:       { harmonics: [1, 0.5, 0.33, 0.25, 0.2, 0.17], attack: 0.005, decay: 0.45, gain: 0.75, bright: 1.08 },
     cylinder:   { harmonics: [1, 0, 0.11, 0, 0.04],          attack: 0.015, decay: 0.55, gain: 1.10, bright: 0.85 },
     pyramid:    { harmonics: [1, 0.25, 0.11, 0.06, 0.04],    attack: 0.010, decay: 0.30, gain: 0.95, bright: 0.75 },
-    octahedron: { harmonics: [1, 0, 0, 0.5, 0, 0, 0.33, 0, 0, 0.2], attack: 0.004, decay: 0.95, gain: 0.80, bright: 1.15 },
+    octahedron: { harmonics: [1, 0, 0, 0.5, 0, 0, 0.33, 0, 0, 0.2], attack: 0.004, decay: 0.95, gain: 0.80, bright: 1.02 },
   };
   const waveCache = new Map();
   function shapeWave(type) {
@@ -193,7 +194,7 @@ const DRIFT = (() => {
     o.frequency.value = semiHz(semi);
     const f = ctx.createBiquadFilter();
     f.type = 'lowpass';
-    f.frequency.value = (900 + r * 2600) * tim.bright;
+    f.frequency.value = (750 + r * 1750) * tim.bright;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(peak * tim.gain, t + tim.attack);
@@ -294,9 +295,33 @@ const DRIFT = (() => {
     comp.ratio.value = 3.5;
     comp.attack.value = 0.012;
     comp.release.value = 0.32;
-    compTrim = ctx.createGain(); compTrim.gain.value = 0.88;
-    comp.connect(compTrim);
-    compTrim.connect(adGate);
+    // De-harsh EQ: one broad high-shelf cut takes the sizzle off
+    // every layer at once — synthesized waveforms pile up energy
+    // above ~4kHz that real instruments don't have.
+    eqShelf = ctx.createBiquadFilter();
+    eqShelf.type = 'highshelf';
+    eqShelf.frequency.value = 3600;
+    eqShelf.gain.value = -8;
+    // Warm output saturator: a gentle tanh soft-clip. Anything that
+    // still peaks rounds off like tape instead of digitally clipping.
+    softClip = ctx.createWaveShaper();
+    {
+      const n = 1024;
+      const curve = new Float32Array(n);
+      const drive = 1.4;
+      const norm = Math.tanh(drive);
+      for (let i = 0; i < n; i++) {
+        const x = (i / (n - 1)) * 2 - 1;
+        curve[i] = Math.tanh(x * drive) / norm;
+      }
+      softClip.curve = curve;
+      softClip.oversample = '2x';
+    }
+    compTrim = ctx.createGain(); compTrim.gain.value = 0.62;
+    comp.connect(eqShelf);
+    eqShelf.connect(compTrim);
+    compTrim.connect(softClip);
+    softClip.connect(adGate);
     master.connect(comp);
 
     // The hall: post-master send so the master fade also silences the
@@ -318,7 +343,7 @@ const DRIFT = (() => {
     delayFb = ctx.createGain(); delayFb.gain.value = 0.34;
     delayFilter = ctx.createBiquadFilter();
     delayFilter.type = 'lowpass';
-    delayFilter.frequency.value = 1800;
+    delayFilter.frequency.value = 1350;
     delayIn.connect(delayNode);
     delayNode.connect(delayFilter);
     delayFilter.connect(delayFb);
@@ -627,7 +652,7 @@ const DRIFT = (() => {
     const t = ctx.currentTime;
     master.gain.cancelScheduledValues(t);
     master.gain.setValueAtTime(master.gain.value, t);
-    master.gain.linearRampToValueAtTime(0.85, t + 0.8);
+    master.gain.linearRampToValueAtTime(0.68, t + 0.8);
     startChordDrift();
   }
 
@@ -660,9 +685,9 @@ const DRIFT = (() => {
     // intensity instead of starting at full menu loudness.
     master.gain.cancelScheduledValues(t);
     master.gain.setValueAtTime(master.gain.value, t);
-    master.gain.linearRampToValueAtTime(0.15, t + 0.5);
-    master.gain.linearRampToValueAtTime(0.32, t + 3);
-    master.gain.linearRampToValueAtTime(0.85, t + 30);
+    master.gain.linearRampToValueAtTime(0.14, t + 0.5);
+    master.gain.linearRampToValueAtTime(0.28, t + 3);
+    master.gain.linearRampToValueAtTime(0.68, t + 30);
     startChordDrift();
   }
 
@@ -683,12 +708,12 @@ const DRIFT = (() => {
     const t = ctx.currentTime;
     // Filter: base cutoff opens with tilt; LFO wobbles it deeper +
     // faster as the plate leans. Tau 0.12 keeps it smooth per-frame.
-    const cutoff = 650 + mag * 2400;
+    const cutoff = 600 + mag * 1650;
     bedFilter.frequency.setTargetAtTime(cutoff, t, 0.12);
     lfoGain.gain.setTargetAtTime(mag * 850, t, 0.15);
     lfoOsc.frequency.setTargetAtTime(patch.lfoBase + mag * 5.5, t, 0.2);
     // Resonance: tension whistle as the player nears the edge.
-    bedFilter.Q.setTargetAtTime(1.2 + edge * 4.5, t, 0.2);
+    bedFilter.Q.setTargetAtTime(1.1 + edge * 3.0, t, 0.2);
     // Pan follows tilt direction (gently).
     if (bedPan.pan) bedPan.pan.setTargetAtTime(Math.max(-0.7, Math.min(0.7, tx * 0.7)), t, 0.25);
     // Tremolo deepens with slide speed.
@@ -701,7 +726,7 @@ const DRIFT = (() => {
   // audibly glitters even when the bed itself sits low.
   function setCrowd(energy) {
     if (!built || !running()) return;
-    sparkleBus.gain.setTargetAtTime(0.6 + energy * 1.8, ctx.currentTime, 0.25);
+    sparkleBus.gain.setTargetAtTime(0.45 + energy * 0.85, ctx.currentTime, 0.25);
   }
 
   // Roll a fresh whistle character at the start of each claw cycle:
@@ -713,7 +738,7 @@ const DRIFT = (() => {
       f0: 180 + Math.random() * 380,          // where the rise starts
       span: 500 + Math.random() * 1500,       // how far it climbs
       formant: 0.9 + Math.random() * 1.4,     // bandpass vs pitch ratio
-      peak: 0.012 + Math.random() * 0.040,    // whispered ↔ prominent
+      peak: 0.008 + Math.random() * 0.026,    // whispered ↔ prominent
       curve: 0.6 + Math.random() * 1.3,       // swell shape (k^curve)
     };
     shimmerOsc.type = Math.random() < 0.6 ? 'sine' : 'triangle';
@@ -991,7 +1016,7 @@ const DRIFT = (() => {
     if (!built || !running()) return;
     const t0 = ctx.currentTime + 0.05;
     const out = ctx.createGain();
-    out.gain.value = 0.7;
+    out.gain.value = 0.55;
     out.connect(comp);
     const fanRev = ctx.createGain();
     fanRev.gain.value = 0.35;
