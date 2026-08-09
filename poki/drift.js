@@ -81,6 +81,14 @@ const DRIFT = (() => {
   let sparkles = [];                 // high sine cluster
   let chordTimer = null;
   let chordIdx = 0;
+  // THE GRID — a master clock that glues all low-end events. Step =
+  // half the patch's delay time, so every delay echo lands exactly ON
+  // a grid line. Booms are staged, not fired: they wait for the next
+  // step (max ~0.28s) and same-window bumps collapse into one
+  // accented hit — a beat, not a machine gun.
+  let gridTimer = null;
+  let gridLastSlot = -1;
+  const staged = { bump: 0, heart: 0, claw: 0 };
   let droppedVoices = 0;
   let userMuted = false, adMuted = false;
 
@@ -136,6 +144,8 @@ const DRIFT = (() => {
       // own slow LFO (polyrhythmic swells); 'sparse' = foundation
       // nearly silent, melody + beat carry a minimal round.
       arr: ['drone', 'pulse', 'pulse', 'sparse'][Math.floor(Math.random() * 4)],
+      // grid feel: straight or lightly swung, rolled per round
+      swing: Math.random() < 0.4 ? 0 : 0.10 + Math.random() * 0.12,
       bedMul: 1,          // resolved from arr in applyPatch
       hallIdx: Math.floor(Math.random() * 3),   // room / hall / wash
       filterType: Math.random() < 0.3 ? 'bandpass' : 'lowpass',
@@ -527,6 +537,7 @@ const DRIFT = (() => {
     boomLP.connect(master);
 
     built = true;
+    startGrid();
   }
 
   // ============================================================
@@ -707,6 +718,8 @@ const DRIFT = (() => {
     // detune, sparkle register, delay time, drift pace.
     rollPatch();
     applyPatch();
+    staged.bump = 0; staged.heart = 0; staged.claw = 0;
+    gridLastSlot = -1;
     const t = ctx.currentTime;
     // Restore any voices lost to deaths last round.
     for (const v of voices) {
@@ -810,15 +823,15 @@ const DRIFT = (() => {
   // higher and present. Some hits echo into the beat delay, some
   // land once and vanish. A faint 2nd harmonic keeps a trace of each
   // boom alive on phone speakers.
-  function boom(kind) {
+  function boom(kind, at, accent) {
     if (!built || !running()) return;
-    const t = ctx.currentTime;
+    const t = Math.max(ctx.currentTime, at || ctx.currentTime);
     // Warm and deep: low fundamentals, rounded attack, gentle sine
     // tap instead of a hard knock, long decays.
     const depth = 36 + Math.random() * 24;                  // fundamental Hz
-    const peak = kind === 'heart' ? 0.26 + Math.random() * 0.18
+    const peak = (kind === 'heart' ? 0.26 + Math.random() * 0.18
                : kind === 'claw' ? 0.06 + Math.random() * 0.05
-               : 0.06 + Math.random() * 0.08;               // bump
+               : 0.06 + Math.random() * 0.08) * (accent || 1);  // bump
     const decay = kind === 'heart' ? 0.38 + Math.random() * 0.30
                                    : 0.22 + Math.random() * 0.25;
     // body: pitch-dropping sine, soft bloom instead of a snap
@@ -870,9 +883,45 @@ const DRIFT = (() => {
     k.start(t); k.stop(t + 0.15);
   }
 
-  // The claw touching down is the downbeat, caught or not.
+  // ---- staging: events queue for the next grid step ----
+  function stage(kind) { staged[kind] = (staged[kind] || 0) + 1; }
+
+  function startGrid() {
+    if (gridTimer) return;
+    // 30ms tick with ~0.16s lookahead against ctx.currentTime — the
+    // sampler-scheduler discipline: musical time never touches
+    // wall-clock time.
+    gridTimer = setInterval(() => {
+      if (!built || !running() || !patch) return;
+      if (!staged.bump && !staged.heart && !staged.claw) return;
+      const step = patch.delayTime / 2;
+      const now = ctx.currentTime;
+      const slot = Math.floor((now + 0.16) / step);
+      if (slot <= gridLastSlot) return;
+      let tFire = slot * step;
+      // light swing: odd steps land late by swing*step
+      if (patch.swing && (slot % 2 === 1)) tFire += patch.swing * step;
+      if (tFire <= now) return;   // wait for a slot still in the future
+      gridLastSlot = slot;
+      if (staged.heart > 0) {
+        boom('heart', tFire);
+        staged.heart = 0;
+      }
+      if (staged.bump > 0) {
+        // same-window bumps collapse into ONE accented hit
+        boom('bump', tFire, 1 + 0.35 * (Math.min(staged.bump, 3) - 1));
+        staged.bump = 0;
+      }
+      if (staged.claw > 0) {
+        boom('claw', tFire);
+        staged.claw = 0;
+      }
+    }, 30);
+  }
+
+  // The claw touching down joins the grid like everything else.
   function clawLand(caught) {
-    boom('claw');
+    stage('claw');
   }
 
   // ---- events ----
@@ -908,7 +957,7 @@ const DRIFT = (() => {
     if (!built || !running()) return semi;
     const t = ctx.currentTime;
     const peak = isPlayer ? 0.065 : 0.032;
-    if (Math.random() < 0.35) boom('bump');
+    stage('bump');
     shapeVoice(shapeA || 'sphere', semi, peak, r, pan, t);
     if (shapeB) {
       // harmony: two scale steps up, a hair later, slightly softer,
@@ -958,7 +1007,7 @@ const DRIFT = (() => {
   // note map, so even healing is part of the tune.
   function pickup(nx, nz) {
     if (!built || !running()) return;
-    boom('heart');
+    stage('heart');
     const sn = spatialNote(nx || 0, nz || 0);
     const t0 = ctx.currentTime;
     const idx = patch.pent.indexOf(sn.semi > 12 ? sn.semi - 12 : (sn.semi < 0 ? sn.semi + 12 : sn.semi));
