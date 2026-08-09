@@ -136,14 +136,14 @@ const DRIFT = (() => {
       sparkleOct: Math.random() < 0.5 ? 0 : 12, // sparkle register
       lfoBase: 0.3 + Math.random() * 0.3,       // wobble at rest
       delayTime: DELAY_TIMES[Math.floor(Math.random() * DELAY_TIMES.length)],
-      driftMs: 12000 + Math.random() * 10000,   // chord change pace
+      driftMs: 9000 + Math.random() * 8000,     // chord change pace
       pluckWave: Math.random() < 0.6 ? 'triangle' : 'sine',
       // ARRANGEMENT — the round's texture architecture, not just its
       // harmony. 'drone' = full sustained bed (the original feel);
       // 'pulse' = foundation cut back, every crowd voice gated by its
       // own slow LFO (polyrhythmic swells); 'sparse' = foundation
       // nearly silent, melody + beat carry a minimal round.
-      arr: ['drone', 'pulse', 'pulse', 'sparse'][Math.floor(Math.random() * 4)],
+      arr: ['pulse', 'pulse', 'sparse'][Math.floor(Math.random() * 3)],
       // grid feel: straight or lightly swung, rolled per round
       swing: Math.random() < 0.4 ? 0 : 0.10 + Math.random() * 0.12,
       bedMul: 1,          // resolved from arr in applyPatch
@@ -389,7 +389,7 @@ const DRIFT = (() => {
     // the engine, not the engine itself. A faint dry path keeps just
     // enough presence to anchor it. (Distance + blur in one move.)
     bedDry = ctx.createGain();
-    bedDry.gain.value = 0.32;
+    bedDry.gain.value = 0.26;
     bedPan.connect(bedDry);
     bedDry.connect(master);
     washDelayNode = ctx.createDelay(2.0);
@@ -405,6 +405,18 @@ const DRIFT = (() => {
     washFb.connect(washDelayNode);
     washLP.connect(washOut);
     washOut.connect(master);
+
+    // Autonomous cutoff wander: a very slow LFO drifts the bed's
+    // tone ±150Hz on its own, so a calm plate still slowly moves —
+    // the tilt wobble rides on top of this.
+    const wanderO = ctx.createOscillator();
+    wanderO.type = 'sine';
+    wanderO.frequency.value = 0.055;
+    const wanderG = ctx.createGain();
+    wanderG.gain.value = 150;
+    wanderO.connect(wanderG);
+    wanderG.connect(bedFilter.frequency);
+    wanderO.start(t);
 
     // Filter wobble LFO — rate + depth driven by tilt
     lfoOsc = ctx.createOscillator();
@@ -434,7 +446,7 @@ const DRIFT = (() => {
       const g = ctx.createGain();
       // Faint foundation only — the per-figure voices carry the
       // texture; the drones just glue the harmony underneath.
-      g.gain.value = [0.085, 0.06, 0.04, 0.03][i];
+      g.gain.value = [0.055, 0.038, 0.026, 0.019][i];
       const oA = ctx.createOscillator();
       const oB = ctx.createOscillator();
       oA.type = patch.waves[0]; oB.type = patch.waves[1];
@@ -458,7 +470,7 @@ const DRIFT = (() => {
     const sub = ctx.createOscillator();
     sub.type = 'sine';
     sub.frequency.value = semiHz(chord[0]) / 2;
-    const subG = ctx.createGain(); subG.gain.value = 0.07;
+    const subG = ctx.createGain(); subG.gain.value = 0.05;
     sub.connect(subG); subG.connect(bedBus);
     sub.start(t);
     voices.sub = sub;
@@ -514,7 +526,12 @@ const DRIFT = (() => {
     shimmerOsc.connect(shimmerFilter);
     shimmerOsc2.connect(shimmerFilter);
     shimmerFilter.connect(shimmerGain);
-    shimmerGain.connect(master);
+    // the whistle sings from the room, not the foreground: reduced
+    // dry, extra wet via the dream path
+    const shimDry = ctx.createGain(); shimDry.gain.value = 0.55;
+    shimmerGain.connect(shimDry);
+    shimDry.connect(master);
+    shimmerGain.connect(dreamSend);
     shimmerGain.connect(shimEcho);
     shimEcho.connect(delayIn);
     shimmerOsc.start(t); shimmerOsc2.start(t);
@@ -628,11 +645,13 @@ const DRIFT = (() => {
       if (!ctx) return;
       if (!v.dropped) {
         const t = ctx.currentTime;
-        const target = v.base * (0.65 + Math.random() * 0.7);
+        // deep ebb: voices sink to near-silence and swell back on
+        // their own cycles — the foundation undulates, never holds
+        const target = v.base * (0.30 + Math.random() * 0.95);
         const glide = 3 + Math.random() * 5;
         v.g.gain.setTargetAtTime(target, t, glide / 3);
       }
-      setTimeout(cycle, 6000 + Math.random() * 6000);
+      setTimeout(cycle, 5000 + Math.random() * 5000);
     };
     setTimeout(cycle, i * 2100 + Math.random() * 1500);
   }
@@ -784,7 +803,7 @@ const DRIFT = (() => {
       f0: 180 + Math.random() * 380,          // where the rise starts
       span: 500 + Math.random() * 1500,       // how far it climbs
       formant: 0.9 + Math.random() * 1.4,     // bandpass vs pitch ratio
-      peak: 0.005 + Math.random() * 0.017,    // whispered ↔ prominent
+      peak: 0.004 + Math.random() * 0.012,    // whispered ↔ prominent
       curve: 0.6 + Math.random() * 1.3,       // swell shape (k^curve)
     };
     shimmerOsc.type = Math.random() < 0.6 ? 'sine' : 'triangle';
@@ -1039,23 +1058,31 @@ const DRIFT = (() => {
   function grab() {
     if (!built || !running()) return;
     const t = ctx.currentTime;
-    // Downward sweep
+    // Duck the bed for a beat — the grab is always FELT as a dip
+    bedBus.gain.setTargetAtTime(0.45, t, 0.05);
+    bedBus.gain.setTargetAtTime(0.9, t + 0.35, 0.3);
+    // The sweep itself is rolled per grab (waveform, range, length,
+    // tone, level) and sometimes absent entirely — the duck alone
+    // carries those grabs. Distant via the dream path.
+    if (Math.random() < 0.30) return;
     const o = ctx.createOscillator();
-    o.type = 'sawtooth';
-    o.frequency.setValueAtTime(880, t);
-    o.frequency.exponentialRampToValueAtTime(110, t + 0.5);
+    o.type = Math.random() < 0.6 ? 'triangle' : 'sawtooth';
+    const f0 = 480 + Math.random() * 500;
+    const f1 = 90 + Math.random() * 110;
+    const dur = 0.35 + Math.random() * 0.35;
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f1, t + dur);
     const g = ctx.createGain();
-    g.gain.setValueAtTime(0.055, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+    g.gain.setValueAtTime(0.024 + Math.random() * 0.020, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur + 0.05);
     const f = ctx.createBiquadFilter();
-    f.type = 'lowpass'; f.frequency.value = 1600;
+    f.type = 'lowpass';
+    f.frequency.value = 900 + Math.random() * 900;
     o.connect(f); f.connect(g);
     g.connect(master);
     g.connect(delayIn);
-    o.start(t); o.stop(t + 0.6);
-    // Duck the bed for a beat
-    bedBus.gain.setTargetAtTime(0.45, t, 0.05);
-    bedBus.gain.setTargetAtTime(0.9, t + 0.35, 0.3);
+    g.connect(dreamSend);
+    o.start(t); o.stop(t + dur + 0.1);
   }
 
   function onDeath() {
