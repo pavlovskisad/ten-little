@@ -556,6 +556,18 @@ const KAOSS = (() => {
   const NOTE_HUES = { 12: 0, 15: 36, 17: 72, 19: 130, 22: 175, 24: 210, 27: 250, 29: 285, 31: 320, 34: 350 };
 
   const blobs = [];   // {u, v, hue, sat, age, life, r}
+  // per-figure touch color: the shape's own tint, converted once
+  const hueCache = new Map();
+  const _hsl = { h: 0, s: 0, l: 0 };
+  function figHue(f) {
+    let h = hueCache.get(f.baseColor);
+    if (h === undefined) {
+      new THREE.Color(f.baseColor).getHSL(_hsl);
+      h = _hsl.h * 360;
+      hueCache.set(f.baseColor, h);
+    }
+    return h;
+  }
   const MAX_BLOBS = 24;
   let washHue = CHORD_HUES[0];
 
@@ -605,6 +617,22 @@ const KAOSS = (() => {
     while (d < -180) d += 360;
     washHue = (washHue + d * Math.min(1, dt * 0.5) + 360) % 360;
     paintBlob(SIZE / 2, SIZE / 2, SIZE * 0.52, washHue, 65, 0.028);
+
+    // Every figure is a finger on the multitouch surface: a small
+    // glow in that shape's own color, riding exactly under it. It
+    // brightens + grows with slide speed (rubbing the pad) and the
+    // afterglow turns motion into comet trails. The player's touch
+    // runs brighter so you always find yourself, wherever you are
+    // relative to the main pressure.
+    for (const f of S.figs) {
+      if (!f.alive || f.picked || f.dropping || f.draining) continue;
+      const [u, v] = uv(f.x, f.z);
+      const spd = Math.min(1, Math.hypot(f.vx, f.vz) / 6);
+      const hue = figHue(f);
+      const r = (f.isPlayer ? 0.055 : 0.042) * (1 + spd * 0.9) * SIZE;
+      const alpha = (f.isPlayer ? 0.22 : 0.11) + spd * (f.isPlayer ? 0.30 : 0.16);
+      paintBlob(u, v, r, hue, 90, alpha);
+    }
 
     // The "finger": the crowd's centre of weight on the pad. Its
     // pulse rate mirrors the wobble LFO (0.4Hz flat → ~6Hz leaned).
@@ -2280,6 +2308,14 @@ function loop(now) {
       edge = Math.min(1, Math.hypot(S.player.x, S.player.z) / Math.max(0.01, S.plateR));
     }
     DRIFT.setTilt(S.tilt.x / CFG.maxTilt, S.tilt.z / CFG.maxTilt, tiltMag, speed, edge);
+    // Crowd energy: mean slide speed of everyone still standing.
+    let crowd = 0, aliveN = 0;
+    for (const f of S.figs) {
+      if (!f.alive || f.picked || f.dropping || f.draining) continue;
+      crowd += Math.min(1, Math.hypot(f.vx, f.vz) / 6);
+      aliveN++;
+    }
+    DRIFT.setCrowd(aliveN ? crowd / aliveN : 0);
     // Claw telegraph: rising shimmer synced to the reticle fill.
     const k = (S.hand.phase === 'telegraph')
       ? Math.min(1, S.hand.t / CFG.handTelegraphMs) : 0;

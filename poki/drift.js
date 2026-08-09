@@ -52,6 +52,7 @@ const DRIFT = (() => {
   let lfoOsc, lfoGain;               // filter wobble LFO
   let tremOsc, tremDepth;            // tremolo LFO
   let shimmerOsc, shimmerGain;       // claw telegraph riser
+  let sparkleBus;                    // crowd energy scales the air
   const voices = [];                 // drone stack
   let sparkles = [];                 // high sine cluster
   let chordTimer = null;
@@ -145,14 +146,18 @@ const DRIFT = (() => {
     }
 
     // Sparkle cluster: three quiet high sines with slow independent
-    // drift — reads as air, not melody
+    // drift — reads as air, not melody. All routed through sparkleBus
+    // so the crowd's total scramble can brighten the air as one knob.
+    sparkleBus = ctx.createGain();
+    sparkleBus.gain.value = 0.7;
+    sparkleBus.connect(bedFilter);
     for (let i = 0; i < 3; i++) {
       const o = ctx.createOscillator();
       o.type = 'sine';
       o.frequency.value = semiHz(24 + i * 7) * (1 + Math.random() * 0.01);
       const g = ctx.createGain();
       g.gain.value = 0.0;
-      o.connect(g); g.connect(bedFilter);
+      o.connect(g); g.connect(sparkleBus);
       o.start(t);
       sparkles.push({ o, g, phase: Math.random() * Math.PI * 2 });
       scheduleSparkle(sparkles[i], i);
@@ -288,6 +293,14 @@ const DRIFT = (() => {
     // Tremolo deepens with slide speed.
     tremDepth.gain.setTargetAtTime(speed * 0.45, t, 0.15);
     tremOsc.frequency.setTargetAtTime(4 + speed * 5, t, 0.2);
+  }
+
+  // Crowd energy (0..1): how hard the whole field is scrambling.
+  // Fed per-frame; brightens the sparkle layer so a panicking plate
+  // audibly glitters even when the bed itself sits low.
+  function setCrowd(energy) {
+    if (!built || !running()) return;
+    sparkleBus.gain.setTargetAtTime(0.6 + energy * 1.8, ctx.currentTime, 0.25);
   }
 
   function telegraph(k) {
@@ -453,7 +466,7 @@ const DRIFT = (() => {
     ensure, unlock, running, ready, state,
     start, stop, roundStart,
     setMuted, setUserMuted,
-    setTilt, telegraph,
+    setTilt, setCrowd, telegraph,
     pluck, grab, onDeath, thicken, fanfare,
   };
 })();
