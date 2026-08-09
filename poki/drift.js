@@ -75,6 +75,7 @@ const DRIFT = (() => {
   let comp, compTrim;                // master glue compressor + trim
   let eqShelf, softClip;             // de-harsh EQ + warm output saturator
   let delayIn, delayNode, delayFb, delayFilter;  // pluck echoes
+  let bedDry, washDelayNode, washFb, washLP, washOut;  // the bed's wash
   const voices = [];                 // drone stack (faint foundation)
   const figVoices = new Map();       // figure id → continuous shape voice
   let sparkles = [];                 // high sine cluster
@@ -238,7 +239,9 @@ const DRIFT = (() => {
     lfoOsc.frequency.setTargetAtTime(patch.lfoBase, t, 0.5);
     delayNode.delayTime.setTargetAtTime(patch.delayTime, t, 0.3);
     boomDelayNode.delayTime.setTargetAtTime(patch.delayTime * 1.5, t, 0.3);
-    boomFb.gain.setTargetAtTime(0.62 + Math.random() * 0.13, t, 0.3);
+    boomFb.gain.setTargetAtTime(0.55 + Math.random() * 0.11, t, 0.3);
+    washDelayNode.delayTime.setTargetAtTime(patch.delayTime * 1.35, t, 0.4);
+    washFb.gain.setTargetAtTime(0.44 + Math.random() * 0.13, t, 0.4);
     // texture architecture: scale the drone foundation by arrangement,
     // swap the room, swap the master filter's character
     for (const v of voices) {
@@ -342,7 +345,7 @@ const DRIFT = (() => {
     // path on top of their reduced dry level: distance IS the
     // wet/dry ratio, so they sing from the back of the room
     dreamSend = ctx.createGain();
-    dreamSend.gain.value = 0.85;
+    dreamSend.gain.value = 0.72;
     dreamSend.connect(convolver);
 
     // Pluck echo: filtered feedback delay. Echoes obey the master
@@ -371,7 +374,27 @@ const DRIFT = (() => {
     bedBus.connect(tremGain);
     tremGain.connect(bedFilter);
     bedFilter.connect(bedPan);
-    bedPan.connect(master);
+    // THE WASH — the crowd bed reaches the mix mostly through a slow
+    // lowpassed feedback delay: you hear the smeared, wavy TAIL of
+    // the engine, not the engine itself. A faint dry path keeps just
+    // enough presence to anchor it. (Distance + blur in one move.)
+    bedDry = ctx.createGain();
+    bedDry.gain.value = 0.32;
+    bedPan.connect(bedDry);
+    bedDry.connect(master);
+    washDelayNode = ctx.createDelay(2.0);
+    washDelayNode.delayTime.value = 0.58;
+    washLP = ctx.createBiquadFilter();
+    washLP.type = 'lowpass';
+    washLP.frequency.value = 850;
+    washFb = ctx.createGain(); washFb.gain.value = 0.5;
+    washOut = ctx.createGain(); washOut.gain.value = 0.85;
+    bedPan.connect(washDelayNode);
+    washDelayNode.connect(washLP);
+    washLP.connect(washFb);
+    washFb.connect(washDelayNode);
+    washLP.connect(washOut);
+    washOut.connect(master);
 
     // Filter wobble LFO — rate + depth driven by tilt
     lfoOsc = ctx.createOscillator();
@@ -496,7 +519,7 @@ const DRIFT = (() => {
     boomLP = ctx.createBiquadFilter();
     boomLP.type = 'lowpass';
     boomLP.frequency.value = 400;
-    boomFb = ctx.createGain(); boomFb.gain.value = 0.66;
+    boomFb = ctx.createGain(); boomFb.gain.value = 0.60;
     boomIn.connect(boomDelayNode);
     boomDelayNode.connect(boomLP);
     boomLP.connect(boomFb);
