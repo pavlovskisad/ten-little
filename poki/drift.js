@@ -233,7 +233,7 @@ const DRIFT = (() => {
     lfoOsc.frequency.setTargetAtTime(patch.lfoBase, t, 0.5);
     delayNode.delayTime.setTargetAtTime(patch.delayTime, t, 0.3);
     boomDelayNode.delayTime.setTargetAtTime(patch.delayTime * 1.5, t, 0.3);
-    boomFb.gain.setTargetAtTime(0.42 + Math.random() * 0.18, t, 0.3);
+    boomFb.gain.setTargetAtTime(0.62 + Math.random() * 0.13, t, 0.3);
     // texture architecture: scale the drone foundation by arrangement,
     // swap the room, swap the master filter's character
     for (const v of voices) {
@@ -460,8 +460,8 @@ const DRIFT = (() => {
     boomDelayNode.delayTime.value = 0.63;
     boomLP = ctx.createBiquadFilter();
     boomLP.type = 'lowpass';
-    boomLP.frequency.value = 520;
-    boomFb = ctx.createGain(); boomFb.gain.value = 0.45;
+    boomLP.frequency.value = 400;
+    boomFb = ctx.createGain(); boomFb.gain.value = 0.66;
     boomIn.connect(boomDelayNode);
     boomDelayNode.connect(boomLP);
     boomLP.connect(boomFb);
@@ -755,56 +755,61 @@ const DRIFT = (() => {
   function boom(kind) {
     if (!built || !running()) return;
     const t = ctx.currentTime;
-    const depth = 42 + Math.random() * 38;                  // fundamental Hz
-    const peak = kind === 'claw' ? 0.24 + Math.random() * 0.22
-               : kind === 'heart' ? 0.08 + Math.random() * 0.07
-               : 0.06 + Math.random() * 0.09;               // bump
-    const decay = 0.20 + Math.random() * 0.28;
-    // body: pitch-dropping sine
+    // Warm and deep: low fundamentals, rounded attack, gentle sine
+    // tap instead of a hard knock, long decays.
+    const depth = 36 + Math.random() * 24;                  // fundamental Hz
+    const peak = kind === 'heart' ? 0.26 + Math.random() * 0.18
+               : kind === 'claw' ? 0.10 + Math.random() * 0.08
+               : 0.06 + Math.random() * 0.08;               // bump
+    const decay = kind === 'heart' ? 0.38 + Math.random() * 0.30
+                                   : 0.22 + Math.random() * 0.25;
+    // body: pitch-dropping sine, soft bloom instead of a snap
     const o = ctx.createOscillator();
     o.type = 'sine';
-    o.frequency.setValueAtTime(depth * 2.4, t);
-    o.frequency.exponentialRampToValueAtTime(depth, t + 0.05 + Math.random() * 0.06);
-    // knock: fast mid-range sweep gives the attack a face on any speaker
+    o.frequency.setValueAtTime(depth * 2.0, t);
+    o.frequency.exponentialRampToValueAtTime(depth, t + 0.07 + Math.random() * 0.06);
+    // tap: rounded sine sweep, quiet — warmth, not click
     const k = ctx.createOscillator();
-    k.type = 'triangle';
-    k.frequency.setValueAtTime(300 + Math.random() * 160, t);
-    k.frequency.exponentialRampToValueAtTime(depth * 1.5, t + 0.035);
+    k.type = 'sine';
+    k.frequency.setValueAtTime(170 + Math.random() * 90, t);
+    k.frequency.exponentialRampToValueAtTime(depth * 1.4, t + 0.05);
     const kG = ctx.createGain();
-    kG.gain.setValueAtTime(peak * 0.7, t);
-    kG.gain.exponentialRampToValueAtTime(0.0008, t + 0.09);
+    kG.gain.setValueAtTime(peak * 0.4, t);
+    kG.gain.exponentialRampToValueAtTime(0.0008, t + 0.12);
     // harmonic: keeps a trace of the sub alive on phone speakers
     const h = ctx.createOscillator();
     h.type = 'sine';
     h.frequency.value = depth * 2;
-    const hG = ctx.createGain(); hG.gain.value = 0.35;
+    const hG = ctx.createGain(); hG.gain.value = 0.40;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(peak, t + 0.008);
+    g.gain.linearRampToValueAtTime(peak, t + 0.016);
     g.gain.exponentialRampToValueAtTime(0.0008, t + decay);
     o.connect(g);
     h.connect(hG); hG.connect(g);
     k.connect(kG); kG.connect(master);
     g.connect(master);
-    // claw booms ALWAYS enter the beat delay (a dependable downbeat
-    // train); bumps sometimes sprinkle into it
-    if (kind === 'claw' || Math.random() < 0.4) {
+    // THE HEARTBEAT: catching a life is the downbeat. Heart booms
+    // always enter the beat delay at full send — one pickup rolls a
+    // long decaying pulse train. Bumps sprinkle in sometimes; the
+    // claw's touchdown thud stays out of the sequence.
+    if (kind === 'heart' || (kind === 'bump' && Math.random() < 0.35)) {
       const send = ctx.createGain();
-      send.gain.value = kind === 'claw' ? 0.75 : 0.45 + Math.random() * 0.3;
+      send.gain.value = kind === 'heart' ? 0.85 : 0.4 + Math.random() * 0.3;
       g.connect(send);
       send.connect(boomIn);
     }
-    // SIDECHAIN: a claw boom pumps the whole bed down for a beat —
-    // this is what makes the kick FELT, not just heard.
-    if (kind === 'claw') {
+    // SIDECHAIN: the heartbeat pumps the whole bed down and lets it
+    // swell back — this is what makes the beat FELT, not just heard.
+    if (kind === 'heart') {
       bedBus.gain.cancelScheduledValues(t);
       bedBus.gain.setValueAtTime(bedBus.gain.value, t);
-      bedBus.gain.linearRampToValueAtTime(0.42, t + 0.03);
-      bedBus.gain.setTargetAtTime(0.9, t + 0.16, 0.28);
+      bedBus.gain.linearRampToValueAtTime(0.40, t + 0.04);
+      bedBus.gain.setTargetAtTime(0.9, t + 0.20, 0.30);
     }
     o.start(t); o.stop(t + decay + 0.1);
     h.start(t); h.stop(t + decay + 0.1);
-    k.start(t); k.stop(t + 0.12);
+    k.start(t); k.stop(t + 0.15);
   }
 
   // The claw touching down is the downbeat, caught or not.
@@ -894,7 +899,7 @@ const DRIFT = (() => {
   // note map, so even healing is part of the tune.
   function pickup(nx, nz) {
     if (!built || !running()) return;
-    if (Math.random() < 0.6) boom('heart');
+    boom('heart');
     const sn = spatialNote(nx || 0, nz || 0);
     const t0 = ctx.currentTime;
     const idx = patch.pent.indexOf(sn.semi > 12 ? sn.semi - 12 : (sn.semi < 0 ? sn.semi + 12 : sn.semi));
