@@ -188,7 +188,7 @@
 <div id="hint"></div>
 <div id="countdown">3</div>
 <div id="tile-popup"></div>
-<div id="splat"><span class="l1">splat!</span><span class="l2">you fell</span></div>
+<div id="splat"><span class="l1">💥</span><span class="l2">💀</span></div>
 
 <div id="stick"><div id="stick-knob"></div></div>
 
@@ -2347,9 +2347,10 @@ function eliminate(f, reason) {
   KAOSS.death(f.x, f.z);
   if (f.isPlayer) {
     // SPLAT sign + a beat of spectating before results.
+    // wordless: 💥 on top, then [how you died] → 💀 beneath
     const splat = document.getElementById('splat');
     splat.querySelector('.l2').textContent =
-      reason === 'fell' ? 'you fell' : reason === 'drained' ? 'you cracked' : 'the claw got you';
+      reason === 'fell' ? '⬇️💀' : reason === 'drained' ? '💔💀' : '🤏💀';
     splat.classList.add('on');
     screenShake(0.30, 500);
     setTimeout(() => splat.classList.remove('on'), 1400);
@@ -2435,7 +2436,7 @@ function maybeShrink(dt) {
   S.nextShrinkAt = S.t + CFG.shrinkEveryMs;
   DRIFT.thicken();
   KAOSS.shrinkPulse();
-  showHint('the shape shrinks');
+  showHint('⚠️ ⭕→⚫');
 }
 
 let shrinkTween = null;
@@ -2717,7 +2718,7 @@ function showMenu() {
   document.getElementById('menu').classList.add('show');
   document.getElementById('over').classList.remove('show', 'winner');
   document.getElementById('menu-wins').textContent =
-    loadWins() > 0 ? ('wins: ' + loadWins()) : '';
+    loadWins() > 0 ? ('🏆 ' + loadWins()) : '';
   hideStick();
   if (S.attract !== true || S.phase !== 'play') reset(false);
 }
@@ -2739,7 +2740,7 @@ function startRound() {
   Poki.gameplayStart();
   if (isTouchDevice()) showStickAtRest();
   const cd = document.getElementById('countdown');
-  cd.textContent = 'go!';
+  cd.textContent = '🏁';
   cd.classList.add('on');
   setTimeout(() => cd.classList.remove('on'), 650);
 }
