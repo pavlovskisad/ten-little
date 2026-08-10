@@ -830,6 +830,10 @@ const wallCubes = [];
       cube.rotation.y = (Math.random() - 0.5) * 0.10;
       cube.castShadow = true;
       cube.receiveShadow = true;
+      cube.userData.home = {
+        pos: cube.position.clone(),
+        rotY: cube.rotation.y,
+      };
       roomGroup.add(cube);
       wallCubes.push(cube);
     }
@@ -855,10 +859,28 @@ const wallCubes = [];
       cube.rotation.y = (Math.random() - 0.5) * 0.12;
       cube.castShadow = true;
       cube.receiveShadow = true;
+      cube.userData.home = {
+        pos: cube.position.clone(),
+        rotY: cube.rotation.y,
+      };
       roomGroup.add(cube);
       wallCubes.push(cube);
     }
   }
+}
+
+// Restack the wall — every trip back to the menu rebuilds it, so
+// every round start gets its own explosion (and its own granular
+// debris cascade; the random scatter makes each one unique).
+function rebuildWall() {
+  for (const cube of wallCubes) {
+    const home = cube.userData.home;
+    cube.position.copy(home.pos);
+    cube.rotation.set(0, home.rotY, 0);
+    cube.visible = true;
+  }
+  confetti.active = false;
+  confetti.cubes = [];
 }
 
 // ============================================================
@@ -893,6 +915,7 @@ function tickConfetti(dt) {
   if (!confetti.active) return;
   confetti.t += dt;
   const g = 14; // gravity
+  let grainCount = 0;
   for (const c of confetti.cubes) {
     if (!c.mesh.visible) continue;
     c.vy -= g * dt;
@@ -902,6 +925,20 @@ function tickConfetti(dt) {
     c.mesh.rotation.x += c.rx * dt;
     c.mesh.rotation.y += c.ry * dt;
     c.mesh.rotation.z += c.rz * dt;
+    // Each cube sings one grain as it plummets past the plate level:
+    // pan from where it crossed, pitch from how fast it was falling.
+    // Sampled (1 in 4) + DRIFT-side rate cap keep it a texture, not
+    // a wall of static. Random trajectories = unique cascade.
+    if (!c.grained && c.mesh.position.y < -4) {
+      c.grained = true;
+      if ((c.seed === undefined ? (c.seed = Math.random()) : c.seed) < 0.25 && grainCount < 3) {
+        grainCount++;
+        DRIFT.grain(
+          (c.mesh.position.x + 18) / 36,
+          Math.min(1, Math.abs(c.vy) / 20),
+        );
+      }
+    }
     // once a cube has fallen well past the tunnel, hide it so we
     // stop integrating it. The pieces are gone visually anyway.
     if (c.mesh.position.y < -50) c.mesh.visible = false;
@@ -2653,6 +2690,7 @@ function playerHealFX() {
 }
 
 function showMenu() {
+  rebuildWall();
   document.body.classList.add('in-menu');
   document.getElementById('menu').classList.add('show');
   document.getElementById('over').classList.remove('show', 'winner');
