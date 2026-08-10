@@ -79,6 +79,8 @@ const DRIFT = (() => {
   let bedDry, washDelayNode, washFb, washLP, washOut;  // the bed's wash
   let grainNoise = null;             // shared noise buffer for debris grains
   let grainBudget = 0, grainBudgetT = 0;  // rate limiter
+  let flybyTimer = null;             // the occasional passing thing
+  let lastTiltX = 0;                 // flybys fly along the lean
   const voices = [];                 // drone stack (faint foundation)
   const figVoices = new Map();       // figure id → continuous shape voice
   let sparkles = [];                 // high sine cluster
@@ -572,6 +574,7 @@ const DRIFT = (() => {
 
     built = true;
     startGrid();
+    scheduleFlyby();
   }
 
   // ============================================================
@@ -805,6 +808,7 @@ const DRIFT = (() => {
     // Resonance: tension whistle as the player nears the edge.
     bedFilter.Q.setTargetAtTime(1.1 + edge * edge * 2.0, t, 0.2);
     // Pan follows tilt direction (gently).
+    lastTiltX = tx;
     if (bedPan.pan) bedPan.pan.setTargetAtTime(Math.max(-0.7, Math.min(0.7, tx * 0.7)), t, 0.25);
     // Tremolo deepens with slide speed.
     tremDepth.gain.setTargetAtTime(speed * 0.45, t, 0.15);
@@ -966,6 +970,89 @@ const DRIFT = (() => {
     tail.connect(echo);
     echo.connect(delayIn);
     src2.start(t, Math.random() * 0.06, dur + 0.02);
+  }
+
+  // ============================================================
+  // THE FLYBY — the classic passing-object sweep. A long looped-noise
+  // (or, sometimes, tonal) source through a resonant lowpass whose
+  // cutoff rises as it approaches, peaks as it passes, and falls as
+  // it recedes; doppler pitch bend; a stereo pan crossing the field;
+  // the tail disappearing into the dub delay and the hall. Fires on
+  // its own every ~20-40s, and it flies ALONG the plate's current
+  // lean — the crowd's weight decides which way it crosses the sky.
+  // Every pass rolls its own duration, peak, resonance and character.
+  // ============================================================
+  function flyby() {
+    if (!built || !running() || !grainNoise) return;
+    const t = ctx.currentTime;
+    const dur = 5 + Math.random() * 4;
+    const tonal = Math.random() < 0.3;
+
+    let src2;
+    if (tonal) {
+      // a singing pad flying past: chord tone, high register
+      src2 = ctx.createOscillator();
+      src2.type = 'triangle';
+      const chord = patch.chords[chordIdx % patch.chords.length];
+      src2.frequency.value = semiHz(chord[1 + Math.floor(Math.random() * 3)] + 24);
+      src2.detune.setValueAtTime(-60, t);
+      src2.detune.linearRampToValueAtTime(60, t + dur);   // doppler bend
+    } else {
+      src2 = ctx.createBufferSource();
+      src2.buffer = grainNoise;
+      src2.loop = true;
+      src2.playbackRate.setValueAtTime(0.85, t);
+      src2.playbackRate.linearRampToValueAtTime(1.25, t + dur * 0.45);
+      src2.playbackRate.linearRampToValueAtTime(0.9, t + dur);
+    }
+
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.Q.value = 3.5 + Math.random() * 4;
+    const peakHz = 1200 + Math.random() * 2600;
+    f.frequency.setValueAtTime(160, t);
+    f.frequency.exponentialRampToValueAtTime(peakHz, t + dur * 0.45);
+    f.frequency.exponentialRampToValueAtTime(140, t + dur);
+
+    const g = ctx.createGain();
+    const peak = (tonal ? 0.016 : 0.030) + Math.random() * 0.014;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(peak, t + dur * 0.4);
+    g.gain.exponentialRampToValueAtTime(0.0006, t + dur);
+
+    let tail = g;
+    if (ctx.createStereoPanner) {
+      const p2 = ctx.createStereoPanner();
+      // fly along the lean; coin-flip when the plate sits flat
+      const dir = Math.abs(lastTiltX) > 0.12
+        ? Math.sign(lastTiltX)
+        : (Math.random() < 0.5 ? 1 : -1);
+      p2.pan.setValueAtTime(-0.9 * dir, t);
+      p2.pan.linearRampToValueAtTime(0.9 * dir, t + dur);
+      g.connect(p2);
+      tail = p2;
+    }
+
+    src2.connect(f); f.connect(g);
+    tail.connect(master);
+    const echo = ctx.createGain(); echo.gain.value = 0.5;
+    tail.connect(echo); echo.connect(delayIn);
+    const dream = ctx.createGain(); dream.gain.value = 0.6;
+    tail.connect(dream); dream.connect(convolver);
+    src2.start(t);
+    src2.stop(t + dur + 0.1);
+  }
+
+  function scheduleFlyby() {
+    if (flybyTimer) return;
+    const cycle = () => {
+      // only pass overhead when there's a living mix to pass over
+      if (built && running() && master.gain.value > 0.06 && !userMuted && !adMuted) {
+        flyby();
+      }
+      flybyTimer = setTimeout(cycle, 20000 + Math.random() * 20000);
+    };
+    flybyTimer = setTimeout(cycle, 9000 + Math.random() * 12000);
   }
 
   // ---- staging: events queue for the next grid step ----
@@ -1293,7 +1380,7 @@ const DRIFT = (() => {
     ensure, unlock, running, ready, state,
     start, stop, roundStart,
     setMuted, setUserMuted,
-    setTilt, setCrowd, telegraph, grain,
+    setTilt, setCrowd, telegraph, grain, flyby,
     registerFigures, setFigures, figureGone,
     pluck, pickup, farewell, grab, clawLand, onDeath, thicken, fanfare,
   };
