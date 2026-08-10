@@ -790,10 +790,10 @@ const DRIFT = (() => {
     // faster as the plate leans. Tau 0.12 keeps it smooth per-frame.
     const cutoff = 600 + mag * 1650;
     bedFilter.frequency.setTargetAtTime(cutoff, t, 0.12);
-    lfoGain.gain.setTargetAtTime(mag * 850, t, 0.15);
-    lfoOsc.frequency.setTargetAtTime(patch.lfoBase + mag * 5.5, t, 0.2);
+    lfoGain.gain.setTargetAtTime(mag * 340, t, 0.15);
+    lfoOsc.frequency.setTargetAtTime(patch.lfoBase + mag * 3.2, t, 0.2);
     // Resonance: tension whistle as the player nears the edge.
-    bedFilter.Q.setTargetAtTime(1.1 + edge * 3.0, t, 0.2);
+    bedFilter.Q.setTargetAtTime(1.1 + edge * edge * 2.0, t, 0.2);
     // Pan follows tilt direction (gently).
     if (bedPan.pan) bedPan.pan.setTargetAtTime(Math.max(-0.7, Math.min(0.7, tx * 0.7)), t, 0.25);
     // Tremolo deepens with slide speed.
@@ -830,7 +830,7 @@ const DRIFT = (() => {
     shimVibG.gain.setValueAtTime(Math.random() < 0.3 ? 0 : 5 + Math.random() * 30, t);
     shimTremO.frequency.setValueAtTime(3 + Math.random() * 8, t);
     shimTremG.gain.setValueAtTime(Math.random() < 0.4 ? 0 : whistle.peak * (0.3 + Math.random() * 0.4), t);
-    shimmerFilter.Q.setValueAtTime(0.8 + Math.random() * 9, t);
+    shimmerFilter.Q.setValueAtTime(0.8 + Math.random() * 4.5, t);
     shimEcho.gain.setValueAtTime(Math.random() < 0.3 ? 0.4 : 0, t);
   }
 
