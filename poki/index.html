@@ -22,8 +22,9 @@
      shell, so gold is their native color */
   #btn-howto-close { background: #ffd84a; }
   #sp-fill { background: #ffd84a; }
-  /* in-game popups speak gold too: countdown (whose glow was already
-     gold in the shell), splat sign, hints */
+  /* countdown (whose glow was already gold in the shell), splat sign
+     and hints speak gold; the +/- pops keep semantic colors (green
+     heal / red hurt) at full size */
   #countdown { color: #ffd84a; }
   #splat .l1 { color: #ffd84a; }
   #splat .l2 { color: #ffd84a; opacity: 0.85; }
@@ -239,8 +240,8 @@
       <div class="ht-face-l">🔺</div>
       <div class="ht-face-r">🟪</div>
       <div class="ht-spark">💥</div>
-      <div class="ht-pop-l">-💔</div>
-      <div class="ht-pop-r">-💔</div>
+      <div class="ht-pop-l" style="color:#ff4a3c">-💔</div>
+      <div class="ht-pop-r" style="color:#ff4a3c">-💔</div>
     </div></div>
     <!-- 5. the shapes make the music: two shapes glide on the plate,
          notes rise from where they move -->
@@ -261,7 +262,7 @@
     <div class="ht-card"><div class="ht-stage">
       <div class="sc-heart">❤️</div>
       <div class="sc-heart-taker">🟢</div>
-      <div class="ht-pop ht-pop-anim" style="left:50%; top:24%; transform:translateX(-50%); position:absolute;">+❤️</div>
+      <div class="ht-pop ht-pop-anim" style="left:50%; top:24%; transform:translateX(-50%); position:absolute; color:#3aff6e;">+❤️</div>
     </div></div>
     <!-- 8. last shape standing wins: winner holds center under the
          bobbing star, sides drop away, trophy pops -->
@@ -2685,10 +2686,10 @@ function playerHitFX() {
   screenShake(0.16, 280);
   const pop = document.getElementById('tile-popup');
   pop.textContent = '-\u{1F494}';
-  pop.style.color = '#ffd84a';
+  pop.style.color = '#ff4a3c';
   pop.style.transition = 'none';
   pop.style.opacity = '1';
-  pop.style.transform = 'translate(-50%, -50%) scale(1.1)';
+  pop.style.transform = 'translate(-50%, -50%) scale(1.35)';
   requestAnimationFrame(() => {
     pop.style.transition = 'opacity 0.7s ease-out, transform 0.7s ease-out';
     pop.style.opacity = '0';
@@ -2699,10 +2700,10 @@ function playerHitFX() {
 function playerHealFX() {
   const pop = document.getElementById('tile-popup');
   pop.textContent = '+\u2764\uFE0F';
-  pop.style.color = '#ffd84a';
+  pop.style.color = '#3aff6e';
   pop.style.transition = 'none';
   pop.style.opacity = '1';
-  pop.style.transform = 'translate(-50%, -50%) scale(1.1)';
+  pop.style.transform = 'translate(-50%, -50%) scale(1.35)';
   requestAnimationFrame(() => {
     pop.style.transition = 'opacity 0.7s ease-out, transform 0.7s ease-out';
     pop.style.opacity = '0';
