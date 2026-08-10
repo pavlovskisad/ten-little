@@ -89,6 +89,33 @@
     font-size: 28px; line-height: 1;
     animation: scHeartTake 2.6s ease-in-out infinite;
   }
+  @keyframes scSlideOff {
+    0%, 12%  { left: 24%; top: 44%; opacity: 1; transform: rotate(0deg); }
+    46%      { left: 62%; top: 44%; opacity: 1; transform: rotate(8deg); }
+    58%      { left: 74%; top: 50%; opacity: 1; transform: rotate(38deg); }
+    76%      { left: 79%; top: 76%; opacity: 1; transform: rotate(120deg); }
+    86%, 100%{ left: 80%; top: 92%; opacity: 0; transform: rotate(170deg); }
+  }
+  .sc-slide-face {
+    position: absolute; left: 24%; top: 44%;
+    font-size: 28px; line-height: 1;
+    animation: scSlideOff 3s ease-in infinite;
+  }
+  @keyframes scSlideSkull {
+    0%, 72%  { opacity: 0; }
+    80%, 94% { opacity: 1; }
+    100%     { opacity: 0; }
+  }
+  .sc-slide-skull {
+    position: absolute; right: 8%; top: 28%;
+    font-size: 19px; opacity: 0;
+    animation: scSlideSkull 3s linear infinite;
+  }
+  .sc-winner {
+    position: absolute; bottom: 22px; left: 50%;
+    transform: translateX(-50%);
+    font-size: 30px; line-height: 1;
+  }
   .sc-shrink-plate {
     position: absolute; left: 50%; top: 52%;
     width: 58%; aspect-ratio: 1; border-radius: 50%;
@@ -164,11 +191,12 @@
       <div class="ht-pop-l">-1 💔</div>
       <div class="ht-pop-r">-1 💔</div>
     </div></div>
-    <!-- 5. don't fall off: shape slips past the edge, skull -->
+    <!-- 5. don't fall off: shape slides across the plate, tips over
+         the rim, tumbles into the void, skull -->
     <div class="ht-card"><div class="ht-stage">
       <div class="sc-plate"></div>
-      <div class="ht-fall">🟢</div>
-      <div class="ht-skull">💀</div>
+      <div class="sc-slide-face">🟢</div>
+      <div class="sc-slide-skull">💀</div>
     </div></div>
     <!-- 6. the plate shrinks -->
     <div class="ht-card"><div class="ht-stage">
@@ -180,10 +208,11 @@
       <div class="sc-heart-taker">🟢</div>
       <div class="ht-pop ht-pop-anim" style="left:50%; top:24%; transform:translateX(-50%); position:absolute;">+1 ❤️</div>
     </div></div>
-    <!-- 8. last shape standing wins -->
+    <!-- 8. last shape standing wins: winner holds center under the
+         bobbing star, sides drop away, trophy pops -->
     <div class="ht-card"><div class="ht-stage">
       <div class="ht-star">⭐</div>
-      <div class="ht-face" style="left:50%; top:52%; transform:translateX(-50%); position:absolute; font-size:30px;">🔺</div>
+      <div class="sc-winner">🔺</div>
       <div class="ht-win-side" style="left:16%">🟨</div>
       <div class="ht-win-side" style="right:16%; animation-delay:0.5s">🟠</div>
       <div class="ht-trophy">🏆</div>
@@ -2473,7 +2502,11 @@ function loop(now) {
         // doubles the voice — loud stays present, never dominating
         const raw = Math.max(0, align) * (0.55 + tmag / CFG.maxTilt * 0.5)
                   + density * 0.55 + spd * 0.30;
-        const gain = Math.max(0.15, Math.min(1.15, 0.25 + Math.sqrt(raw) * 0.68));
+        // vitality: a wounded shape's voice fades with its hearts, a
+        // healthy one sings — the crowd separates by hp, more melodic
+        const vital = 0.30 + 0.70 * Math.max(0, f.hp) / CFG.hpMax;
+        const gain = Math.max(0.10, Math.min(1.15,
+          (0.25 + Math.sqrt(raw) * 0.68) * vital));
         states.push({ id: f.id, gain });
       }
       DRIFT.setFigures(states);
