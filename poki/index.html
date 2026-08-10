@@ -33,45 +33,54 @@
     74%, 100%{ transform: translate(-50%, -140%) scale(0.5); opacity: 0; }
   }
   /* card 3: the floor leans once and holds while the shape slips
-     downhill and off the end, then resets */
+     downhill and off the end, then resets. NOTE: the keyframes must
+     carry the translateX(-50%) centering — an animation transform
+     REPLACES the base transform, it doesn't compose with it. */
   @keyframes scTiltDeath {
-    0%, 8%    { transform: rotate(0deg); }
-    36%, 74%  { transform: rotate(13deg); }
-    92%, 100% { transform: rotate(0deg); }
+    0%, 8%    { transform: translateX(-50%) rotate(0deg); }
+    36%, 74%  { transform: translateX(-50%) rotate(12deg); }
+    92%, 100% { transform: translateX(-50%) rotate(0deg); }
   }
   .sc-tiltdeath-wrap {
-    position: absolute; left: 50%; top: 56%;
-    width: 70%; transform: translateX(-50%);
+    position: absolute; left: 50%; top: 52%;
+    width: 54%; transform: translateX(-50%);
     animation: scTiltDeath 3.2s ease-in-out infinite;
   }
   @keyframes scTiltVictim {
-    0%, 10%  { left: 30%; top: 44%; opacity: 1; transform: rotate(0deg); }
-    38%      { left: 56%; top: 50%; opacity: 1; transform: rotate(14deg); }
-    54%      { left: 70%; top: 56%; opacity: 1; transform: rotate(38deg); }
-    72%      { left: 76%; top: 84%; opacity: 1; transform: rotate(130deg); }
-    82%, 100%{ left: 77%; top: 94%; opacity: 0; transform: rotate(170deg); }
+    0%, 10%  { left: 34%; top: 42%; opacity: 1; transform: rotate(0deg); }
+    38%      { left: 52%; top: 47%; opacity: 1; transform: rotate(14deg); }
+    54%      { left: 64%; top: 52%; opacity: 1; transform: rotate(38deg); }
+    72%      { left: 68%; top: 78%; opacity: 1; transform: rotate(130deg); }
+    82%, 100%{ left: 69%; top: 92%; opacity: 0; transform: rotate(170deg); }
   }
   .sc-tiltdeath-face {
-    position: absolute; left: 30%; top: 44%;
+    position: absolute; left: 34%; top: 42%;
     font-size: 26px; line-height: 1;
     animation: scTiltVictim 3.2s ease-in infinite;
   }
   /* card 5: shapes glide on the plate; the shell's ht-note risers
      pop from along their paths */
   @keyframes scMusicGlideA {
-    0%, 100% { left: 22%; }
-    50%      { left: 58%; }
+    0%, 100% { left: 27%; }
+    50%      { left: 60%; }
   }
   @keyframes scMusicGlideB {
-    0%, 100% { left: 66%; }
-    50%      { left: 34%; }
+    0%, 100% { left: 63%; }
+    50%      { left: 32%; }
   }
   .sc-music-face {
-    position: absolute; top: 48%;
-    font-size: 26px; line-height: 1;
+    position: absolute; top: 41%;
+    font-size: 24px; line-height: 1;
   }
   .sc-music-face.a { animation: scMusicGlideA 3.4s ease-in-out infinite; }
-  .sc-music-face.b { animation: scMusicGlideB 2.7s ease-in-out infinite; top: 56%; }
+  .sc-music-face.b { animation: scMusicGlideB 2.7s ease-in-out infinite; top: 55%; }
+  /* notes rise from the plate surface (the shell's .ht-note anchors
+     to the card bottom, which floats off the plate on wide cards) */
+  .sc-note {
+    position: absolute; top: 48%;
+    font-size: 17px; opacity: 0;
+    animation: htNote 1.4s ease-out infinite;
+  }
   @keyframes scShrink {
     0%, 25%  { transform: scale(1); }
     45%, 70% { transform: scale(0.72); }
@@ -136,7 +145,7 @@
     100%     { opacity: 0; }
   }
   .sc-slide-skull {
-    position: absolute; right: 8%; top: 28%;
+    position: absolute; left: 63%; top: 28%;
     font-size: 19px; opacity: 0;
     animation: scSlideSkull 3.2s linear infinite;
   }
@@ -228,10 +237,10 @@
       <div class="sc-plate"></div>
       <div class="sc-music-face a">🟣</div>
       <div class="sc-music-face b">🟡</div>
-      <div class="ht-note" style="left:28%">♪</div>
-      <div class="ht-note" style="left:64%; animation-delay:0.9s">♫</div>
-      <div class="ht-note" style="left:46%; animation-delay:1.8s">♪</div>
-      <div class="ht-note" style="left:74%; animation-delay:2.6s">♪</div>
+      <div class="sc-note" style="left:32%">♪</div>
+      <div class="sc-note" style="left:62%; animation-delay:0.9s">♫</div>
+      <div class="sc-note" style="left:46%; animation-delay:1.8s">♪</div>
+      <div class="sc-note" style="left:70%; animation-delay:2.6s">♪</div>
     </div></div>
     <!-- 6. the plate shrinks -->
     <div class="ht-card"><div class="ht-stage">
