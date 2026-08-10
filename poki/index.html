@@ -26,9 +26,11 @@
      and hints speak gold; the +/- pops keep semantic colors (green
      heal / red hurt) at full size */
   #countdown { color: #ffd84a; }
-  #splat .l1 { color: #ffd84a; }
-  #splat .l2 { color: #ffd84a; opacity: 0.85; }
-  #hint { color: #ffd84a; }
+  /* popup family: everything speaks in BIG emoji, same scale
+     language as the +❤️/-💔 pops */
+  #splat .l1 { color: #ffd84a; font-size: clamp(56px, 16vw, 120px); }
+  #splat .l2 { color: #ffd84a; opacity: 1; font-size: clamp(38px, 11vw, 80px); margin-top: 0.25em; }
+  #hint { color: #ffd84a; font-size: clamp(30px, 8vw, 52px); }
 
   /* tutorial: per-game scenes composed from the shell's ht-* kit.
      These keyframes are shape-store specific (claw drop, plate tilt,
@@ -182,7 +184,7 @@
 
 <div id="hud-top" class="hud">
   <div id="hud-hp"></div>
-  <div id="hud-status">10 alive</div>
+  <div id="hud-status">🔺 10</div>
 </div>
 
 <div id="hint"></div>
@@ -2467,7 +2469,7 @@ for (let i = 0; i < CFG.hpMax; i++) {
 }
 
 function updateHud() {
-  hudStatus.textContent = S.alive + ' alive';
+  hudStatus.textContent = '🔺 ' + S.alive;
   if (S.player) {
     const hp = Math.max(0, S.player.hp);
     for (let i = 0; i < CFG.hpMax; i++) {
