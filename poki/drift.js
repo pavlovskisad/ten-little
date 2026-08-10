@@ -77,6 +77,8 @@ const DRIFT = (() => {
   let eqShelf, softClip;             // de-harsh EQ + warm output saturator
   let delayIn, delayNode, delayFb, delayFilter;  // pluck echoes
   let bedDry, washDelayNode, washFb, washLP, washOut;  // the bed's wash
+  let grainNoise = null;             // shared noise buffer for debris grains
+  let grainBudget = 0, grainBudgetT = 0;  // rate limiter
   const voices = [];                 // drone stack (faint foundation)
   const figVoices = new Map();       // figure id → continuous shape voice
   let sparkles = [];                 // high sine cluster
@@ -500,6 +502,14 @@ const DRIFT = (() => {
       scheduleSparkle(sparkles[i], i);
     }
 
+    // Debris grains: one shared noise buffer, sliced per grain.
+    {
+      const len = Math.floor(ctx.sampleRate * 0.12);
+      grainNoise = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = grainNoise.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+
     // CLAW WHISTLE RIG — main + detuned partner osc through a
     // bandpass formant into the mix, with vibrato + gating-tremolo
     // LFOs and an optional echo send. Every telegraph cycle rolls a
@@ -917,6 +927,47 @@ const DRIFT = (() => {
     k.start(t); k.stop(t + 0.15);
   }
 
+  // A debris grain: one falling wall-cube crossing the void. Tiny
+  // bandpassed noise tick — pitch from fall speed, pan from where it
+  // crossed, a taste of dub echo. The round-start explosion scatters
+  // hundreds of cubes on random trajectories, so the cascade this
+  // paints is unique every single round. Rate-limited hard.
+  function grain(x01, v01) {
+    if (!built || !running() || !grainNoise) return;
+    const now = ctx.currentTime;
+    if (now - grainBudgetT > 1) { grainBudgetT = now; grainBudget = 0; }
+    if (grainBudget >= 36) return;
+    grainBudget++;
+    const t = now;
+    const src2 = ctx.createBufferSource();
+    src2.buffer = grainNoise;
+    src2.playbackRate.value = 0.7 + Math.random() * 0.8;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 500 + v01 * 2200 + Math.random() * 300;
+    f.Q.value = 5 + Math.random() * 5;
+    const g = ctx.createGain();
+    const peak = 0.005 + Math.random() * 0.010;
+    const dur = 0.025 + Math.random() * 0.05;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(peak, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0006, t + dur);
+    let tail = g;
+    if (ctx.createStereoPanner) {
+      const p2 = ctx.createStereoPanner();
+      p2.pan.value = Math.max(-0.85, Math.min(0.85, x01 * 1.7 - 0.85));
+      g.connect(p2);
+      tail = p2;
+    }
+    src2.connect(f); f.connect(g);
+    tail.connect(master);
+    const echo = ctx.createGain();
+    echo.gain.value = 0.35;
+    tail.connect(echo);
+    echo.connect(delayIn);
+    src2.start(t, Math.random() * 0.06, dur + 0.02);
+  }
+
   // ---- staging: events queue for the next grid step ----
   function stage(kind) { staged[kind] = (staged[kind] || 0) + 1; }
 
@@ -1236,7 +1287,7 @@ const DRIFT = (() => {
     ensure, unlock, running, ready, state,
     start, stop, roundStart,
     setMuted, setUserMuted,
-    setTilt, setCrowd, telegraph,
+    setTilt, setCrowd, telegraph, grain,
     registerFigures, setFigures, figureGone,
     pluck, pickup, farewell, grab, clawLand, onDeath, thicken, fanfare,
   };
