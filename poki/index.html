@@ -27,10 +27,41 @@
      heal / red hurt) at full size */
   #countdown { color: #ffd84a; }
   /* popup family: everything speaks in BIG emoji, same scale
-     language as the +❤️/-💔 pops */
+     language as the +❤️/-💔 pops, all at ONE shared centre point,
+     each lifted off the busy scene by a soft dark halo */
   #splat .l1 { color: #ffd84a; font-size: clamp(56px, 16vw, 120px); }
   #splat .l2 { color: #ffd84a; opacity: 1; font-size: clamp(38px, 11vw, 80px); margin-top: 0.25em; }
   #hint { color: #ffd84a; font-size: clamp(30px, 8vw, 52px); }
+  #tile-popup { top: 36%; }
+  #splat { top: 36%; }
+  #countdown { top: 36%; }
+  #tile-popup, #splat, #countdown, #hint {
+    filter: drop-shadow(0 0 14px rgba(11,15,20,0.95))
+            drop-shadow(0 0 34px rgba(11,15,20,0.8))
+            drop-shadow(0 6px 22px rgba(0,0,0,0.6));
+  }
+
+  /* SHRINK WARNING — a literal shrinking ring at the popup centre
+     (the emoji string was too much). Gold ring closes inward and
+     fades, haloed like the rest of the family. */
+  #shrink-pop {
+    position: fixed; top: 36%; left: 50%;
+    width: clamp(100px, 26vw, 170px); aspect-ratio: 1;
+    transform: translate(-50%, -50%);
+    border: 5px solid #ffd84a; border-radius: 50%;
+    z-index: 14; pointer-events: none; opacity: 0;
+    box-shadow:
+      0 0 30px rgba(11,15,20,0.95),
+      0 0 20px rgba(255,216,74,0.45),
+      inset 0 0 24px rgba(255,216,74,0.30);
+  }
+  #shrink-pop.on { animation: shrinkPop 2.4s ease-in-out; }
+  @keyframes shrinkPop {
+    0%   { opacity: 0; transform: translate(-50%, -50%) scale(1.35); }
+    16%  { opacity: 1; }
+    72%  { opacity: 1; transform: translate(-50%, -50%) scale(0.60); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(0.48); }
+  }
 
   /* tutorial: per-game scenes composed from the shell's ht-* kit.
      These keyframes are shape-store specific (claw drop, plate tilt,
@@ -188,6 +219,7 @@
 </div>
 
 <div id="hint"></div>
+<div id="shrink-pop"></div>
 <div id="countdown">3</div>
 <div id="tile-popup"></div>
 <div id="splat"><span class="l1">💥</span><span class="l2">💀</span></div>
@@ -2355,7 +2387,7 @@ function eliminate(f, reason) {
       reason === 'fell' ? '⬇️💀' : reason === 'drained' ? '💔💀' : '🤏💀';
     splat.classList.add('on');
     screenShake(0.30, 500);
-    setTimeout(() => splat.classList.remove('on'), 1400);
+    setTimeout(() => splat.classList.remove('on'), 2100);
   }
   // Attract mode: no results screen; the bots just play again.
   if (S.attract) {
@@ -2438,7 +2470,11 @@ function maybeShrink(dt) {
   S.nextShrinkAt = S.t + CFG.shrinkEveryMs;
   DRIFT.thicken();
   KAOSS.shrinkPulse();
-  showHint('⚠️ ⭕→⚫');
+  // shrinking-ring warning at the popup centre
+  const sp = document.getElementById('shrink-pop');
+  sp.classList.remove('on');
+  void sp.offsetWidth;   // restart the animation
+  sp.classList.add('on');
 }
 
 let shrinkTween = null;
@@ -2694,7 +2730,8 @@ function playerHitFX() {
   pop.style.opacity = '1';
   pop.style.transform = 'translate(-50%, -50%) scale(1.35)';
   requestAnimationFrame(() => {
-    pop.style.transition = 'opacity 0.7s ease-out, transform 0.7s ease-out';
+    // hold a beat, then fade — reads, doesn't flash
+    pop.style.transition = 'opacity 0.9s ease-out 0.35s, transform 1.25s ease-out';
     pop.style.opacity = '0';
     pop.style.transform = 'translate(-50%, -60%) scale(0.9)';
   });
@@ -2708,7 +2745,7 @@ function playerHealFX() {
   pop.style.opacity = '1';
   pop.style.transform = 'translate(-50%, -50%) scale(1.35)';
   requestAnimationFrame(() => {
-    pop.style.transition = 'opacity 0.7s ease-out, transform 0.7s ease-out';
+    pop.style.transition = 'opacity 0.9s ease-out 0.35s, transform 1.25s ease-out';
     pop.style.opacity = '0';
     pop.style.transform = 'translate(-50%, -40%) scale(0.9)';
   });
@@ -2744,7 +2781,7 @@ function startRound() {
   const cd = document.getElementById('countdown');
   cd.textContent = '🏁';
   cd.classList.add('on');
-  setTimeout(() => cd.classList.remove('on'), 650);
+  setTimeout(() => cd.classList.remove('on'), 950);
 }
 
 function isTouchDevice() {
