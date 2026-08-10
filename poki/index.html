@@ -9,6 +9,15 @@
   /* game canvas under everything the shell draws */
   canvas#c { display: block; position: fixed; inset: 0; z-index: 1; }
 
+  /* Big action buttons (PLAY / PLAY AGAIN): studio gold like the
+     sibling game, in caps. The shell's 3D shadow is gold-dark
+     (#b8930f) so this also restores the matched bevel; the rest of
+     the accent stays shape-store red. */
+  .big-btn {
+    background: #ffd84a;
+    text-transform: uppercase;
+  }
+
   /* tutorial: per-game scenes composed from the shell's ht-* kit.
      These keyframes are shape-store specific (claw drop, plate tilt,
      plate shrink). */
