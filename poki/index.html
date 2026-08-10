@@ -22,6 +22,12 @@
      shell, so gold is their native color */
   #btn-howto-close { background: #ffd84a; }
   #sp-fill { background: #ffd84a; }
+  /* in-game popups speak gold too: countdown (whose glow was already
+     gold in the shell), splat sign, hints */
+  #countdown { color: #ffd84a; }
+  #splat .l1 { color: #ffd84a; }
+  #splat .l2 { color: #ffd84a; opacity: 0.85; }
+  #hint { color: #ffd84a; }
 
   /* tutorial: per-game scenes composed from the shell's ht-* kit.
      These keyframes are shape-store specific (claw drop, plate tilt,
@@ -1371,12 +1377,14 @@ let playerMarker = null;
 function buildPlayerMarker() {
   const group = new THREE.Group();
 
-  // floating star above the player's shape
+  // floating star above the player's shape — neon green, the one
+  // color nothing else in the scene owns (danger is red, pickups are
+  // gold): green = you, unambiguous
   const star = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.32, 0),
+    new THREE.OctahedronGeometry(0.38, 0),
     new THREE.MeshStandardMaterial({
-      color: 0xffd000,
-      emissive: 0xffd000, emissiveIntensity: 1.20,
+      color: 0x39ff6a,
+      emissive: 0x39ff6a, emissiveIntensity: 1.5,
       roughness: 0.25, metalness: 0.15,
     }),
   );
@@ -1384,11 +1392,11 @@ function buildPlayerMarker() {
   group.add(star);
 
   // glowing ground ring at the player's feet — visible from any angle
-  const ringR = 0.62;
+  const ringR = 0.72;
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(ringR - 0.08, ringR, 48),
+    new THREE.RingGeometry(ringR - 0.12, ringR, 48),
     new THREE.MeshBasicMaterial({
-      color: 0xffd000, transparent: true, opacity: 0.92, side: THREE.DoubleSide,
+      color: 0x39ff6a, transparent: true, opacity: 0.95, side: THREE.DoubleSide,
     }),
   );
   ring.rotation.x = -Math.PI / 2;
@@ -1831,12 +1839,20 @@ function updateFigures(dt) {
     const star = playerMarker.userData.star;
     const ring = playerMarker.userData.ring;
     // star floats above the player's shape, tumbling
-    star.position.y = S.player.yOffset * 2 + 0.30;
+    star.position.y = S.player.yOffset * 2 + 0.34;
     star.rotation.y += dt * 2.8;
     star.rotation.x += dt * 1.7;
-    // ground ring sits just above the plate top, slow counter-spin
+    // heartbeat pulse — the marker breathes so the eye finds it even
+    // mid-scrum
+    const mpulse = Math.sin(performance.now() / 1000 * 4.6);
+    star.scale.setScalar(1 + 0.22 * mpulse);
+    star.material.emissiveIntensity = 1.5 + 0.7 * mpulse;
+    // ground ring sits just above the plate top, slow counter-spin +
+    // counter-phase pulse
     ring.position.y = 0.005;
     ring.rotation.z += dt * 1.1;
+    ring.scale.setScalar(1 + 0.12 * Math.sin(performance.now() / 1000 * 4.6 + Math.PI));
+    ring.material.opacity = 0.7 + 0.3 * Math.abs(mpulse);
   } else if (playerMarker) {
     playerMarker.visible = false;
   }
@@ -2669,7 +2685,7 @@ function playerHitFX() {
   screenShake(0.16, 280);
   const pop = document.getElementById('tile-popup');
   pop.textContent = '-\u{1F494}';
-  pop.style.color = '#ff5a3c';
+  pop.style.color = '#ffd84a';
   pop.style.transition = 'none';
   pop.style.opacity = '1';
   pop.style.transform = 'translate(-50%, -50%) scale(1.1)';
@@ -2683,7 +2699,7 @@ function playerHitFX() {
 function playerHealFX() {
   const pop = document.getElementById('tile-popup');
   pop.textContent = '+\u2764\uFE0F';
-  pop.style.color = '#5bff7a';
+  pop.style.color = '#ffd84a';
   pop.style.transition = 'none';
   pop.style.opacity = '1';
   pop.style.transform = 'translate(-50%, -50%) scale(1.1)';
