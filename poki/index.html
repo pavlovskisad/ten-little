@@ -223,13 +223,13 @@
       <div class="sc-tiltdeath-face">🔵</div>
       <div class="sc-slide-skull">💀</div>
     </div></div>
-    <!-- 4. bumping hurts: two shapes, spark, both -1 -->
+    <!-- 4. bumping hurts: two shapes, spark, both lose a heart -->
     <div class="ht-card"><div class="ht-stage">
       <div class="ht-face-l">🔺</div>
       <div class="ht-face-r">🟪</div>
       <div class="ht-spark">💥</div>
-      <div class="ht-pop-l">-1 💔</div>
-      <div class="ht-pop-r">-1 💔</div>
+      <div class="ht-pop-l">-💔</div>
+      <div class="ht-pop-r">-💔</div>
     </div></div>
     <!-- 5. the shapes make the music: two shapes glide on the plate,
          notes rise from where they move -->
@@ -246,11 +246,11 @@
     <div class="ht-card"><div class="ht-stage">
       <div class="sc-shrink-plate"></div>
     </div></div>
-    <!-- 7. hearts heal: grab the heart, +1 -->
+    <!-- 7. hearts heal: grab the heart, gain one back -->
     <div class="ht-card"><div class="ht-stage">
       <div class="sc-heart">❤️</div>
       <div class="sc-heart-taker">🟢</div>
-      <div class="ht-pop ht-pop-anim" style="left:50%; top:24%; transform:translateX(-50%); position:absolute;">+1 ❤️</div>
+      <div class="ht-pop ht-pop-anim" style="left:50%; top:24%; transform:translateX(-50%); position:absolute;">+❤️</div>
     </div></div>
     <!-- 8. last shape standing wins: winner holds center under the
          bobbing star, sides drop away, trophy pops -->
@@ -2626,7 +2626,7 @@ function playerHitFX() {
   // i-frame window (this only fires when damage actually applied).
   screenShake(0.16, 280);
   const pop = document.getElementById('tile-popup');
-  pop.textContent = '-1 \u{1F494}';
+  pop.textContent = '-\u{1F494}';
   pop.style.color = '#ff5a3c';
   pop.style.transition = 'none';
   pop.style.opacity = '1';
@@ -2640,7 +2640,7 @@ function playerHitFX() {
 
 function playerHealFX() {
   const pop = document.getElementById('tile-popup');
-  pop.textContent = '+1 \u2764\uFE0F';
+  pop.textContent = '+\u2764\uFE0F';
   pop.style.color = '#5bff7a';
   pop.style.transition = 'none';
   pop.style.opacity = '1';
