@@ -2078,11 +2078,14 @@ function startHand() {
   S.hand.holdEnd   = S.hand.holdStart + 0.10 + Math.random() * 0.10;
   S.hand.holdLevel = 0.62 + Math.random() * 0.16;
 
-  const worldPos = new THREE.Vector3(target.x, CFG.plateThick / 2, target.z);
-  plateGroup.localToWorld(worldPos);
-  handGroup.position.x = worldPos.x;
-  handGroup.position.z = worldPos.z;
-  handGroup.position.y = CFG.handIdleY;
+  // No teleport: remember where the claw hangs RIGHT NOW and let
+  // updateHand glide it from here into the telegraph pose over the
+  // first stretch of the telegraph (the reticle appears immediately;
+  // the claw travels like a thing on a rail, not a cut).
+  S.hand.slideFromX = handGroup.position.x;
+  S.hand.slideFromY = handGroup.position.y;
+  S.hand.slideFromZ = handGroup.position.z;
+  S.hand.slideMs = Math.min(850, S.hand.telegraphMs * 0.85);
   // (claw already visible from idle hang — no need to toggle visibility)
 
   // claw cable hangs straight down; we still vary the assembly's incoming azimuth
@@ -2284,9 +2287,21 @@ function updateHand(dt) {
     S.hand.z + dirZ * horizMag + driftZ
   );
   plateGroup.localToWorld(localPos);
-  handGroup.position.x = localPos.x + trX;
-  handGroup.position.y = baseY + trY;
-  handGroup.position.z = localPos.z + trZ;
+  let px = localPos.x + trX;
+  let py = baseY + trY;
+  let pz = localPos.z + trZ;
+  // slide-in: during the telegraph's first stretch, glide from where
+  // the claw hung when the cycle started toward the computed pose
+  if (S.hand.phase === 'telegraph' && S.hand.slideMs) {
+    const sk = Math.min(1, S.hand.t / S.hand.slideMs);
+    const se = sk * sk * (3 - 2 * sk);   // smoothstep
+    px = lerp(S.hand.slideFromX, px, se);
+    py = lerp(S.hand.slideFromY, py, se);
+    pz = lerp(S.hand.slideFromZ, pz, se);
+  }
+  handGroup.position.x = px;
+  handGroup.position.y = py;
+  handGroup.position.z = pz;
 
   // phase-specific behavior — prongs, transitions
   if (S.hand.phase === 'telegraph') {
