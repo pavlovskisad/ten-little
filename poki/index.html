@@ -44,23 +44,29 @@
   /* SHRINK WARNING — a literal shrinking ring at the popup centre
      (the emoji string was too much). Gold ring closes inward and
      fades, haloed like the rest of the family. */
+  /* the SAME circle the tutorial teaches (.sc-shrink-plate): a
+     plate-like disc with a red-glow rim, stepping smaller — the
+     pictogram and the in-game warning are one object */
   #shrink-pop {
     position: fixed; top: 36%; left: 50%;
-    width: clamp(100px, 26vw, 170px); aspect-ratio: 1;
+    width: clamp(110px, 28vw, 180px); aspect-ratio: 1;
     transform: translate(-50%, -50%);
-    border: 5px solid #ffd84a; border-radius: 50%;
+    border-radius: 50%;
+    /* tutorial recipe, bolder weight — the card is dark, the live
+       scene is bright, so the same alphas would wash out */
+    background: radial-gradient(circle, rgba(220,220,235,0.30) 55%, rgba(255,80,60,0.60) 78%, transparent 79%);
+    border: 3px solid rgba(255,255,255,0.85);
     z-index: 14; pointer-events: none; opacity: 0;
-    box-shadow:
-      0 0 30px rgba(11,15,20,0.95),
-      0 0 20px rgba(255,216,74,0.45),
-      inset 0 0 24px rgba(255,216,74,0.30);
+    filter: drop-shadow(0 0 18px rgba(11,15,20,0.95))
+            drop-shadow(0 0 36px rgba(11,15,20,0.75));
   }
   #shrink-pop.on { animation: shrinkPop 2.4s ease-in-out; }
   @keyframes shrinkPop {
-    0%   { opacity: 0; transform: translate(-50%, -50%) scale(1.35); }
-    16%  { opacity: 1; }
-    72%  { opacity: 1; transform: translate(-50%, -50%) scale(0.60); }
-    100% { opacity: 0; transform: translate(-50%, -50%) scale(0.48); }
+    0%        { opacity: 0; transform: translate(-50%, -50%) scale(1.05); }
+    14%, 30%  { opacity: 1; transform: translate(-50%, -50%) scale(1.0); }
+    48%, 66%  { opacity: 1; transform: translate(-50%, -50%) scale(0.72); }
+    86%       { opacity: 0.85; transform: translate(-50%, -50%) scale(0.5); }
+    100%      { opacity: 0; transform: translate(-50%, -50%) scale(0.46); }
   }
 
   /* tutorial: per-game scenes composed from the shell's ht-* kit.
