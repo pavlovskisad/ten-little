@@ -1199,11 +1199,11 @@ const DRIFT = (() => {
     staged.bump = 0; staged.heart = 0; staged.claw = 0;
     const t0 = tNow + 0.05;
     const out = ctx.createGain();
-    out.gain.value = 0.42;
+    out.gain.value = 0.36;
     // rounded top so the gated/AM content can't bite
     const outLP = ctx.createBiquadFilter();
     outLP.type = 'lowpass';
-    outLP.frequency.value = 2600;
+    outLP.frequency.value = 2200;
     out.connect(outLP);
     outLP.connect(comp);
     const fanRev = ctx.createGain();
@@ -1211,22 +1211,28 @@ const DRIFT = (() => {
     outLP.connect(fanRev);
     fanRev.connect(convolver);
 
-    // 1. climbing AM blips (not-quite-whole-tone: +2.3 semis each)
+    // 1. climbing AM blips (not-quite-whole-tone: +2.3 semis each).
+    // The AM chops the SIGNAL between ~0.1 and 1.0 — modulating the
+    // envelope param directly used to swing it negative (±0.5 onto a
+    // 0.12 peak), which blasted the blips 5x too loud with inverted-
+    // phase square edges. That was the win distortion.
     for (let i = 0; i < 6; i++) {
       const t = t0 + i * 0.09;
       const o = ctx.createOscillator();
       o.type = 'triangle';
       o.frequency.value = 330 * Math.pow(2, (i * 2.3) / 12);
+      const chop = ctx.createGain();
+      chop.gain.value = 0.55;
       const am = ctx.createOscillator();
       am.type = 'square';
       am.frequency.value = 33 + i * 4;
-      const amG = ctx.createGain(); amG.gain.value = 0.5;
+      const amG = ctx.createGain(); amG.gain.value = 0.45;
+      am.connect(amG); amG.connect(chop.gain);
       const g = ctx.createGain();
       g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.12, t + 0.01);
+      g.gain.linearRampToValueAtTime(0.10, t + 0.012);
       g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
-      am.connect(amG); amG.connect(g.gain);
-      o.connect(g); g.connect(out);
+      o.connect(chop); chop.connect(g); g.connect(out);
       o.start(t); o.stop(t + 0.25);
       am.start(t); am.stop(t + 0.25);
     }
@@ -1238,9 +1244,9 @@ const DRIFT = (() => {
     gate.connect(out);
     const gateLfo = ctx.createOscillator();
     gateLfo.type = 'square'; gateLfo.frequency.value = 7;
-    const gateDepth = ctx.createGain(); gateDepth.gain.value = 0.05;
+    const gateDepth = ctx.createGain(); gateDepth.gain.value = 0.032;
     gateLfo.connect(gateDepth); gateDepth.connect(gate.gain);
-    gate.gain.setValueAtTime(0.05, gateT);
+    gate.gain.setValueAtTime(0.04, gateT);
     gate.gain.setValueAtTime(0.0, gateT + 1.1);
     for (const semi of [0, 4, 7]) {
       const o = ctx.createOscillator();
