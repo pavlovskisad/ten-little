@@ -4,10 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>shape store</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#128314;</text></svg>">
 <link rel="stylesheet" href="./shell.css">
 <style>
   /* game canvas under everything the shell draws */
   canvas#c { display: block; position: fixed; inset: 0; z-index: 1; }
+
+  /* PER-GAME IDENTITY — the shell ships gold; shape store's hue is
+     hot red. Declared here, never in shell.css, so the shared file
+     stays byte-identical to the arcade's copy. */
+  :root { --accent: #ff4a55; }
+  /* back-to-arcade chrome keeps the house gold so it reads the same
+     in every game (its border is hardcoded gold in the shell) */
+  #btn-lobby { color: #ffd84a; }
 
   /* Big action buttons (PLAY / PLAY AGAIN): studio gold like the
      sibling game, in caps. The shell's 3D shadow is gold-dark
@@ -324,10 +333,9 @@
   <div class="sp-label">warming up the plate…</div>
 </div>
 
-<script src="./vendor/three.min.js"></script>
+<script src="./three.min.js"></script>
 <script src="./vendor/GLTFLoader.js"></script>
 <script src="./vendor/DRACOLoader.js"></script>
-<script src="https://game-cdn.poki.com/scripts/v2/poki-sdk.js"></script>
 <script src="./shell.js"></script>
 <script src="./drift.js"></script>
 <script>

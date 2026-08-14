@@ -9,10 +9,14 @@
    then the game scripts. The game calls SHELL.init(config) once.
 
    SHELL.init(config) — all fields required unless noted:
-     storageKey        localStorage key for the wins counter
-     legacyStorageKey  optional: old key read as fallback
+     gameId            this game's id in the bundle, e.g.
+                       'floor-is-lmao'. Keys the shared PROFILE
+                       record (wins, recency).
+     lobbyUrl          optional: where the back button goes,
+                       default '/'. Pass null for no back button
+                       (standalone builds, Poki zips).
      bbAssets          { boombox: url, tape: url } GLBs (draco dir
-                       is ./vendor/draco/)
+                       is /shared/vendor/draco/)
      isMenu()          true when the menu screen is current
      isPlaying()       true during a live round
      onBoot()          DOM ready: start loading game audio/assets
@@ -76,19 +80,38 @@ const Poki = {
 };
 
 // ============================================================
-// WINS COUNTER — localStorage, with an optional legacy key.
+// WINS COUNTER — delegated to the arcade-wide PROFILE so the lobby
+// and every sibling game read the same record. Falls back to a
+// local counter when a game runs outside the bundle (Poki zip),
+// where profile.js is not loaded.
 // ============================================================
+const _soloWins = { n: 0 };
 function loadWins() {
-  try {
-    return parseInt(localStorage.getItem(SHELL.cfg.storageKey)
-      || (SHELL.cfg.legacyStorageKey && localStorage.getItem(SHELL.cfg.legacyStorageKey))
-      || '0', 10) || 0;
-  }
-  catch (e) { return 0; }
+  if (typeof PROFILE !== 'undefined') return PROFILE.wins(SHELL.cfg.gameId);
+  return _soloWins.n;
 }
 function saveWin() {
-  try { localStorage.setItem(SHELL.cfg.storageKey, String(loadWins() + 1)); }
-  catch (e) {}
+  if (typeof PROFILE !== 'undefined') PROFILE.addWin(SHELL.cfg.gameId);
+  else _soloWins.n++;
+}
+
+// ============================================================
+// BACK TO LOBBY — the one piece of bundle chrome inside a game.
+// Hidden during a live round so it can never eat a steering tap.
+// ============================================================
+function buildBackButton() {
+  if (SHELL.cfg.lobbyUrl === null) return;
+  const a = document.createElement('a');
+  a.id = 'btn-lobby';
+  a.href = SHELL.cfg.lobbyUrl || '/';
+  a.textContent = '◀';
+  a.setAttribute('aria-label', 'back to the arcade');
+  document.body.appendChild(a);
+  const sync = () => {
+    a.classList.toggle('hide', !!(SHELL.cfg.isPlaying && SHELL.cfg.isPlaying()));
+    requestAnimationFrame(sync);
+  };
+  sync();
 }
 
 // ============================================================
@@ -293,7 +316,7 @@ function initBoombox() {
 
   const loader = new THREE.GLTFLoader();
   const draco = new THREE.DRACOLoader();
-  draco.setDecoderPath('./vendor/draco/');
+  draco.setDecoderPath('/shared/vendor/draco/');
   loader.setDRACOLoader(draco);
   let loadedBoom = null, loadedTape = null;
   const tryArrange = () => {
@@ -302,10 +325,15 @@ function initBoombox() {
     document.body.classList.add('bb-grabbable');
     BB.needsRender = true;
   };
-  loader.load(SHELL.cfg.bbAssets.boombox, (gltf) => { loadedBoom = gltf.scene; tryArrange(); },
-    undefined, (err) => console.warn('[bb] boombox load failed', err));
-  loader.load(SHELL.cfg.bbAssets.tape, (gltf) => { loadedTape = gltf.scene; tryArrange(); },
-    undefined, (err) => console.warn('[bb] tape load failed', err));
+  // bbAssets null means this build ships without the prop (a Poki
+  // zip drops 5.7MB of GLB). Skip the fetch rather than eating a
+  // 404: the splash probe below treats an absent prop as ready.
+  if (SHELL.cfg.bbAssets) {
+    loader.load(SHELL.cfg.bbAssets.boombox, (gltf) => { loadedBoom = gltf.scene; tryArrange(); },
+      undefined, (err) => console.warn('[bb] boombox load failed', err));
+    loader.load(SHELL.cfg.bbAssets.tape, (gltf) => { loadedTape = gltf.scene; tryArrange(); },
+      undefined, (err) => console.warn('[bb] tape load failed', err));
+  }
 
   bindBoomboxPointerEvents();
   window.addEventListener('resize', resizeBoombox);
@@ -624,6 +652,8 @@ function wakeMenu() {
 
 function shellBoot() {
   const cfg = SHELL.cfg;
+  if (typeof PROFILE !== 'undefined') PROFILE.touch(cfg.gameId);
+  buildBackButton();
   initBoombox();
   cfg.onBoot();
   requestAnimationFrame(updateBoomboxScene);
@@ -673,7 +703,7 @@ function shellBoot() {
   if (!splashEl) { document.body.classList.add('game-ready'); return; }
   const splashT0 = performance.now();
   const splashTimer = setInterval(() => {
-    const parts = [() => !!(BB.boombox && BB.tape)].concat(cfg.splashParts);
+    const parts = [() => !cfg.bbAssets || !!(BB.boombox && BB.tape)].concat(cfg.splashParts);
     const done = parts.filter((p) => { try { return p(); } catch (e) { return false; } }).length;
     spFill.style.width = Math.round(done / parts.length * 100) + '%';
     const timedOut = performance.now() - splashT0 > 12000;

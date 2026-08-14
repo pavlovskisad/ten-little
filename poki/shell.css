@@ -18,11 +18,9 @@
   }
 
   :root {
-    /* shape store accent: hot red, off the sibling's gold (the one
-       allowed per-game override — everything else is house style) */
     --bg: #0b0f14;
     --hud-fg: #e8e3d6;
-    --accent: #ff4a55;
+    --accent: #ffd84a;
     --danger: #ff5a3c;
     --good: #5bff7a;
   }
@@ -156,6 +154,9 @@
     font-size: 24px; opacity: 0; color: var(--accent);
     transition: opacity 0.3s;
     text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    /* drop-shadow follows emoji silhouettes (text-shadow can't tint
+       color glyphs), giving every pop a soft halo off the bright bg */
+    filter: drop-shadow(0 0 10px rgba(8,12,18,0.65)) drop-shadow(0 3px 10px rgba(8,12,18,0.5));
     white-space: nowrap;
   }
   #hint.on { opacity: 1; }
@@ -180,6 +181,7 @@
     font-size: clamp(44px, 12vw, 110px);
     letter-spacing: 0.02em; white-space: nowrap;
     text-shadow: 0 0 22px currentColor, 0 5px 0 rgba(0,0,0,0.35);
+    filter: drop-shadow(0 0 12px rgba(8,12,18,0.7)) drop-shadow(0 4px 14px rgba(8,12,18,0.55));
   }
 
   /* SPLAT sign on death. Bouncy, friendly, no strobe. */
@@ -189,6 +191,7 @@
     z-index: 40; pointer-events: none; display: none;
     text-align: center; white-space: nowrap; line-height: 1.25;
     font-family: 'Jersey 15', monospace;
+    filter: drop-shadow(0 0 12px rgba(8,12,18,0.7)) drop-shadow(0 4px 14px rgba(8,12,18,0.55));
   }
   #splat .l1 { display: block; font-size: clamp(42px, 13vw, 92px); color: #ff7a5c; }
   #splat .l2 { display: block; font-size: clamp(24px, 7vw, 46px); margin-top: 0.4em; color: var(--accent); }
@@ -200,6 +203,24 @@
     0%   { transform: translate(-50%, -50%) scale(0.96) rotate(-1.5deg); }
     100% { transform: translate(-50%, -50%) scale(1.04) rotate(1.5deg); }
   }
+
+  /* Back to the arcade. Only bundle chrome that sits inside a
+     game, so it stays small and gets out of the way in a round. */
+  #btn-lobby {
+    position: fixed; z-index: 30;
+    top: calc(env(safe-area-inset-top) + 8px);
+    left: calc(env(safe-area-inset-left) + 10px);
+    width: 40px; height: 40px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Jersey 15', monospace; font-size: 22px;
+    color: var(--accent); text-decoration: none;
+    background: rgba(11,15,20,0.5);
+    border: 2px solid rgba(255,216,74,0.35);
+    backdrop-filter: blur(3px);
+    transition: opacity 0.25s, transform 0.15s;
+  }
+  #btn-lobby:active { transform: scale(0.92); }
+  #btn-lobby.hide { opacity: 0; pointer-events: none; }
 
   /* ============================================================
      MENU
